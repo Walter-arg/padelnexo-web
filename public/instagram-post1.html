@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=1080"/>
+<title>PadelNexo — Post Instagram</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1080px;
+    height: 1080px;
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    background: #0a1f14;
+  }
+
+  .post {
+    width: 1080px;
+    height: 1080px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Fondo con gradiente verde oscuro */
+  .bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(145deg, #061a0d 0%, #0d3320 40%, #0a2818 70%, #071510 100%);
+  }
+
+  /* Círculos decorativos de luz */
+  .glow-1 {
+    position: absolute;
+    width: 700px;
+    height: 700px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(31,163,109,0.18) 0%, transparent 70%);
+    top: -150px;
+    right: -150px;
+  }
+  .glow-2 {
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(200,245,61,0.08) 0%, transparent 70%);
+    bottom: -100px;
+    left: -100px;
+  }
+  .glow-3 {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(31,163,109,0.12) 0%, transparent 70%);
+    bottom: 200px;
+    right: 100px;
+  }
+
+  /* Grid lines decorativas */
+  .grid-lines {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(31,163,109,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(31,163,109,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  /* Línea diagonal decorativa */
+  .diagonal {
+    position: absolute;
+    width: 3px;
+    height: 800px;
+    background: linear-gradient(to bottom, transparent, rgba(31,163,109,0.3), transparent);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(25deg);
+  }
+
+  /* Contenido principal */
+  .content {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 80px;
+    width: 100%;
+  }
+
+  /* Badge superior */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(31,163,109,0.15);
+    border: 1px solid rgba(31,163,109,0.4);
+    border-radius: 100px;
+    padding: 10px 24px;
+    margin-bottom: 48px;
+  }
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #1fa36d;
+    box-shadow: 0 0 8px #1fa36d;
+    animation: pulse 2s infinite;
+  }
+  .badge-text {
+    color: #1fa36d;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* Título principal */
+  .title {
+    font-size: 112px;
+    font-weight: 900;
+    line-height: 0.95;
+    letter-spacing: -3px;
+    margin-bottom: 24px;
+  }
+  .title-line1 {
+    display: block;
+    color: #ffffff;
+  }
+  .title-line2 {
+    display: block;
+    background: linear-gradient(135deg, #1fa36d, #c8f53d);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Subtítulo */
+  .subtitle {
+    font-size: 26px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.55);
+    max-width: 680px;
+    line-height: 1.5;
+    margin-bottom: 60px;
+  }
+  .subtitle strong {
+    color: rgba(255,255,255,0.85);
+    font-weight: 700;
+  }
+
+  /* Pills de features */
+  .features {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 64px;
+  }
+  .feature-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 100px;
+    padding: 14px 28px;
+    color: rgba(255,255,255,0.8);
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .feature-pill .icon {
+    font-size: 22px;
+  }
+
+  /* URL / CTA */
+  .cta-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .cta-url {
+    font-size: 22px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.5px;
+  }
+  .cta-btn {
+    background: linear-gradient(135deg, #1fa36d, #17855a);
+    color: white;
+    font-size: 20px;
+    font-weight: 800;
+    padding: 18px 40px;
+    border-radius: 100px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 8px 32px rgba(31,163,109,0.4);
+  }
+
+  /* Logo en esquina */
+  .logo-corner {
+    position: absolute;
+    top: 48px;
+    left: 56px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 20;
+  }
+  .logo-img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    filter: brightness(0) invert(1);
+  }
+  .logo-name {
+    font-size: 24px;
+    font-weight: 900;
+    color: white;
+    letter-spacing: -0.5px;
+  }
+
+  /* Raqueta decorativa */
+  .raqueta {
+    position: absolute;
+    right: -60px;
+    top: 50%;
+    transform: translateY(-50%) rotate(-30deg);
+    font-size: 320px;
+    opacity: 0.04;
+    z-index: 1;
+    user-select: none;
+  }
+
+  /* Número decorativo */
+  .big-number {
+    position: absolute;
+    bottom: -40px;
+    left: -20px;
+    font-size: 400px;
+    font-weight: 900;
+    color: rgba(31,163,109,0.04);
+    line-height: 1;
+    z-index: 1;
+    letter-spacing: -20px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg"></div>
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+  <div class="glow-3"></div>
+  <div class="grid-lines"></div>
+  <div class="diagonal"></div>
+  <div class="raqueta">🎾</div>
+  <div class="big-number">01</div>
+
+  <!-- Logo -->
+  <div class="logo-corner">
+    <img src="/logopn.png" alt="PadelNexo" class="logo-img" onerror="this.style.display='none'"/>
+    <span class="logo-name">PadelNexo</span>
+  </div>
+
+  <!-- Contenido -->
+  <div class="content">
+    <div class="badge">
+      <div class="badge-dot"></div>
+      <span class="badge-text">Ya disponible en Argentina</span>
+    </div>
+
+    <h1 class="title">
+      <span class="title-line1">Organizá tu</span>
+      <span class="title-line2">liga de pádel</span>
+    </h1>
+
+    <p class="subtitle">
+      Olvidate del <strong>Excel y el WhatsApp</strong>.<br/>
+      Fixture, cobros, rankings y más — todo desde el celular.
+    </p>
+
+    <div class="features">
+      <div class="feature-pill"><span class="icon">⚡</span> Fixture automático</div>
+      <div class="feature-pill"><span class="icon">💳</span> Cobros digitales</div>
+      <div class="feature-pill"><span class="icon">🏆</span> Rankings en tiempo real</div>
+      <div class="feature-pill"><span class="icon">📱</span> App para jugadores</div>
+    </div>
+
+    <div class="cta-row">
+      <span class="cta-url">www.padelnexo.com.ar</span>
+      <div class="cta-btn">Empezá gratis →</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
