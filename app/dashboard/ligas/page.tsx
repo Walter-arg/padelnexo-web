@@ -6,7 +6,7 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Trophy, Users, ChevronRight, Archive, Play } from "lucide-react";
+import { Trophy, Users, ChevronRight, Archive } from "lucide-react";
 
 type Tab = "activas" | "archivadas";
 
@@ -49,23 +49,20 @@ export default function LigasPage() {
 
   return (
     <DashboardLayout title="Ligas">
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      {/* Header con toggle archivadas */}
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-sm text-gray-500">
+          {!loading && <span>{tab === "activas" ? countActivas : countArchiv} {tab === "activas" ? "ligas activas" : "ligas archivadas"}</span>}
+        </p>
         <button
-          onClick={() => setTab("activas")}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
-            tab === "activas" ? "bg-pn-green text-white shadow-md" : "bg-white text-gray-500 border border-gray-200 hover:border-pn-green"
-          }`}
+          onClick={() => setTab(tab === "activas" ? "archivadas" : "activas")}
+          className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-pn-navy transition-colors"
         >
-          <Play size={13} /> Activas {!loading && <span className="opacity-70">({countActivas})</span>}
-        </button>
-        <button
-          onClick={() => setTab("archivadas")}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
-            tab === "archivadas" ? "bg-gray-600 text-white shadow-md" : "bg-white text-gray-500 border border-gray-200 hover:border-gray-400"
-          }`}
-        >
-          <Archive size={13} /> Archivadas {!loading && <span className="opacity-70">({countArchiv})</span>}
+          <Archive size={14} />
+          {tab === "activas"
+            ? <>Archivadas {!loading && countArchiv > 0 && <span className="bg-gray-100 text-gray-500 text-xs font-bold px-1.5 py-0.5 rounded-full">{countArchiv}</span>}</>
+            : <span className="text-pn-green font-semibold">← Ver activas</span>
+          }
         </button>
       </div>
 
