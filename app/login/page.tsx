@@ -232,13 +232,12 @@ export default function LoginPage() {
                       />
                       <span className="text-sm text-gray-600">Recordarme</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => { setMode("reset"); setError(""); }}
+                    <a
+                      href="/forgot-password"
                       className="text-sm text-pn-green font-semibold hover:underline"
                     >
                       ¿Olvidaste tu contraseña?
-                    </button>
+                    </a>
                   </div>
                 )}
 
