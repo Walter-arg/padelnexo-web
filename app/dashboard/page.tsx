@@ -29,37 +29,42 @@ export default function DashboardPage() {
       }
       setUser(u);
 
-      const [profileSnap, ligasSnap, torneosSnap, convsSnap] = await Promise.all([
-        getDoc(doc(db, "users", u.uid)),
-        getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
-        getDocs(query(collection(db, "tournaments"), where("organizerId", "==", u.uid))),
-        getDocs(query(collection(db, "conversations"), where("organizerId", "==", u.uid))),
-      ]);
+      try {
+        const [profileSnap, ligasSnap, torneosSnap, convsSnap] = await Promise.all([
+          getDoc(doc(db, "users", u.uid)),
+          getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
+          getDocs(query(collection(db, "tournaments"), where("organizerId", "==", u.uid))),
+          getDocs(query(collection(db, "conversations"), where("organizerId", "==", u.uid))),
+        ]);
 
-      if (profileSnap.exists()) setProfile(profileSnap.data());
+        if (profileSnap.exists()) setProfile(profileSnap.data());
 
-      const ligasActivas = ligasSnap.docs.filter((d) => d.data().status === "active").length;
-      const torneosActivos = torneosSnap.docs.filter((d) => d.data().status === "active").length;
-      const mensajes = convsSnap.size;
+        const ligasActivas = ligasSnap.docs.filter((d) => d.data().status === "active").length;
+        const torneosActivos = torneosSnap.docs.filter((d) => d.data().status === "active").length;
+        const mensajes = convsSnap.size;
 
-      let cobrosPendientes = 0;
-      await Promise.all(
-        ligasSnap.docs
-          .filter((d) => d.data().status === "active")
-          .map(async (ligaDoc) => {
-            const rpSnap = await getDocs(
-              query(
-                collection(db, "leagues", ligaDoc.id, "roundPayments"),
-                where("status", "in", ["pending_review", "pendingReview"])
-              )
-            );
-            cobrosPendientes += rpSnap.size;
-          })
-      );
+        let cobrosPendientes = 0;
+        await Promise.all(
+          ligasSnap.docs
+            .filter((d) => d.data().status === "active")
+            .map(async (ligaDoc) => {
+              const rpSnap = await getDocs(
+                query(
+                  collection(db, "leagues", ligaDoc.id, "roundPayments"),
+                  where("status", "in", ["pending_review", "pendingReview"])
+                )
+              );
+              cobrosPendientes += rpSnap.size;
+            })
+        );
 
-      setStats({ ligasActivas, torneosActivos, cobrosPendientes, mensajes });
-      setLoadingStats(false);
-      setLoading(false);
+        setStats({ ligasActivas, torneosActivos, cobrosPendientes, mensajes });
+      } catch (e) {
+        // datos no críticos — la página carga igual sin las stats
+      } finally {
+        setLoadingStats(false);
+        setLoading(false);
+      }
     });
     return unsub;
   }, [router]);
