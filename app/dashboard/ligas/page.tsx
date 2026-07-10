@@ -137,16 +137,17 @@ export default function LigasPage() {
   return (
     <DashboardLayout title="Ligas">
 
-      {/* ── CREAR LIGA ── */}
-      <button
-        onClick={() => { setModalOpen(true); setSaveError(""); }}
-        className="w-full flex items-center justify-center gap-2 bg-pn-green hover:bg-pn-dark text-white font-black py-3.5 rounded-2xl transition-all shadow-md shadow-pn-green/20 mb-4 text-base"
-      >
-        <Plus size={20} /> Crear liga
-      </button>
-
-      {/* ── Búsqueda + Filtrar ── */}
+      {/* ── Crear liga + Búsqueda + Filtrar (misma línea) ── */}
       <div className="flex gap-2 mb-5">
+        {/* Crear liga */}
+        <button
+          onClick={() => { setModalOpen(true); setSaveError(""); }}
+          className="flex items-center gap-1.5 bg-pn-green hover:bg-pn-dark text-white font-black px-4 py-2.5 rounded-xl transition-all shadow-md shadow-pn-green/20 whitespace-nowrap text-sm flex-shrink-0"
+        >
+          <Plus size={16} /> Crear liga
+        </button>
+
+        {/* Búsqueda */}
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
