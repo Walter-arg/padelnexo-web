@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +16,10 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [stats, setStats] = useState({
+    ligasActivas: 0, torneosActivos: 0, cobrosPendientes: 0, mensajes: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -24,8 +28,37 @@ export default function DashboardPage() {
         return;
       }
       setUser(u);
-      const snap = await getDoc(doc(db, "users", u.uid));
-      if (snap.exists()) setProfile(snap.data());
+
+      const [profileSnap, ligasSnap, torneosSnap, convsSnap] = await Promise.all([
+        getDoc(doc(db, "users", u.uid)),
+        getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
+        getDocs(query(collection(db, "tournaments"), where("organizerId", "==", u.uid))),
+        getDocs(query(collection(db, "conversations"), where("organizerId", "==", u.uid))),
+      ]);
+
+      if (profileSnap.exists()) setProfile(profileSnap.data());
+
+      const ligasActivas = ligasSnap.docs.filter((d) => d.data().status === "active").length;
+      const torneosActivos = torneosSnap.docs.filter((d) => d.data().status === "active").length;
+      const mensajes = convsSnap.size;
+
+      let cobrosPendientes = 0;
+      await Promise.all(
+        ligasSnap.docs
+          .filter((d) => d.data().status === "active")
+          .map(async (ligaDoc) => {
+            const rpSnap = await getDocs(
+              query(
+                collection(db, "leagues", ligaDoc.id, "roundPayments"),
+                where("status", "in", ["pending_review", "pendingReview"])
+              )
+            );
+            cobrosPendientes += rpSnap.size;
+          })
+      );
+
+      setStats({ ligasActivas, torneosActivos, cobrosPendientes, mensajes });
+      setLoadingStats(false);
       setLoading(false);
     });
     return unsub;
@@ -103,6 +136,29 @@ export default function DashboardPage() {
         <div className="mb-10">
           <h1 className="text-2xl font-black text-pn-navy">Hola, {nombre} 👋</h1>
           <p className="text-gray-500 mt-1">Bienvenido a tu panel de gestión.</p>
+        </div>
+
+        {/* Stats rápidas */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+          {[
+            { label: "Ligas activas",    value: stats.ligasActivas,      color: "text-blue-600",  bg: "bg-blue-50",  href: "/dashboard/ligas" },
+            { label: "Torneos activos",  value: stats.torneosActivos,    color: "text-amber-600", bg: "bg-amber-50", href: "/dashboard/torneos" },
+            { label: "Cobros a revisar", value: stats.cobrosPendientes,  color: "text-rose-500",  bg: "bg-rose-50",  href: "/dashboard/cobros" },
+            { label: "Conversaciones",   value: stats.mensajes,          color: "text-sky-600",   bg: "bg-sky-50",   href: "/dashboard/mensajes" },
+          ].map((s) => (
+            <a
+              key={s.label}
+              href={s.href}
+              className="bg-white rounded-2xl p-4 border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all"
+            >
+              <div className={`text-2xl font-black ${s.color} mb-1`}>
+                {loadingStats ? (
+                  <span className="inline-block w-6 h-6 rounded bg-gray-100 animate-pulse" />
+                ) : s.value}
+              </div>
+              <div className="text-xs text-gray-500 font-medium leading-tight">{s.label}</div>
+            </a>
+          ))}
         </div>
 
         {/* CENTRAL DE COBROS — destacada */}
