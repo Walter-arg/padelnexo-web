@@ -45,6 +45,7 @@ export default function DashboardLayout({
 
   async function handleLogout() {
     await signOut(auth);
+    document.cookie = "pn_session=; path=/; max-age=0";
     router.push("/login");
   }
 

@@ -21,6 +21,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function setSessionCookie() {
+    document.cookie = "pn_session=1; path=/; max-age=604800; SameSite=Lax";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -31,6 +35,7 @@ export default function LoginPage() {
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
+      setSessionCookie();
       router.push("/dashboard");
     } catch (err: any) {
       const msg: Record<string, string> = {
@@ -53,6 +58,7 @@ export default function LoginPage() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+      setSessionCookie();
       router.push("/dashboard");
     } catch (err: any) {
       setError("No se pudo iniciar sesión con Google.");
