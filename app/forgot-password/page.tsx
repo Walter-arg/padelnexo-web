@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+
+const RESET_URL =
+  "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/sendPasswordReset";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -15,15 +16,15 @@ export default function ForgotPasswordPage() {
     setError("");
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
+      const res = await fetch(RESET_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      if (!res.ok) throw new Error("error");
       setSent(true);
-    } catch (err: any) {
-      const msg: Record<string, string> = {
-        "auth/user-not-found": "No existe una cuenta con ese email.",
-        "auth/invalid-email": "El email no es válido.",
-        "auth/too-many-requests": "Demasiados intentos. Esperá unos minutos.",
-      };
-      setError(msg[err.code] || "No se pudo enviar el email. Intentá de nuevo.");
+    } catch {
+      setError("No se pudo enviar el email. Intentá de nuevo.");
     } finally {
       setLoading(false);
     }
