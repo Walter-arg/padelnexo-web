@@ -10,6 +10,12 @@ import { Trophy, Users, ChevronRight, Archive, Play } from "lucide-react";
 
 type Tab = "activas" | "archivadas";
 
+function LeagueAvatar({ url }: { url?: string }) {
+  const [error, setError] = useState(false);
+  if (!url || error) return <Trophy size={22} className="text-blue-600" />;
+  return <img src={url} className="w-12 h-12 rounded-2xl object-cover" onError={() => setError(true)} alt="" />;
+}
+
 const DAY_LABELS: Record<string, string> = {
   monday: "Lunes", tuesday: "Martes", wednesday: "Miércoles",
   thursday: "Jueves", friday: "Viernes", saturday: "Sábado", sunday: "Domingo",
@@ -89,10 +95,8 @@ export default function LigasPage() {
                 href={`/dashboard/ligas/${liga.id}`}
                 className="group bg-white rounded-2xl px-6 py-5 border border-gray-100 hover:border-pn-green/40 hover:shadow-md transition-all flex items-center gap-5"
               >
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                  {liga.organizerLogoUrl
-                    ? <img src={liga.organizerLogoUrl} className="w-12 h-12 rounded-2xl object-cover" />
-                    : <Trophy size={22} className="text-blue-600" />}
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <LeagueAvatar url={liga.organizerLogoUrl} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
