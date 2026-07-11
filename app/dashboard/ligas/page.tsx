@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, serverTimestamp, getDoc, doc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -37,6 +37,7 @@ const emptyFiltros = { sexo: "", categoria: "", dia: "", complejo: "" };
 export default function LigasPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [profileLogoUrl, setProfileLogoUrl] = useState("");
   const [ligas, setLigas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("activas");
@@ -55,8 +56,11 @@ export default function LigasPage() {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) { router.push("/login"); return; }
       setUser(u);
-      const q = query(collection(db, "leagues"), where("organizerId", "==", u.uid));
-      const snap = await getDocs(q);
+      const [profileSnap, snap] = await Promise.all([
+        getDoc(doc(db, "users", u.uid)),
+        getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
+      ]);
+      if (profileSnap.exists()) setProfileLogoUrl(profileSnap.data()?.organizerLogoUrl || "");
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a: any, b: any) => (b.createdAtMillis ?? 0) - (a.createdAtMillis ?? 0));
       setLigas(data);
@@ -97,7 +101,7 @@ export default function LigasPage() {
         provincia: "",
         paymentDefaults: { currency: "ARS", registrationFeeEnabled: false, registrationFeeAmount: 0, roundPricePerPlayer: 0 },
         players: [], teams: [],
-        organizerId: user!.uid, organizerLogoUrl: "",
+        organizerId: user!.uid, organizerLogoUrl: profileLogoUrl,
         status: "active", createdBy: user!.uid, createdByName: user!.displayName || "",
         createdAt: serverTimestamp(), createdAtMillis: Date.now(),
       };
@@ -325,7 +329,7 @@ export default function LigasPage() {
                 className="group bg-white rounded-2xl px-6 py-5 border border-gray-100 hover:border-pn-green/40 hover:shadow-md transition-all flex items-center gap-5"
               >
                 <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <LeagueAvatar url={liga.organizerLogoUrl} />
+                  <LeagueAvatar url={liga.organizerLogoUrl || liga.complejo?.organizerLogoUrl || profileLogoUrl} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
