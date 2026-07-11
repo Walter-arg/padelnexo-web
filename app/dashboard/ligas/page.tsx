@@ -60,9 +60,18 @@ export default function LigasPage() {
         getDoc(doc(db, "users", u.uid)),
         getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
       ]);
-      if (profileSnap.exists()) setProfileLogoUrl(profileSnap.data()?.organizerLogoURL || profileSnap.data()?.organizerLogoUrl || "");
+      if (profileSnap.exists()) {
+        const pd = profileSnap.data();
+        const logo = pd?.organizerLogoURL || pd?.organizerLogoUrl || "";
+        console.log("[DEBUG] profile logo:", logo, "| raw keys:", Object.keys(pd || {}));
+        setProfileLogoUrl(logo);
+      }
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a: any, b: any) => (b.createdAtMillis ?? 0) - (a.createdAtMillis ?? 0));
+      if (data.length > 0) {
+        const l = data[0] as any;
+        console.log("[DEBUG] liga[0] organizerLogoUrl:", l.organizerLogoUrl, "| organizerLogoURL:", l.organizerLogoURL, "| complejo.organizerLogoUrl:", l.complejo?.organizerLogoUrl, "| complejo.organizerLogoURL:", l.complejo?.organizerLogoURL);
+      }
       setLigas(data);
       setLoading(false);
     });
