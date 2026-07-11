@@ -38,7 +38,6 @@ export default function LigasPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profileLogoUrl, setProfileLogoUrl] = useState("");
-  const [debugInfo, setDebugInfo] = useState<any>(null);
   const [ligas, setLigas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("activas");
@@ -62,18 +61,9 @@ export default function LigasPage() {
         getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
       ]);
       const pd = profileSnap.exists() ? profileSnap.data() : {};
-      const logo = pd?.organizerLogoURL || pd?.organizerLogoUrl || "";
-      setProfileLogoUrl(logo);
+      setProfileLogoUrl(pd?.organizerLogoURL || pd?.organizerLogoUrl || "");
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a: any, b: any) => (b.createdAtMillis ?? 0) - (a.createdAtMillis ?? 0));
-      const l = data[0] as any;
-      setDebugInfo({
-        profileLogoUrl: logo || "(vacío)",
-        liga0_organizerLogoUrl: l?.organizerLogoUrl || "(vacío)",
-        liga0_organizerLogoURL: l?.organizerLogoURL || "(vacío)",
-        liga0_complejo_orgLogoUrl: l?.complejo?.organizerLogoUrl || "(vacío)",
-        liga0_complejo_orgLogoURL: l?.complejo?.organizerLogoURL || "(vacío)",
-      });
       setLigas(data);
       setLoading(false);
     });
@@ -151,16 +141,6 @@ export default function LigasPage() {
 
   return (
     <DashboardLayout title="Ligas">
-
-      {/* ── DEBUG TEMPORAL ── */}
-      {debugInfo && (
-        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-300 rounded-xl text-xs font-mono text-gray-700 space-y-1 break-all">
-          <p className="font-black text-yellow-700 mb-2">DEBUG (temporal)</p>
-          {Object.entries(debugInfo).map(([k, v]) => (
-            <p key={k}><span className="font-bold">{k}:</span> {String(v)}</p>
-          ))}
-        </div>
-      )}
 
       {/* ── Crear liga + Búsqueda + Filtrar (misma línea) ── */}
       <div className="flex gap-2 mb-5">
