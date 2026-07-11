@@ -329,7 +329,11 @@ export default function LigasPage() {
                 className="group bg-white rounded-2xl px-6 py-5 border border-gray-100 hover:border-pn-green/40 hover:shadow-md transition-all flex items-center gap-5"
               >
                 <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <LeagueAvatar url={liga.organizerLogoUrl || liga.complejo?.organizerLogoUrl || profileLogoUrl} />
+                  <LeagueAvatar url={
+                    liga.organizerLogoUrl || liga.organizerLogoURL ||
+                    liga.complejo?.organizerLogoUrl || liga.complejo?.organizerLogoURL ||
+                    profileLogoUrl
+                  } />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
