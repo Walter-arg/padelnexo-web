@@ -364,7 +364,7 @@ export default function LigaDetailPage() {
               {rounds.length > 0 && (
                 <div className="flex items-center gap-3 text-gray-600">
                   <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={15} className="text-gray-400"/>
+                    <Clock size={15} className="text-gray-400"/>
                   </div>
                   <span>
                     <span className="font-bold text-pn-navy">{completedRounds}/{rounds.length}</span> fechas completadas
