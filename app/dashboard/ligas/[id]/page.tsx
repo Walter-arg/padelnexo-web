@@ -7,9 +7,10 @@ import { auth, db } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  Users, Calendar, BarChart2, DollarSign,
+  Users, DollarSign,
   X, Save, RefreshCw, Eye, Archive, Shield,
-  MapPin, Clock, ChevronLeft, Trophy, CreditCard,
+  MapPin, Clock, ChevronLeft, Trophy,
+  Contact, Swords, Wallet,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -250,7 +251,7 @@ export default function LigaDetailPage() {
     {
       id: "jugadores" as Tab,
       label: "Jugadores",
-      icon: Users,
+      icon: Contact,
       color: "bg-blue-500",
       lightBg: "bg-blue-50",
       lightText: "text-blue-600",
@@ -259,7 +260,7 @@ export default function LigaDetailPage() {
     {
       id: "fixture" as Tab,
       label: "Fixture",
-      icon: Calendar,
+      icon: Swords,
       color: "bg-amber-500",
       lightBg: "bg-amber-50",
       lightText: "text-amber-600",
@@ -268,7 +269,7 @@ export default function LigaDetailPage() {
     {
       id: "posiciones" as Tab,
       label: "Puntajes",
-      icon: BarChart2,
+      icon: Trophy,
       color: "bg-violet-500",
       lightBg: "bg-violet-50",
       lightText: "text-violet-600",
@@ -277,7 +278,7 @@ export default function LigaDetailPage() {
     {
       id: "pagos" as Tab,
       label: "Pagos",
-      icon: CreditCard,
+      icon: Wallet,
       color: "bg-emerald-500",
       lightBg: "bg-emerald-50",
       lightText: "text-emerald-600",
