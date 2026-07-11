@@ -1,48 +1,95 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Network, Flame, CalendarClock, Landmark } from "lucide-react";
+import { Trophy, CircleDollarSign } from "lucide-react";
+
+// ── Íconos SVG custom específicos de pádel ────────────────────────────────
+
+function PadelRacket({ size = 24, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      className={className}>
+      {/* Cabeza de la paleta */}
+      <ellipse cx="11" cy="9" rx="6.2" ry="7" />
+      {/* Cuerdas horizontales */}
+      <line x1="5.3" y1="6.5" x2="16.7" y2="6.5" />
+      <line x1="4.9" y1="9"   x2="17.1" y2="9" />
+      <line x1="5.3" y1="11.5" x2="16.7" y2="11.5" />
+      {/* Cuerdas verticales */}
+      <line x1="8.5"  y1="2.3" x2="8.5"  y2="15.7" />
+      <line x1="11"   y1="2"   x2="11"   y2="16" />
+      <line x1="13.5" y1="2.3" x2="13.5" y2="15.7" />
+      {/* Mango */}
+      <line x1="11" y1="16" x2="11" y2="22" />
+      {/* Grip inferior */}
+      <line x1="9.5" y1="21" x2="12.5" y2="21" />
+      {/* Pelota */}
+      <circle cx="19.5" cy="19.5" r="2.3" />
+    </svg>
+  );
+}
+
+function PadelCourt({ size = 24, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      className={className}>
+      {/* Cancha — contorno exterior con paredes de cristal (línea más gruesa) */}
+      <rect x="2" y="3" width="20" height="18" rx="0.5" strokeWidth="2" />
+      {/* Red (línea central) */}
+      <line x1="2" y1="12" x2="22" y2="12" strokeWidth="2" />
+      {/* Líneas de servicio */}
+      <line x1="7"  y1="3"  x2="7"  y2="21" />
+      <line x1="17" y1="3"  x2="17" y2="21" />
+      {/* Marca central de la red */}
+      <line x1="12" y1="11" x2="12" y2="13" strokeWidth="2" />
+    </svg>
+  );
+}
+
+// ── Módulos del home ──────────────────────────────────────────────────────
 
 const modules = [
   {
     label: "Ligas",
     sub: "Fixtures, posiciones y jugadores",
     href: "/dashboard/ligas",
-    icon: Network,
-    gradient: "from-blue-600 to-blue-400",
-    shadow: "shadow-blue-200",
-    glow: "group-hover:shadow-blue-300",
+    Icon: PadelRacket,
+    gradient: "from-blue-600 to-cyan-400",
+    shadow: "shadow-blue-300",
+    ring: "group-hover:ring-blue-200",
   },
   {
     label: "Torneos",
     sub: "Grupos, llaves y resultados",
     href: "/dashboard/torneos",
-    icon: Flame,
-    gradient: "from-orange-500 to-rose-400",
-    shadow: "shadow-orange-200",
-    glow: "group-hover:shadow-orange-300",
+    Icon: Trophy,
+    gradient: "from-amber-500 to-yellow-300",
+    shadow: "shadow-amber-300",
+    ring: "group-hover:ring-amber-200",
   },
   {
     label: "Turnos",
     sub: "Reservas y disponibilidad de canchas",
     href: "/dashboard/turnos",
-    icon: CalendarClock,
-    gradient: "from-violet-600 to-indigo-400",
-    shadow: "shadow-violet-200",
-    glow: "group-hover:shadow-violet-300",
+    Icon: PadelCourt,
+    gradient: "from-violet-600 to-purple-400",
+    shadow: "shadow-violet-300",
+    ring: "group-hover:ring-violet-200",
   },
   {
     label: "Central de Cobros",
     sub: "Pagos, comprobantes y deudas",
     href: "/dashboard/cobros",
-    icon: Landmark,
-    gradient: "from-emerald-600 to-teal-400",
-    shadow: "shadow-emerald-200",
-    glow: "group-hover:shadow-emerald-300",
+    Icon: CircleDollarSign,
+    gradient: "from-emerald-500 to-green-300",
+    shadow: "shadow-emerald-300",
+    ring: "group-hover:ring-emerald-200",
   },
 ];
 
@@ -66,42 +113,35 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout title="">
-      <div className="max-w-4xl mx-auto">
-
-        {/* ── Grid 2×2 ── */}
+      <div className="max-w-3xl mx-auto">
         <div className="grid grid-cols-2 gap-6">
           {modules.map((m) => (
             <a
               key={m.href}
               href={m.href}
-              className={`group relative flex flex-col justify-between bg-white rounded-3xl p-8 border border-gray-100 hover:shadow-xl ${m.glow} transition-all duration-300 overflow-hidden`}
+              className={`group relative flex flex-col bg-white rounded-3xl p-8 border-2 border-transparent hover:border-gray-100 hover:shadow-2xl ${m.ring} ring-4 ring-transparent transition-all duration-300 overflow-hidden`}
             >
-              {/* Fondo degradado sutil en hover */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${m.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300 rounded-3xl`} />
+              {/* Brillo de fondo en hover */}
+              <div className={`absolute inset-0 bg-gradient-to-br ${m.gradient} opacity-0 group-hover:opacity-[0.04] transition-opacity duration-300`} />
 
               {/* Ícono con gradiente */}
-              <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${m.gradient} flex items-center justify-center shadow-lg ${m.shadow} mb-6 transition-transform duration-300 group-hover:scale-105`}>
-                <m.icon size={30} className="text-white" strokeWidth={1.5} />
+              <div className={`relative w-20 h-20 rounded-3xl bg-gradient-to-br ${m.gradient} flex items-center justify-center mb-6 shadow-xl ${m.shadow} transition-transform duration-300 group-hover:scale-105 group-hover:-rotate-1`}>
+                <m.Icon size={36} className="text-white" strokeWidth={1.6} />
               </div>
 
               {/* Texto */}
-              <div>
-                <h2 className="text-xl font-black text-pn-navy mb-1 group-hover:text-pn-dark transition-colors">
-                  {m.label}
-                </h2>
-                <p className="text-sm text-gray-400 leading-snug">{m.sub}</p>
-              </div>
+              <h2 className="text-2xl font-black text-pn-navy mb-2 leading-tight">{m.label}</h2>
+              <p className="text-sm text-gray-400 leading-relaxed">{m.sub}</p>
 
-              {/* Flecha */}
-              <div className={`absolute bottom-7 right-7 w-9 h-9 rounded-xl bg-gradient-to-br ${m.gradient} flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0`}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {/* Flecha animada */}
+              <div className={`absolute bottom-7 right-7 w-10 h-10 rounded-2xl bg-gradient-to-br ${m.gradient} flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-lg transition-all duration-300 translate-y-2 group-hover:translate-y-0`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>
               </div>
             </a>
           ))}
         </div>
-
       </div>
     </DashboardLayout>
   );
