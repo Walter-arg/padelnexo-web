@@ -1,236 +1,196 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import {
-  Trophy, DollarSign, Users, Clock, LogOut,
-  MessageSquare, Bell, ChevronDown, UserCircle, Settings, Building2,
-} from "lucide-react";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Trophy, DollarSign, Clock, MessageSquare, Bell, Users, ChevronRight, Swords, Wallet } from "lucide-react";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]     = useState<User | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [stats, setStats] = useState({
+  const [stats, setStats]   = useState({
     ligasActivas: 0, torneosActivos: 0, cobrosPendientes: 0, mensajes: 0,
   });
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [ligasRecientes, setLigasRecientes] = useState<any[]>([]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        router.push("/login");
-        return;
-      }
+      if (!u) { router.push("/login"); return; }
       setUser(u);
-
       try {
         const [profileSnap, ligasSnap, torneosSnap, convsSnap] = await Promise.all([
           getDoc(doc(db, "users", u.uid)),
           getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
           getDocs(query(collection(db, "tournaments"), where("organizerId", "==", u.uid))),
-          getDocs(query(collection(db, "conversations"), where("organizerId", "==", u.uid))),
+          getDocs(query(collection(db, "conversations"), where("participants", "array-contains", u.uid))),
         ]);
 
         if (profileSnap.exists()) setProfile(profileSnap.data());
 
-        const ligasActivas = ligasSnap.docs.filter((d) => d.data().status === "active").length;
-        const torneosActivos = torneosSnap.docs.filter((d) => d.data().status === "active").length;
-        const mensajes = convsSnap.size;
+        const ligasActivas   = ligasSnap.docs.filter(d => d.data().status === "active").length;
+        const torneosActivos = torneosSnap.docs.filter(d => d.data().status === "active").length;
+        const mensajes       = convsSnap.docs.reduce((sum, d) =>
+          sum + Number(d.data().unreadCountBy?.[u.uid] || 0), 0);
 
         let cobrosPendientes = 0;
         await Promise.all(
           ligasSnap.docs
-            .filter((d) => d.data().status === "active")
+            .filter(d => d.data().status === "active")
             .map(async (ligaDoc) => {
-              const rpSnap = await getDocs(
-                query(
-                  collection(db, "leagues", ligaDoc.id, "roundPayments"),
-                  where("status", "in", ["pending_review", "pendingReview"])
-                )
-              );
+              const rpSnap = await getDocs(query(
+                collection(db, "leagues", ligaDoc.id, "roundPayments"),
+                where("status", "in", ["pending_review", "pendingReview"])
+              ));
               cobrosPendientes += rpSnap.size;
             })
         );
 
         setStats({ ligasActivas, torneosActivos, cobrosPendientes, mensajes });
-      } catch (e) {
-        // datos no críticos — la página carga igual sin las stats
-      } finally {
-        setLoadingStats(false);
-        setLoading(false);
-      }
+
+        // Últimas 3 ligas activas
+        const recientes = ligasSnap.docs
+          .filter(d => d.data().status === "active")
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a: any, b: any) => (b.createdAtMillis ?? 0) - (a.createdAtMillis ?? 0))
+          .slice(0, 3);
+        setLigasRecientes(recientes);
+
+      } catch {}
+      finally { setLoading(false); }
     });
     return unsub;
   }, [router]);
 
-  async function handleLogout() {
-    await signOut(auth);
-    document.cookie = "pn_session=; path=/; max-age=0";
-    router.push("/login");
-  }
+  if (loading) return (
+    <div className="min-h-screen bg-pn-navy flex items-center justify-center">
+      <div className="w-10 h-10 border-4 border-pn-green border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-pn-navy flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-pn-green border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const nombre  = profile?.nombre || user?.displayName || user?.email?.split("@")[0] || "Organizador";
+  const logoUrl = profile?.organizerLogoURL || profile?.organizerLogoUrl;
 
-  const nombre = profile?.nombre || user?.displayName || user?.email?.split("@")[0] || "Organizador";
-  const apellido = profile?.apellido || "";
-  const logoUrl = profile?.organizerLogoUrl;
+  const statCards = [
+    { label: "Ligas activas",    value: stats.ligasActivas,     icon: Trophy,       color: "text-blue-600",   bg: "bg-blue-50",   href: "/dashboard/ligas" },
+    { label: "Torneos activos",  value: stats.torneosActivos,   icon: Swords,       color: "text-amber-600",  bg: "bg-amber-50",  href: "/dashboard/torneos" },
+    { label: "Cobros a revisar", value: stats.cobrosPendientes, icon: Wallet,       color: "text-rose-500",   bg: "bg-rose-50",   href: "/dashboard/cobros" },
+    { label: "Mensajes nuevos",  value: stats.mensajes,         icon: MessageSquare,color: "text-sky-500",    bg: "bg-sky-50",    href: "/dashboard/mensajes" },
+  ];
+
+  const quickLinks = [
+    { icon: Trophy,       label: "Ligas",         sub: "Fixtures y posiciones",        href: "/dashboard/ligas",         color: "bg-blue-500" },
+    { icon: Swords,       label: "Torneos",        sub: "Grupos y llaves",              href: "/dashboard/torneos",       color: "bg-amber-500" },
+    { icon: Clock,        label: "Turnos",         sub: "Reservas y disponibilidad",    href: "/dashboard/turnos",        color: "bg-violet-500" },
+    { icon: Wallet,       label: "Cobros",         sub: "Pagos y comprobantes",         href: "/dashboard/cobros",        color: "bg-emerald-500" },
+    { icon: MessageSquare,label: "Mensajes",       sub: "Chat con jugadores",           href: "/dashboard/mensajes",      color: "bg-sky-500" },
+    { icon: Bell,         label: "Notificaciones", sub: "Avisos a tu liga",             href: "/dashboard/notificaciones",color: "bg-rose-500" },
+    { icon: Users,        label: "Jugadores",      sub: "Gestión de inscriptos",        href: "/dashboard/jugadores",     color: "bg-gray-500" },
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Topbar */}
-      <header className="bg-pn-navy text-white px-6 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50">
-        <a href="/">
-          <img src="/logopn.png" alt="PadelNexo" className="h-10 w-auto" />
-        </a>
+    <DashboardLayout title="">
+      <div className="max-w-5xl">
 
-        {/* User menu */}
-        <div className="relative">
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2.5 bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-3 py-2"
-          >
-            {logoUrl ? (
-              <img src={logoUrl} className="w-8 h-8 rounded-full object-cover" alt="logo" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-pn-green flex items-center justify-center text-white font-bold text-sm">
-                {nombre[0]?.toUpperCase()}
-              </div>
-            )}
-            <div className="text-left hidden sm:block">
-              <div className="text-sm font-bold leading-tight">{nombre} {apellido}</div>
-              <div className="text-xs text-gray-400">{user?.email}</div>
-            </div>
-            <ChevronDown size={15} className="text-gray-400" />
-          </button>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50">
-              <a href="/dashboard/perfil" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-slate-50 transition-colors">
-                <UserCircle size={16} className="text-pn-green" /> Ver perfil
-              </a>
-              <a href="/dashboard/perfil?tab=datos" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-slate-50 transition-colors">
-                <Settings size={16} className="text-pn-green" /> Modificar datos
-              </a>
-              <a href="/dashboard/perfil?tab=complejos" className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-slate-50 transition-colors">
-                <Building2 size={16} className="text-pn-green" /> Complejos y canchas
-              </a>
-              <div className="border-t border-gray-100 mt-1 pt-1">
-                <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors w-full">
-                  <LogOut size={16} /> Cerrar sesión
-                </button>
-              </div>
+        {/* ── Bienvenida ── */}
+        <div className="flex items-center gap-5 mb-8">
+          {logoUrl ? (
+            <img src={logoUrl} className="w-16 h-16 rounded-2xl object-cover shadow-md flex-shrink-0" alt="logo" />
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-pn-green/10 flex items-center justify-center flex-shrink-0">
+              <span className="text-3xl font-black text-pn-green">{nombre[0]?.toUpperCase()}</span>
             </div>
           )}
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-6 py-10">
-        {/* Bienvenida */}
-        <div className="mb-10">
-          <h1 className="text-2xl font-black text-pn-navy">Hola, {nombre} 👋</h1>
-          <p className="text-gray-500 mt-1">Bienvenido a tu panel de gestión.</p>
+          <div>
+            <p className="text-sm text-gray-400 font-medium">Bienvenido de nuevo</p>
+            <h1 className="text-2xl font-black text-pn-navy leading-tight">{nombre}</h1>
+          </div>
         </div>
 
-        {/* Stats rápidas */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-          {[
-            { label: "Ligas activas",    value: stats.ligasActivas,      color: "text-blue-600",  bg: "bg-blue-50",  href: "/dashboard/ligas" },
-            { label: "Torneos activos",  value: stats.torneosActivos,    color: "text-amber-600", bg: "bg-amber-50", href: "/dashboard/torneos" },
-            { label: "Cobros a revisar", value: stats.cobrosPendientes,  color: "text-rose-500",  bg: "bg-rose-50",  href: "/dashboard/cobros" },
-            { label: "Conversaciones",   value: stats.mensajes,          color: "text-sky-600",   bg: "bg-sky-50",   href: "/dashboard/mensajes" },
-          ].map((s) => (
-            <a
-              key={s.label}
-              href={s.href}
-              className="bg-white rounded-2xl p-4 border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all"
-            >
-              <div className={`text-2xl font-black ${s.color} mb-1`}>
-                {loadingStats ? (
-                  <span className="inline-block w-6 h-6 rounded bg-gray-100 animate-pulse" />
-                ) : s.value}
+        {/* ── Stats ── */}
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          {statCards.map(s => (
+            <a key={s.label} href={s.href}
+              className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all group">
+              <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center mb-3`}>
+                <s.icon size={18} className={s.color} />
               </div>
-              <div className="text-xs text-gray-500 font-medium leading-tight">{s.label}</div>
+              <div className={`text-3xl font-black ${s.color} mb-1`}>{s.value}</div>
+              <div className="text-xs text-gray-400 font-medium">{s.label}</div>
             </a>
           ))}
         </div>
 
-        {/* CENTRAL DE COBROS — destacada */}
-        <a
-          href="/dashboard/cobros"
-          className="group flex items-center gap-5 w-full bg-gradient-to-r from-pn-navy to-pn-dark rounded-2xl px-6 py-5 mb-8 hover:scale-[1.01] transition-all shadow-lg relative overflow-hidden"
-        >
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 80% 50%, #c8f53d, transparent)" }} />
-          <div className="w-11 h-11 rounded-xl bg-amber-400 flex items-center justify-center flex-shrink-0 shadow-md">
-            <DollarSign size={22} className="text-amber-900" />
-          </div>
-          <div className="relative flex-1">
-            <h2 className="text-base font-black text-white">Central de Cobros</h2>
-            <p className="text-gray-400 text-xs">Controlá pagos, comprobantes y deudas de ligas, torneos y turnos</p>
-          </div>
-          <span className="relative text-pn-lime text-sm font-black">→</span>
-        </a>
+        {/* ── Dos columnas: accesos rápidos + ligas recientes ── */}
+        <div className="grid grid-cols-[1fr_340px] gap-6">
 
-        {/* Ligas, Torneos, Turnos */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {[
-            { icon: Trophy, label: "Ligas", href: "/dashboard/ligas", color: "bg-blue-50 text-blue-600", border: "hover:border-blue-300", desc: "Fixtures, posiciones y jugadores" },
-            { icon: Trophy, label: "Torneos", href: "/dashboard/torneos", color: "bg-amber-50 text-amber-600", border: "hover:border-amber-300", desc: "Grupos, llaves y resultados" },
-            { icon: Clock, label: "Turnos", href: "/dashboard/turnos", color: "bg-pn-mint text-pn-green", border: "hover:border-pn-green/40", desc: "Reservas y disponibilidad" },
-          ].map((s) => (
-            <a
-              key={s.label}
-              href={s.href}
-              className={`group bg-white rounded-2xl p-6 border-2 border-transparent ${s.border} hover:shadow-md transition-all duration-200`}
-            >
-              <div className={`w-11 h-11 rounded-xl ${s.color} flex items-center justify-center mb-4`}>
-                <s.icon size={21} />
-              </div>
-              <h3 className="font-black text-pn-navy text-base mb-1">{s.label}</h3>
-              <p className="text-xs text-gray-400">{s.desc}</p>
-            </a>
-          ))}
+          {/* Accesos rápidos */}
+          <div>
+            <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Accesos rápidos</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {quickLinks.map(link => (
+                <a key={link.href} href={link.href}
+                  className="group flex items-center gap-4 bg-white rounded-2xl p-4 border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
+                  <div className={`w-11 h-11 rounded-xl ${link.color} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                    <link.icon size={20} className="text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-black text-pn-navy text-sm">{link.label}</div>
+                    <div className="text-xs text-gray-400 truncate">{link.sub}</div>
+                  </div>
+                  <ChevronRight size={14} className="text-gray-200 group-hover:text-gray-400 transition-colors ml-auto flex-shrink-0" />
+                </a>
+              ))}
+            </div>
+          </div>
+
+          {/* Ligas recientes */}
+          <div>
+            <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Ligas activas recientes</h2>
+            <div className="flex flex-col gap-3">
+              {ligasRecientes.length === 0 ? (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 text-center text-gray-400">
+                  <Trophy size={32} className="mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">Sin ligas activas</p>
+                  <a href="/dashboard/ligas" className="text-xs text-pn-green font-bold hover:underline mt-1 inline-block">Crear primera liga</a>
+                </div>
+              ) : (
+                <>
+                  {ligasRecientes.map((liga: any) => {
+                    const logoLiga = liga.organizerLogoUrl || liga.organizerLogoURL || liga.complejo?.organizerLogoUrl || liga.complejo?.organizerLogoURL || logoUrl;
+                    return (
+                      <a key={liga.id} href={`/dashboard/ligas/${liga.id}`}
+                        className="group flex items-center gap-3 bg-white rounded-2xl p-4 border border-gray-100 hover:border-pn-green/30 hover:shadow-md transition-all">
+                        {logoLiga
+                          ? <img src={logoLiga} className="w-11 h-11 rounded-xl object-cover flex-shrink-0" alt="" />
+                          : <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                              <Trophy size={18} className="text-blue-400" />
+                            </div>
+                        }
+                        <div className="flex-1 min-w-0">
+                          <div className="font-black text-pn-navy text-sm truncate">{liga.nombre}</div>
+                          <div className="text-xs text-gray-400">
+                            {liga.categoria} · {liga.players?.length ?? 0} jugadores
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-gray-200 group-hover:text-pn-green transition-colors flex-shrink-0" />
+                      </a>
+                    );
+                  })}
+                  <a href="/dashboard/ligas" className="text-center text-xs font-bold text-pn-green hover:text-pn-dark transition-colors py-2">
+                    Ver todas las ligas →
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Mensajes y Notificaciones */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <a href="/dashboard/mensajes" className="flex items-center gap-4 bg-white rounded-2xl p-5 border border-gray-100 hover:border-sky-300 hover:shadow-md transition-all">
-            <div className="w-11 h-11 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center flex-shrink-0">
-              <MessageSquare size={20} />
-            </div>
-            <div>
-              <div className="font-bold text-pn-navy text-sm">Mensajes</div>
-              <div className="text-xs text-gray-400">Conversaciones con jugadores</div>
-            </div>
-          </a>
-          <a href="/dashboard/notificaciones" className="flex items-center gap-4 bg-white rounded-2xl p-5 border border-gray-100 hover:border-rose-300 hover:shadow-md transition-all">
-            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center flex-shrink-0">
-              <Bell size={20} />
-            </div>
-            <div>
-              <div className="font-bold text-pn-navy text-sm">Notificaciones</div>
-              <div className="text-xs text-gray-400">Enviá avisos a tu liga</div>
-            </div>
-          </a>
-        </div>
-
-        {/* Jugadores — poco visible */}
-        <a href="/dashboard/jugadores" className="flex items-center gap-3 text-sm text-gray-400 hover:text-pn-green transition-colors">
-          <Users size={15} />
-          <span>Gestión de jugadores</span>
-        </a>
-      </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
