@@ -60,7 +60,7 @@ export default function LigasPage() {
         getDoc(doc(db, "users", u.uid)),
         getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
       ]);
-      if (profileSnap.exists()) setProfileLogoUrl(profileSnap.data()?.organizerLogoUrl || "");
+      if (profileSnap.exists()) setProfileLogoUrl(profileSnap.data()?.organizerLogoURL || profileSnap.data()?.organizerLogoUrl || "");
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       data.sort((a: any, b: any) => (b.createdAtMillis ?? 0) - (a.createdAtMillis ?? 0));
       setLigas(data);
