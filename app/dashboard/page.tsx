@@ -9,7 +9,7 @@ import {
   IconBallTennis,
   IconTrophy,
   IconCalendarEvent,
-  IconBuildingBank,
+  IconCurrencyDollar,
 } from "@tabler/icons-react";
 
 const modules = [
@@ -44,7 +44,7 @@ const modules = [
     label: "Central de Cobros",
     sub: "Pagos, comprobantes y deudas",
     href: "/dashboard/cobros",
-    Icon: IconBuildingBank,
+    Icon: IconCurrencyDollar,
     gradient: "from-emerald-500 to-teal-300",
     glow: "group-hover:shadow-emerald-300/60",
     ring: "group-hover:ring-emerald-100",

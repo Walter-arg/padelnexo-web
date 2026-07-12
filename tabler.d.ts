@@ -10,4 +10,5 @@ declare module "@tabler/icons-react" {
   export const IconTrophy: TablerIcon;
   export const IconCalendarEvent: TablerIcon;
   export const IconBuildingBank: TablerIcon;
+  export const IconCurrencyDollar: TablerIcon;
 }
