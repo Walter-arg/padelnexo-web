@@ -10,7 +10,7 @@ import {
   Users, DollarSign,
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
-  Contact, Swords, Wallet,
+  Contact, CalendarDays, Wallet,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -260,7 +260,7 @@ export default function LigaDetailPage() {
     {
       id: "fixture" as Tab,
       label: "Fixture",
-      icon: Swords,
+      icon: CalendarDays,
       color: "bg-amber-500",
       lightBg: "bg-amber-50",
       lightText: "text-amber-600",
