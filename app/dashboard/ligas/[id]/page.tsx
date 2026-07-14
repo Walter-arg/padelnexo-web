@@ -12,7 +12,7 @@ import {
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
-  MessageSquare, Smartphone,
+  MessageSquare, Smartphone, Banknote,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -925,11 +925,11 @@ export default function LigaDetailPage() {
                             {/* Columnas header */}
                             {block.entries.length > 0 && (
                               <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
-                                style={{gridTemplateColumns:"1fr 100px 65px 55px 65px 100px"}}>
+                                style={{gridTemplateColumns:"1fr 80px 60px 95px 55px 80px"}}>
                                 <div>Jugador</div>
                                 <div className="text-center">Estado</div>
                                 <div className="text-center">Modo</div>
-                                <div className="text-center">Comp.</div>
+                                <div className="text-center">Comprobante</div>
                                 <div className="text-right">$</div>
                                 <div className="text-center">Acción</div>
                               </div>
@@ -954,7 +954,7 @@ export default function LigaDetailPage() {
 
                                 return (
                                   <div key={ei} className="grid items-center px-4 py-3 hover:bg-gray-50/50 transition-colors relative"
-                                    style={{gridTemplateColumns:"1fr 100px 65px 55px 65px 100px"}}>
+                                    style={{gridTemplateColumns:"1fr 80px 60px 95px 55px 80px"}}>
 
                                     {/* Jugador */}
                                     <div className="min-w-0 pr-2">
@@ -1002,13 +1002,12 @@ export default function LigaDetailPage() {
                                           <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pendiente")} title="Rechazar" className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors"><X size={13} className="text-red-400"/></button>
                                         </>
                                       ) : (
-                                        /* Pendiente: botón Registrar pago */
+                                        /* Pendiente: ícono billete naranja para registrar pago */
                                         <button
                                           onClick={()=>{ setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod("efectivo"); setModalFile(null); }}
                                           title="Registrar pago"
-                                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-pn-green hover:text-white text-gray-500 text-xs font-bold transition-colors group">
-                                          <Check size={12} className="group-hover:text-white"/>
-                                          Registrar
+                                          className="w-7 h-7 rounded-lg bg-orange-50 hover:bg-orange-100 flex items-center justify-center transition-colors">
+                                          <Banknote size={15} className="text-orange-400"/>
                                         </button>
                                       )}
 
@@ -1125,7 +1124,7 @@ export default function LigaDetailPage() {
 
             {/* Comprobante */}
             <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-              Comprobante {modalMethod==="efectivo"?"(opcional)":""}
+              Comprobante <span className="normal-case font-normal">(opcional)</span>
             </label>
             <div
               onClick={()=>fileInputRef.current?.click()}
