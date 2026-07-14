@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc, collection, addDoc, setDoc, increment, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -910,18 +910,28 @@ export default function LigaDetailPage() {
 
                     if (blocks.length === 0) return null;
 
-                    return (
-                      <div className="flex flex-col gap-4">
-                        {blocks.map((block) => (
-                          <div key={block.id} className="rounded-2xl overflow-hidden border border-gray-100">
-                            {/* Header del bloque */}
-                            <div className="bg-pn-navy px-5 py-3 flex items-center justify-between">
-                              <span className="font-black text-white uppercase tracking-wide text-sm">{block.title}</span>
-                              {block.amount > 0 && (
-                                <span className="text-xs text-gray-400">$ {block.amount} / jugador</span>
-                              )}
-                            </div>
+                    const [openBlocks, setOpenBlocks] = React.useState<Record<string,boolean>>({});
+                    const toggleBlock = (id: string) => setOpenBlocks(p => ({...p, [id]: !p[id]}));
 
+                    return (
+                      <div className="flex flex-col gap-3">
+                        {blocks.map((block) => {
+                          const isOpen = openBlocks[block.id] !== false; // abierto por defecto
+                          return (
+                          <div key={block.id} className="rounded-2xl overflow-hidden border border-gray-100">
+                            {/* Header del bloque — clickeable para colapsar */}
+                            <button
+                              onClick={()=>toggleBlock(block.id)}
+                              className="w-full bg-pn-navy px-5 py-3 flex items-center justify-between hover:bg-pn-navy/90 transition-colors">
+                              <ChevronLeft size={16} className={`text-gray-400 flex-shrink-0 transition-transform ${isOpen?"rotate-90":"-rotate-90"}`}/>
+                              <span className="font-black text-white uppercase tracking-wide text-sm flex-1 text-center">{block.title}</span>
+                              {block.amount > 0
+                                ? <span className="text-xs text-gray-400 flex-shrink-0">$ {block.amount} / jugador</span>
+                                : <span className="w-4"/>}
+                            </button>
+
+                            {isOpen && (
+                              <>
                             {/* Columnas header */}
                             {block.entries.length > 0 && (
                               <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
@@ -930,7 +940,7 @@ export default function LigaDetailPage() {
                                 <div className="text-center">Estado</div>
                                 <div className="text-center">Modo</div>
                                 <div className="text-center">Comprobante</div>
-                                <div className="text-right">$</div>
+                                <div className="text-center">$</div>
                                 <div className="text-center">Acción</div>
                               </div>
                             )}
@@ -982,7 +992,7 @@ export default function LigaDetailPage() {
                                     </div>
 
                                     {/* Monto */}
-                                    <div className="text-right text-xs font-bold text-pn-navy">{block.amount>0?`$ ${block.amount}`:""}</div>
+                                    <div className="text-center text-xs font-bold text-pn-navy">{block.amount>0?`$ ${block.amount}`:""}</div>
 
                                     {/* Acciones: confirm/reject + ⋮ menú */}
                                     <div className="flex items-center justify-center gap-1">
@@ -1066,8 +1076,11 @@ export default function LigaDetailPage() {
                                 );
                               })}
                             </div>
+                            </>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })()}
