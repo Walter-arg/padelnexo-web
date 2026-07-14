@@ -10,7 +10,7 @@ import {
   Users, DollarSign,
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
-  Contact, CalendarDays, Wallet,
+  Contact, CalendarDays, Wallet, Check,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -190,6 +190,88 @@ function ResultModal({ match, matchFormat, onClose, onSave }: any) {
   );
 }
 
+// ── Helpers de pagos ──────────────────────────────────────────────────────
+const REGISTRATION_ROUND_ID = "__league_registration_fee__";
+
+function participantKey(player: any): string {
+  return player.linkedUserId || player.id || player.nombre || "";
+}
+
+function playerLabel(player: any): string {
+  return `${player.nombre || ""} ${player.apellido || ""}`.trim() || "Jugador";
+}
+
+function resolveRoundEntries(round: any, storedRoundPayments: any[], liga: any): any[] {
+  const matches = (round.matches ?? []).filter((m: any) => {
+    if (m?.suspensionMode && !m?.result?.winner) return false;
+    return (m?.teamA?.players?.length || m?.teamB?.players?.length);
+  });
+  const stored = storedRoundPayments.find((r: any) => r.roundId === round.id) ?? { entries: [] };
+
+  if (liga.teamType === "pair") {
+    const teams = matches.flatMap((m: any) => [m.teamA, m.teamB]).filter(Boolean);
+    const seenTeams = new Set<string>();
+    const result: any[] = [];
+    for (const team of teams) {
+      const tKey = team.id || "";
+      if (!tKey || seenTeams.has(tKey)) continue;
+      seenTeams.add(tKey);
+      const pairLabel = team.label || (team.players ?? []).map(playerLabel).join(" / ");
+      for (const player of (team.players ?? [])) {
+        const pid = participantKey(player);
+        const e = stored.entries.find((x: any) => x.participantId === pid) ?? null;
+        result.push({ participantId: pid, participantLabel: playerLabel(player), pairLabel,
+          paymentStatus: e?.paymentStatus ?? "pendiente", paymentMethod: e?.paymentMethod ?? "", proofUrl: e?.proofUrl ?? "" });
+      }
+    }
+    return result;
+  }
+
+  const players = matches.flatMap((m: any) => [...(m?.teamA?.players ?? []), ...(m?.teamB?.players ?? [])]);
+  const seen = new Set<string>();
+  const result: any[] = [];
+  for (const player of players) {
+    const pid = participantKey(player);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    const e = stored.entries.find((x: any) => x.participantId === pid) ?? null;
+    result.push({ participantId: pid, participantLabel: playerLabel(player), pairLabel: "",
+      paymentStatus: e?.paymentStatus ?? "pendiente", paymentMethod: e?.paymentMethod ?? "", proofUrl: e?.proofUrl ?? "" });
+  }
+  return result;
+}
+
+function resolveRegistrationEntries(storedRoundPayments: any[], liga: any): any[] {
+  const stored = storedRoundPayments.find((r: any) => r.roundId === REGISTRATION_ROUND_ID) ?? { entries: [] };
+  const players: any[] = liga.players ?? [];
+
+  if (liga.teamType === "pair") {
+    const pairs: Record<number, any[]> = {};
+    players.forEach((p: any) => { const n = p.pairNumber ?? 0; if (!pairs[n]) pairs[n] = []; pairs[n].push(p); });
+    return Object.values(pairs).flatMap((pp) => {
+      const pairLabel = pp.map(playerLabel).join(" / ");
+      return pp.map((player: any) => {
+        const pid = participantKey(player);
+        const e = stored.entries.find((x: any) => x.participantId === pid) ?? null;
+        return { participantId: pid, participantLabel: playerLabel(player), pairLabel,
+          paymentStatus: e?.paymentStatus ?? "pendiente", paymentMethod: e?.paymentMethod ?? "", proofUrl: e?.proofUrl ?? "" };
+      });
+    });
+  }
+
+  const seen = new Set<string>();
+  const result: any[] = [];
+  for (const player of players) {
+    const pid = participantKey(player);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    const e = stored.entries.find((x: any) => x.participantId === pid) ?? null;
+    result.push({ participantId: pid, participantLabel: playerLabel(player), pairLabel: "",
+      paymentStatus: e?.paymentStatus ?? "pendiente", paymentMethod: e?.paymentMethod ?? "", proofUrl: e?.proofUrl ?? "" });
+  }
+  return result;
+}
+
 // ── Página principal ───────────────────────────────────────────────────────
 export default function LigaDetailPage() {
   const router = useRouter();
@@ -201,6 +283,7 @@ export default function LigaDetailPage() {
   const [tab, setTab]     = useState<Tab>("jugadores");
   const [resultModal, setResultModal] = useState<{ri:number;mi:number}|null>(null);
   const [comprobanteUrl, setComprobanteUrl] = useState<string|null>(null);
+  const [savingPayment, setSavingPayment] = useState<string|null>(null);
 
   useEffect(()=>{
     const unsub = onAuthStateChanged(auth, async(u)=>{
@@ -211,6 +294,29 @@ export default function LigaDetailPage() {
     });
     return unsub;
   },[ligaId,router]);
+
+  async function setPaymentStatus(roundId: string, participantId: string, status: string) {
+    const key = `${roundId}:${participantId}`;
+    setSavingPayment(key);
+    try {
+      const roundPayments: any[] = liga.roundPayments ?? [];
+      const round = (liga.fixture?.rounds ?? []).find((r: any) => r.id === roundId);
+      const entries = roundId === REGISTRATION_ROUND_ID
+        ? resolveRegistrationEntries(roundPayments, liga)
+        : round ? resolveRoundEntries(round, roundPayments, liga) : [];
+      const updatedEntries = entries.map((e: any) =>
+        e.participantId === participantId ? { ...e, paymentStatus: status } : e
+      );
+      const updatedRoundPayments = [
+        ...roundPayments.filter((r: any) => r.roundId !== roundId),
+        { roundId, entries: updatedEntries },
+      ];
+      await updateDoc(doc(db, "leagues", ligaId), { roundPayments: updatedRoundPayments });
+      setLiga((prev: any) => ({ ...prev, roundPayments: updatedRoundPayments }));
+    } finally {
+      setSavingPayment(null);
+    }
+  }
 
   async function saveResult(ri:number,mi:number,result:any){
     const rounds=(liga.fixture?.rounds??[]).map((r:any,i:number)=>
@@ -242,9 +348,13 @@ export default function LigaDetailPage() {
   const isIndividual         = liga.teamType === "individual";
   const logoUrl              = liga.organizerLogoUrl || liga.organizerLogoURL || liga.complejo?.organizerLogoUrl || liga.complejo?.organizerLogoURL;
 
-  const allEntries  = roundPayments.flatMap((rp:any)=>rp.entries??[]);
-  const cntReview   = allEntries.filter((e:any)=>e.paymentStatus==="informo_transferencia"||e.paymentStatus==="in_review").length;
-  const cntPagado   = allEntries.filter((e:any)=>e.paymentStatus==="pagado"||e.paymentStatus==="paid").length;
+  const regFeeEnabled = liga.paymentConfig?.registrationFeeEnabled === true && (liga.paymentConfig?.registrationFeeAmount ?? 0) > 0;
+  const allResolvedEntries = [
+    ...(regFeeEnabled ? resolveRegistrationEntries(roundPayments, liga) : []),
+    ...rounds.flatMap((r: any) => resolveRoundEntries(r, roundPayments, liga)),
+  ];
+  const cntReview   = allResolvedEntries.filter((e:any)=>e.paymentStatus==="informo_transferencia"||e.paymentStatus==="in_review").length;
+  const cntPagado   = allResolvedEntries.filter((e:any)=>e.paymentStatus==="pagado"||e.paymentStatus==="paid").length;
   const completedRounds = rounds.filter((r:any)=>!!r.completedAtMillis).length;
 
   const modules = [
@@ -662,9 +772,10 @@ export default function LigaDetailPage() {
               {/* ── PAGOS ─────────────────────────────────────────────── */}
               {tab==="pagos" && (
                 <div>
+                  {/* Config badges */}
                   {liga.paymentConfig && (
                     <div className="flex gap-5 flex-wrap mb-4 text-sm">
-                      {liga.paymentConfig.registrationFeeEnabled && (
+                      {regFeeEnabled && (
                         <span className="text-pn-navy font-bold">Inscripción: <span className="text-pn-green">$ {liga.paymentConfig.registrationFeeAmount}</span></span>
                       )}
                       {liga.paymentConfig.roundPricePerPlayer > 0 && (
@@ -672,78 +783,181 @@ export default function LigaDetailPage() {
                       )}
                     </div>
                   )}
-                  {allEntries.length > 0 && (
+
+                  {/* Resumen */}
+                  {allResolvedEntries.length > 0 && (
                     <div className="flex gap-2 mb-5 flex-wrap">
                       <span className="border-2 border-pn-green text-pn-green text-xs font-bold px-4 py-1.5 rounded-full">Pagados {cntPagado}</span>
                       <span className="border-2 border-amber-400 text-amber-500 text-xs font-bold px-4 py-1.5 rounded-full">Verificar {cntReview}</span>
                       <span className="border-2 border-gray-200 text-gray-400 text-xs font-bold px-4 py-1.5 rounded-full">
-                        Impagos {allEntries.length - cntPagado - cntReview}
+                        Impagos {allResolvedEntries.length - cntPagado - cntReview}
                       </span>
                     </div>
                   )}
-                  {rounds.length===0 && roundPayments.length===0 && (
+
+                  {!liga.paymentConfig && rounds.length === 0 && (
                     <p className="text-center text-gray-400 py-12">No hay pagos configurados.</p>
                   )}
-                  <div className="flex flex-col gap-4">
-                    {rounds.map((round:any,ri:number)=>{
-                      const rp=roundPayments.find((r:any)=>r.roundId===round.id||r.roundId===`round-${round.number??ri+1}`);
-                      const entries: any[]=rp?.entries??[];
-                      return (
-                        <div key={ri} className="rounded-2xl overflow-hidden border border-gray-100">
-                          <div className="bg-pn-navy px-5 py-3 flex items-center justify-between">
-                            <span className="font-black text-white uppercase tracking-wide text-sm">{round.title??`Fecha ${round.number??ri+1}`}</span>
-                            {liga.paymentConfig?.roundPricePerPlayer>0 && (
-                              <span className="text-xs text-gray-400">$ {liga.paymentConfig.roundPricePerPlayer} / jugador</span>
-                            )}
-                          </div>
-                          {entries.length>0 && (
-                            <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
-                              style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 40px"}}>
-                              <div>Jugador</div><div className="text-center">Estado</div>
-                              <div className="text-center">Modo</div><div className="text-center">Comp.</div>
-                              <div className="text-right">$</div><div/>
+
+                  {(() => {
+                    // Armar lista de bloques: inscripción (si aplica) + fechas del fixture
+                    const blocks: { id: string; title: string; amount: number; entries: any[] }[] = [];
+
+                    if (regFeeEnabled) {
+                      blocks.push({
+                        id: REGISTRATION_ROUND_ID,
+                        title: "Inscripción",
+                        amount: liga.paymentConfig?.registrationFeeAmount ?? 0,
+                        entries: resolveRegistrationEntries(roundPayments, liga),
+                      });
+                    }
+                    rounds.forEach((round: any, ri: number) => {
+                      blocks.push({
+                        id: round.id,
+                        title: round.title ?? `Fecha ${round.number ?? ri + 1}`,
+                        amount: liga.paymentConfig?.roundPricePerPlayer ?? 0,
+                        entries: resolveRoundEntries(round, roundPayments, liga),
+                      });
+                    });
+
+                    if (blocks.length === 0) return null;
+
+                    return (
+                      <div className="flex flex-col gap-4">
+                        {blocks.map((block) => (
+                          <div key={block.id} className="rounded-2xl overflow-hidden border border-gray-100">
+                            {/* Header del bloque */}
+                            <div className="bg-pn-navy px-5 py-3 flex items-center justify-between">
+                              <span className="font-black text-white uppercase tracking-wide text-sm">{block.title}</span>
+                              {block.amount > 0 && (
+                                <span className="text-xs text-gray-400">$ {block.amount} / jugador</span>
+                              )}
                             </div>
-                          )}
-                          <div className="divide-y divide-gray-50">
-                            {entries.map((entry:any,ei:number)=>{
-                              const status=entry.paymentStatus??"pendiente";
-                              const isPagado=status==="pagado"||status==="paid";
-                              const isReview=status==="informo_transferencia"||status==="in_review";
-                              return (
-                                <div key={ei} className="grid items-center px-4 py-3" style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 40px"}}>
-                                  <div className="font-bold text-pn-navy text-sm truncate pr-2">{entry.pairLabel??entry.participantLabel??"Jugador"}</div>
-                                  <div className="text-center">
-                                    <span className={`text-xs font-bold ${isPagado?"text-pn-green":isReview?"text-amber-500":"text-red-400"}`}>
-                                      {isPagado?"Pagado":isReview?"Verificar":"Impago"}
-                                    </span>
-                                  </div>
-                                  <div className="text-center text-xs text-gray-400">
-                                    {entry.paymentMethod==="mercado_pago"?"MP":entry.paymentMethod==="efectivo"?"Efec.":entry.paymentMethod||"-"}
-                                  </div>
-                                  <div className="text-center">
-                                    {entry.proofUrl
-                                      ? <button onClick={()=>setComprobanteUrl(entry.proofUrl)} className="text-xs text-pn-green font-bold hover:underline flex items-center gap-0.5 mx-auto"><Eye size={11}/>Ver</button>
-                                      : <span className="text-xs text-gray-300">-</span>}
-                                  </div>
-                                  <div className="text-right text-xs font-bold text-pn-navy">
-                                    {liga.paymentConfig?.roundPricePerPlayer?`$ ${liga.paymentConfig.roundPricePerPlayer}`:""}
-                                  </div>
-                                  <div className="flex justify-center">
-                                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isPagado?"bg-pn-green":isReview?"bg-amber-400":"bg-gray-200"}`}>
-                                      <DollarSign size={14} className="text-white"/>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {entries.length===0 && (
-                              <div className="px-4 py-4 text-xs text-gray-400 text-center italic">Sin registros de pago</div>
+
+                            {/* Columnas header */}
+                            {block.entries.length > 0 && (
+                              <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
+                                style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 80px"}}>
+                                <div>Jugador</div>
+                                <div className="text-center">Estado</div>
+                                <div className="text-center">Modo</div>
+                                <div className="text-center">Comp.</div>
+                                <div className="text-right">$</div>
+                                <div className="text-center">Acción</div>
+                              </div>
                             )}
+
+                            <div className="divide-y divide-gray-50">
+                              {block.entries.length === 0 && (
+                                <div className="px-4 py-6 text-sm text-gray-400 text-center italic">
+                                  Sin jugadores en este bloque
+                                </div>
+                              )}
+                              {block.entries.map((entry: any, ei: number) => {
+                                const status = entry.paymentStatus ?? "pendiente";
+                                const isPagado = status === "pagado" || status === "paid";
+                                const isReview = status === "informo_transferencia" || status === "in_review";
+                                const saveKey = `${block.id}:${entry.participantId}`;
+                                const isSaving = savingPayment === saveKey;
+
+                                return (
+                                  <div key={ei} className="grid items-center px-4 py-3 hover:bg-gray-50/50 transition-colors"
+                                    style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 80px"}}>
+
+                                    {/* Jugador */}
+                                    <div className="min-w-0 pr-2">
+                                      <div className="font-bold text-pn-navy text-sm truncate">
+                                        {entry.participantLabel || "Jugador"}
+                                      </div>
+                                      {entry.pairLabel && (
+                                        <div className="text-xs text-gray-400 truncate">{entry.pairLabel}</div>
+                                      )}
+                                    </div>
+
+                                    {/* Estado */}
+                                    <div className="text-center">
+                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                        isPagado ? "bg-green-50 text-pn-green" :
+                                        isReview ? "bg-amber-50 text-amber-600" :
+                                        "bg-red-50 text-red-400"
+                                      }`}>
+                                        {isPagado ? "Pagado" : isReview ? "A verificar" : "Impago"}
+                                      </span>
+                                    </div>
+
+                                    {/* Modo */}
+                                    <div className="text-center text-xs text-gray-400">
+                                      {entry.paymentMethod === "mercado_pago" ? "MP" :
+                                       entry.paymentMethod === "efectivo" ? "Efec." :
+                                       entry.paymentMethod === "transferencia" ? "Trans." :
+                                       entry.paymentMethod || "-"}
+                                    </div>
+
+                                    {/* Comprobante */}
+                                    <div className="text-center">
+                                      {entry.proofUrl
+                                        ? <button onClick={() => setComprobanteUrl(entry.proofUrl)}
+                                            className="text-xs text-pn-green font-bold hover:underline flex items-center gap-0.5 mx-auto">
+                                            <Eye size={11}/>Ver
+                                          </button>
+                                        : <span className="text-xs text-gray-300">-</span>}
+                                    </div>
+
+                                    {/* Monto */}
+                                    <div className="text-right text-xs font-bold text-pn-navy">
+                                      {block.amount > 0 ? `$ ${block.amount}` : ""}
+                                    </div>
+
+                                    {/* Acciones */}
+                                    <div className="flex items-center justify-center gap-1">
+                                      {isSaving ? (
+                                        <div className="w-5 h-5 border-2 border-pn-green border-t-transparent rounded-full animate-spin"/>
+                                      ) : isPagado ? (
+                                        <div className="flex items-center gap-1">
+                                          <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center">
+                                            <Check size={13} className="text-white"/>
+                                          </div>
+                                          <button
+                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pendiente")}
+                                            title="Revertir a impago"
+                                            className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-red-50 flex items-center justify-center transition-colors">
+                                            <X size={13} className="text-gray-400 hover:text-red-400"/>
+                                          </button>
+                                        </div>
+                                      ) : isReview ? (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pagado")}
+                                            title="Confirmar pago"
+                                            className="w-7 h-7 rounded-lg bg-pn-green hover:bg-green-600 flex items-center justify-center transition-colors">
+                                            <Check size={13} className="text-white"/>
+                                          </button>
+                                          <button
+                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pendiente")}
+                                            title="Rechazar"
+                                            className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors">
+                                            <X size={13} className="text-red-400"/>
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => setPaymentStatus(block.id, entry.participantId, "pagado")}
+                                          title="Marcar como pagado"
+                                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-pn-green hover:text-white flex items-center justify-center transition-colors group">
+                                          <Check size={13} className="text-gray-400 group-hover:text-white"/>
+                                        </button>
+                                      )}
+                                    </div>
+
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
