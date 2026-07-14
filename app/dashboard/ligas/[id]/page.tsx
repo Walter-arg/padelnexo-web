@@ -476,15 +476,10 @@ export default function LigaDetailPage() {
                   {players.length === 0 && (
                     <p className="text-center text-gray-400 py-12">No hay jugadores inscriptos.</p>
                   )}
-                  {isIndividual && players.length > 0 && (
-                    <div className="flex gap-6 text-sm font-bold text-pn-green mb-4 px-1">
-                      <span>Drive {players.filter((p:any)=>p.ladoJuego==="drive").length}/{Math.ceil(players.length/2)}</span>
-                      <span>Reves {players.filter((p:any)=>p.ladoJuego==="reves").length}/{Math.floor(players.length/2)}</span>
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-2">
-                    {liga.teamType==="pair"
-                      ? (() => {
+                  {liga.teamType==="pair"
+                    ? (
+                      <div className="flex flex-col gap-2">
+                        {(() => {
                           const pares: Record<number,any[]> = {};
                           players.forEach((p:any)=>{ const n=p.pairNumber??0; if(!pares[n])pares[n]=[]; pares[n].push(p); });
                           return Object.entries(pares).sort(([a],[b])=>Number(a)-Number(b)).map(([num,pp])=>(
@@ -504,21 +499,63 @@ export default function LigaDetailPage() {
                               ))}
                             </div>
                           ));
-                        })()
-                      : players.map((p:any,i:number)=>(
+                        })()}
+                      </div>
+                    )
+                    : isIndividual
+                    ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        {(["drive","reves"] as const).map((lado)=>{
+                          const col = players.filter((p:any)=>p.ladoJuego===lado);
+                          return (
+                            <div key={lado} className="rounded-2xl border border-gray-100 overflow-hidden">
+                              <div className={`px-4 py-2.5 flex items-center gap-2 ${lado==="drive" ? "bg-blue-50" : "bg-violet-50"}`}>
+                                <span className={`text-xs font-black uppercase tracking-wide ${lado==="drive" ? "text-blue-600" : "text-violet-600"}`}>
+                                  {lado === "drive" ? "Drive" : "Revés"}
+                                </span>
+                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${lado==="drive" ? "bg-blue-100 text-blue-500" : "bg-violet-100 text-violet-500"}`}>
+                                  {col.length}
+                                </span>
+                              </div>
+                              {col.length === 0 && (
+                                <p className="text-center text-gray-300 text-xs py-6">Sin jugadores</p>
+                              )}
+                              <div className="flex flex-col">
+                                {col.map((p:any,i:number)=>(
+                                  <div key={i} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0">
+                                    {p.foto
+                                      ? <img src={p.foto} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
+                                      : <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${lado==="drive" ? "bg-blue-50 text-blue-500" : "bg-violet-50 text-violet-500"}`}>{(p.nombre?.[0]??"?").toUpperCase()}</div>}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-bold text-pn-navy text-sm truncate">{p.nombre} {p.apellido??""}</div>
+                                      <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
+                                    </div>
+                                    {p.type==="guest" && <span className="text-xs bg-amber-50 text-amber-500 font-semibold px-2 py-0.5 rounded-full flex-shrink-0">Invitado</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
+                    : (
+                      <div className="flex flex-col gap-2">
+                        {players.map((p:any,i:number)=>(
                           <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-100">
                             {p.foto
                               ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
                               : <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center font-black text-blue-500 text-sm flex-shrink-0">{(p.nombre?.[0]??"?").toUpperCase()}</div>}
                             <div className="flex-1 min-w-0">
                               <div className="font-bold text-pn-navy text-sm">{p.nombre} {p.apellido??""}</div>
-                              <div className="text-xs text-gray-400">{p.ladoJuego?`${p.ladoJuego.charAt(0).toUpperCase()+p.ladoJuego.slice(1)} · `:""}{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
+                              <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
                             </div>
                             {p.type==="guest" && <span className="text-xs bg-amber-50 text-amber-500 font-semibold px-2 py-0.5 rounded-full">Invitado</span>}
                           </div>
-                        ))
-                    }
-                  </div>
+                        ))}
+                      </div>
+                    )
+                  }
                 </div>
               )}
 
