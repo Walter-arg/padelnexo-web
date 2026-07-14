@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { doc, getDoc, updateDoc, collection, addDoc, setDoc, increment, serverTimestamp } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Users, DollarSign,
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
-  Contact, CalendarDays, Wallet, Check,
+  Contact, CalendarDays, Wallet, Check, MoreVertical,
+  MessageSquare, Smartphone, Upload,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -284,6 +286,13 @@ export default function LigaDetailPage() {
   const [resultModal, setResultModal] = useState<{ri:number;mi:number}|null>(null);
   const [comprobanteUrl, setComprobanteUrl] = useState<string|null>(null);
   const [savingPayment, setSavingPayment] = useState<string|null>(null);
+  const [openMenu, setOpenMenu] = useState<string|null>(null);
+  const [paymentModal, setPaymentModal] = useState<{blockId:string;blockTitle:string;entry:any}|null>(null);
+  const [modalMethod, setModalMethod] = useState<"efectivo"|"transferencia">("efectivo");
+  const [modalFile, setModalFile] = useState<File|null>(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [toast, setToast] = useState<{msg:string;ok:boolean}|null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(()=>{
     const unsub = onAuthStateChanged(auth, async(u)=>{
@@ -294,6 +303,85 @@ export default function LigaDetailPage() {
     });
     return unsub;
   },[ligaId,router]);
+
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
+  }
+
+  function lookupPlayer(participantId: string): any {
+    return (liga.players ?? []).find((p: any) => {
+      const key = p.linkedUserId || p.id || p.nombre || "";
+      return key === participantId;
+    });
+  }
+
+  function buildWhatsAppUrl(participantId: string, roundTitle: string): string {
+    const player = lookupPlayer(participantId);
+    const raw = (player?.telefono || player?.celular || player?.phone || player?.whatsapp || "").replace(/\D/g, "");
+    if (!raw) return "";
+    const phone = raw.startsWith("54") ? raw : "54" + (raw.startsWith("0") ? raw.slice(1) : raw);
+    const ligaName = liga.nombre || liga.name || "la liga";
+    const msg = `Hola ${player?.nombre || ""}! Te recordamos que tenés el pago de ${roundTitle} pendiente en ${ligaName}. Si ya pagaste, marcalo en la app. Gracias!`;
+    return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+  }
+
+  async function sendReminderChat(entry: any, roundTitle: string) {
+    const player = lookupPlayer(entry.participantId);
+    const otherUserId = player?.linkedUserId || "";
+    if (!otherUserId) { showToast("Este jugador no tiene cuenta vinculada en la app.", false); return; }
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    const ligaName = liga.nombre || liga.name || "la liga";
+    const text = `Hola! Te recordamos que tenés el pago de "${roundTitle}" pendiente en ${ligaName}.`;
+    const conversationId = [currentUser.uid, otherUserId].sort().join("__");
+    const convRef = doc(db, "conversations", conversationId);
+    const msgsRef = collection(db, "conversations", conversationId, "messages");
+    await setDoc(convRef, {
+      participants: [currentUser.uid, otherUserId].sort(),
+      participantNames: { [currentUser.uid]: currentUser.displayName || "Organizador", [otherUserId]: entry.participantLabel || "Jugador" },
+      unreadBy: [otherUserId], lastMessageText: text, lastMessageSenderId: currentUser.uid,
+      updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
+    }, { merge: true });
+    await addDoc(msgsRef, { text, senderId: currentUser.uid, recipientId: otherUserId, createdAt: serverTimestamp() });
+    await updateDoc(convRef, {
+      updatedAt: serverTimestamp(), [`unreadCountBy.${otherUserId}`]: increment(1),
+      [`unreadCountBy.${currentUser.uid}`]: 0, unreadBy: [otherUserId],
+      lastMessageText: text, lastMessageSenderId: currentUser.uid,
+    });
+    showToast("Mensaje enviado por mensajería interna.");
+  }
+
+  async function savePaymentModal() {
+    if (!paymentModal) return;
+    setUploadingProof(true);
+    try {
+      let proofUrl = paymentModal.entry.proofUrl || "";
+      if (modalFile) {
+        const ext = modalFile.name.split(".").pop() ?? "jpg";
+        const path = `leaguePaymentProofs/${ligaId}/${paymentModal.blockId.replace(/[^a-zA-Z0-9]/g,"_")}/${paymentModal.entry.participantId}/${Date.now()}.${ext}`;
+        const sRef = storageRef(storage, path);
+        await uploadBytes(sRef, modalFile);
+        proofUrl = await getDownloadURL(sRef);
+      }
+      const rp: any[] = liga.roundPayments ?? [];
+      const round = (liga.fixture?.rounds ?? []).find((r: any) => r.id === paymentModal.blockId);
+      const entries = paymentModal.blockId === REGISTRATION_ROUND_ID
+        ? resolveRegistrationEntries(rp, liga)
+        : round ? resolveRoundEntries(round, rp, liga) : [];
+      const updatedEntries = entries.map((e: any) =>
+        e.participantId === paymentModal.entry.participantId
+          ? { ...e, paymentStatus: "pagado", paymentMethod: modalMethod, ...(proofUrl ? { proofUrl } : {}) }
+          : e
+      );
+      const updated = [...rp.filter((r: any) => r.roundId !== paymentModal.blockId), { roundId: paymentModal.blockId, entries: updatedEntries }];
+      await updateDoc(doc(db, "leagues", ligaId), { roundPayments: updated });
+      setLiga((prev: any) => ({ ...prev, roundPayments: updated }));
+      setPaymentModal(null); setModalFile(null);
+      showToast("Pago registrado correctamente.");
+    } catch { showToast("Error al guardar el pago.", false); }
+    finally { setUploadingProof(false); }
+  }
 
   async function setPaymentStatus(roundId: string, participantId: string, status: string) {
     const key = `${roundId}:${participantId}`;
@@ -837,7 +925,7 @@ export default function LigaDetailPage() {
                             {/* Columnas header */}
                             {block.entries.length > 0 && (
                               <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
-                                style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 80px"}}>
+                                style={{gridTemplateColumns:"1fr 100px 65px 55px 65px 100px"}}>
                                 <div>Jugador</div>
                                 <div className="text-center">Estado</div>
                                 <div className="text-center">Modo</div>
@@ -849,9 +937,7 @@ export default function LigaDetailPage() {
 
                             <div className="divide-y divide-gray-50">
                               {block.entries.length === 0 && (
-                                <div className="px-4 py-6 text-sm text-gray-400 text-center italic">
-                                  Sin jugadores en este bloque
-                                </div>
+                                <div className="px-4 py-6 text-sm text-gray-400 text-center italic">Sin jugadores en este bloque</div>
                               )}
                               {block.entries.map((entry: any, ei: number) => {
                                 const status = entry.paymentStatus ?? "pendiente";
@@ -859,94 +945,106 @@ export default function LigaDetailPage() {
                                 const isReview = status === "informo_transferencia" || status === "in_review";
                                 const saveKey = `${block.id}:${entry.participantId}`;
                                 const isSaving = savingPayment === saveKey;
+                                const menuKey = `${block.id}:${entry.participantId}`;
+                                const isMenuOpen = openMenu === menuKey;
+                                const isPending = !isPagado && !isReview;
+                                const waUrl = buildWhatsAppUrl(entry.participantId, block.title);
+                                const player = lookupPlayer(entry.participantId);
+                                const hasLinked = !!(player?.linkedUserId);
 
                                 return (
-                                  <div key={ei} className="grid items-center px-4 py-3 hover:bg-gray-50/50 transition-colors"
-                                    style={{gridTemplateColumns:"1fr 90px 60px 60px 70px 80px"}}>
+                                  <div key={ei} className="grid items-center px-4 py-3 hover:bg-gray-50/50 transition-colors relative"
+                                    style={{gridTemplateColumns:"1fr 100px 65px 55px 65px 100px"}}>
 
                                     {/* Jugador */}
                                     <div className="min-w-0 pr-2">
-                                      <div className="font-bold text-pn-navy text-sm truncate">
-                                        {entry.participantLabel || "Jugador"}
-                                      </div>
-                                      {entry.pairLabel && (
-                                        <div className="text-xs text-gray-400 truncate">{entry.pairLabel}</div>
-                                      )}
+                                      <div className="font-bold text-pn-navy text-sm truncate">{entry.participantLabel || "Jugador"}</div>
+                                      {entry.pairLabel && <div className="text-xs text-gray-400 truncate">{entry.pairLabel}</div>}
                                     </div>
 
                                     {/* Estado */}
                                     <div className="text-center">
-                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                                        isPagado ? "bg-green-50 text-pn-green" :
-                                        isReview ? "bg-amber-50 text-amber-600" :
-                                        "bg-red-50 text-red-400"
-                                      }`}>
+                                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isPagado?"bg-green-50 text-pn-green":isReview?"bg-amber-50 text-amber-600":"bg-red-50 text-red-400"}`}>
                                         {isPagado ? "Pagado" : isReview ? "A verificar" : "Impago"}
                                       </span>
                                     </div>
 
                                     {/* Modo */}
                                     <div className="text-center text-xs text-gray-400">
-                                      {entry.paymentMethod === "mercado_pago" ? "MP" :
-                                       entry.paymentMethod === "efectivo" ? "Efec." :
-                                       entry.paymentMethod === "transferencia" ? "Trans." :
-                                       entry.paymentMethod || "-"}
+                                      {entry.paymentMethod==="mercado_pago"?"MP":entry.paymentMethod==="efectivo"?"Efec.":entry.paymentMethod==="transferencia"?"Trans.":entry.paymentMethod||"-"}
                                     </div>
 
                                     {/* Comprobante */}
                                     <div className="text-center">
                                       {entry.proofUrl
-                                        ? <button onClick={() => setComprobanteUrl(entry.proofUrl)}
-                                            className="text-xs text-pn-green font-bold hover:underline flex items-center gap-0.5 mx-auto">
-                                            <Eye size={11}/>Ver
-                                          </button>
+                                        ? <button onClick={()=>setComprobanteUrl(entry.proofUrl)} className="text-xs text-pn-green font-bold hover:underline flex items-center gap-0.5 mx-auto"><Eye size={11}/>Ver</button>
                                         : <span className="text-xs text-gray-300">-</span>}
                                     </div>
 
                                     {/* Monto */}
-                                    <div className="text-right text-xs font-bold text-pn-navy">
-                                      {block.amount > 0 ? `$ ${block.amount}` : ""}
-                                    </div>
+                                    <div className="text-right text-xs font-bold text-pn-navy">{block.amount>0?`$ ${block.amount}`:""}</div>
 
-                                    {/* Acciones */}
+                                    {/* Acciones: confirm/reject + ⋮ menú */}
                                     <div className="flex items-center justify-center gap-1">
                                       {isSaving ? (
                                         <div className="w-5 h-5 border-2 border-pn-green border-t-transparent rounded-full animate-spin"/>
                                       ) : isPagado ? (
-                                        <div className="flex items-center gap-1">
-                                          <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center">
-                                            <Check size={13} className="text-white"/>
-                                          </div>
-                                          <button
-                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pendiente")}
-                                            title="Revertir a impago"
-                                            className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-red-50 flex items-center justify-center transition-colors">
-                                            <X size={13} className="text-gray-400 hover:text-red-400"/>
-                                          </button>
+                                        <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center">
+                                          <Check size={13} className="text-white"/>
                                         </div>
                                       ) : isReview ? (
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pagado")}
-                                            title="Confirmar pago"
-                                            className="w-7 h-7 rounded-lg bg-pn-green hover:bg-green-600 flex items-center justify-center transition-colors">
-                                            <Check size={13} className="text-white"/>
-                                          </button>
-                                          <button
-                                            onClick={() => setPaymentStatus(block.id, entry.participantId, "pendiente")}
-                                            title="Rechazar"
-                                            className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors">
-                                            <X size={13} className="text-red-400"/>
-                                          </button>
-                                        </div>
+                                        <>
+                                          <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pagado")} title="Confirmar" className="w-7 h-7 rounded-lg bg-pn-green hover:bg-green-600 flex items-center justify-center transition-colors"><Check size={13} className="text-white"/></button>
+                                          <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pendiente")} title="Rechazar" className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors"><X size={13} className="text-red-400"/></button>
+                                        </>
                                       ) : (
-                                        <button
-                                          onClick={() => setPaymentStatus(block.id, entry.participantId, "pagado")}
-                                          title="Marcar como pagado"
-                                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-pn-green hover:text-white flex items-center justify-center transition-colors group">
-                                          <Check size={13} className="text-gray-400 group-hover:text-white"/>
-                                        </button>
+                                        <button onClick={()=>{ setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod("efectivo"); setModalFile(null); }} title="Registrar pago" className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-pn-green group flex items-center justify-center transition-colors"><Check size={13} className="text-gray-400 group-hover:text-white"/></button>
                                       )}
+
+                                      {/* ⋮ menú */}
+                                      <div className="relative">
+                                        <button onClick={()=>setOpenMenu(isMenuOpen?null:menuKey)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors">
+                                          <MoreVertical size={14} className="text-gray-400"/>
+                                        </button>
+                                        {isMenuOpen && (
+                                          <>
+                                            <div className="fixed inset-0 z-20" onClick={()=>setOpenMenu(null)}/>
+                                            <div className="absolute right-0 top-8 z-30 bg-white rounded-2xl shadow-xl border border-gray-100 py-1.5 w-52 overflow-hidden">
+                                              {waUrl && (
+                                                <a href={waUrl} target="_blank" rel="noreferrer"
+                                                  onClick={()=>setOpenMenu(null)}
+                                                  className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                                  <Smartphone size={15} className="text-green-500 flex-shrink-0"/>
+                                                  Recordatorio WhatsApp
+                                                </a>
+                                              )}
+                                              {hasLinked && (
+                                                <button onClick={()=>{ setOpenMenu(null); sendReminderChat(entry, block.title); }}
+                                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                                  <MessageSquare size={15} className="text-blue-500 flex-shrink-0"/>
+                                                  Mensaje interno
+                                                </button>
+                                              )}
+                                              {!waUrl && !hasLinked && (
+                                                <div className="px-4 py-2.5 text-xs text-gray-400 italic">Sin datos de contacto</div>
+                                              )}
+                                              <div className="my-1 border-t border-gray-100"/>
+                                              <button onClick={()=>{ setOpenMenu(null); setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod((entry.paymentMethod==="transferencia"?"transferencia":"efectivo") as "efectivo"|"transferencia"); setModalFile(null); }}
+                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                                <Upload size={15} className="text-violet-500 flex-shrink-0"/>
+                                                {isPagado ? "Editar pago / comprobante" : "Registrar pago"}
+                                              </button>
+                                              {!isPending && (
+                                                <button onClick={()=>{ setOpenMenu(null); setPaymentStatus(block.id,entry.participantId,"pendiente"); }}
+                                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors text-left">
+                                                  <X size={15} className="flex-shrink-0"/>
+                                                  Marcar impago
+                                                </button>
+                                              )}
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
 
                                   </div>
@@ -983,6 +1081,67 @@ export default function LigaDetailPage() {
             <img src={comprobanteUrl} className="w-full rounded-2xl shadow-2xl" alt="Comprobante"/>
             <button onClick={()=>setComprobanteUrl(null)} className="absolute top-3 right-3 bg-white/90 rounded-full w-8 h-8 flex items-center justify-center font-black text-lg">×</button>
           </div>
+        </div>
+      )}
+
+      {/* Modal registrar pago */}
+      {paymentModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={()=>!uploadingProof&&setPaymentModal(null)}>
+          <div className="bg-white rounded-3xl p-7 w-full max-w-md shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-black text-pn-navy text-lg">Registrar pago</h3>
+                <p className="text-sm text-gray-400 mt-0.5">{paymentModal.entry.participantLabel} · {paymentModal.blockTitle}</p>
+              </div>
+              <button onClick={()=>setPaymentModal(null)} disabled={uploadingProof}><X size={20} className="text-gray-400"/></button>
+            </div>
+
+            {/* Método de pago */}
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Método de pago</label>
+            <div className="flex gap-3 mb-5">
+              {(["efectivo","transferencia"] as const).map(m=>(
+                <button key={m} onClick={()=>setModalMethod(m)}
+                  className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all ${modalMethod===m?"border-pn-green bg-pn-mint text-pn-navy":"border-gray-100 text-gray-500 hover:border-gray-200"}`}>
+                  {m==="efectivo"?"💵 Efectivo":"🏦 Transferencia"}
+                </button>
+              ))}
+            </div>
+
+            {/* Comprobante */}
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+              Comprobante {modalMethod==="efectivo"?"(opcional)":""}
+            </label>
+            <div
+              onClick={()=>fileInputRef.current?.click()}
+              className="border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center cursor-pointer hover:border-pn-green transition-colors mb-5">
+              {modalFile ? (
+                <div className="text-sm font-semibold text-pn-navy">{modalFile.name}</div>
+              ) : paymentModal.entry.proofUrl ? (
+                <div className="text-xs text-gray-400">Ya tiene comprobante — subí uno nuevo para reemplazarlo</div>
+              ) : (
+                <div className="text-xs text-gray-400">Tocá para adjuntar imagen o PDF</div>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden"
+                onChange={e=>setModalFile(e.target.files?.[0]??null)}/>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={()=>setPaymentModal(null)} disabled={uploadingProof}
+                className="flex-1 py-3 rounded-xl border-2 border-gray-100 text-sm font-bold text-gray-500 disabled:opacity-50">Cancelar</button>
+              <button onClick={savePaymentModal} disabled={uploadingProof}
+                className="flex-1 py-3 rounded-xl bg-pn-green text-white text-sm font-black disabled:opacity-50 flex items-center justify-center gap-2">
+                {uploadingProof ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Subiendo...</> : <><Check size={15}/>Confirmar pago</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-2xl shadow-xl text-white text-sm font-bold transition-all ${toast.ok?"bg-pn-green":"bg-red-500"}`}>
+          {toast.ok ? <Check size={16}/> : <X size={16}/>}
+          {toast.msg}
         </div>
       )}
     </DashboardLayout>
