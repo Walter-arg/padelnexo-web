@@ -12,7 +12,7 @@ import {
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
-  MessageSquare, Smartphone, Upload,
+  MessageSquare, Smartphone,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -986,22 +986,33 @@ export default function LigaDetailPage() {
 
                                     {/* Acciones: confirm/reject + ⋮ menú */}
                                     <div className="flex items-center justify-center gap-1">
+                                      {/* Botón directo: Registrar pago (abre modal) */}
                                       {isSaving ? (
-                                        <div className="w-5 h-5 border-2 border-pn-green border-t-transparent rounded-full animate-spin"/>
+                                        <div className="w-7 h-7 flex items-center justify-center">
+                                          <div className="w-4 h-4 border-2 border-pn-green border-t-transparent rounded-full animate-spin"/>
+                                        </div>
                                       ) : isPagado ? (
-                                        <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center">
+                                        <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center" title="Pagado">
                                           <Check size={13} className="text-white"/>
                                         </div>
                                       ) : isReview ? (
+                                        /* En revisión: confirmar o rechazar rápido */
                                         <>
-                                          <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pagado")} title="Confirmar" className="w-7 h-7 rounded-lg bg-pn-green hover:bg-green-600 flex items-center justify-center transition-colors"><Check size={13} className="text-white"/></button>
+                                          <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pagado")} title="Confirmar pago" className="w-7 h-7 rounded-lg bg-pn-green hover:bg-green-600 flex items-center justify-center transition-colors"><Check size={13} className="text-white"/></button>
                                           <button onClick={()=>setPaymentStatus(block.id,entry.participantId,"pendiente")} title="Rechazar" className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors"><X size={13} className="text-red-400"/></button>
                                         </>
                                       ) : (
-                                        <button onClick={()=>{ setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod("efectivo"); setModalFile(null); }} title="Registrar pago" className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-pn-green group flex items-center justify-center transition-colors"><Check size={13} className="text-gray-400 group-hover:text-white"/></button>
+                                        /* Pendiente: botón Registrar pago */
+                                        <button
+                                          onClick={()=>{ setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod("efectivo"); setModalFile(null); }}
+                                          title="Registrar pago"
+                                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-pn-green hover:text-white text-gray-500 text-xs font-bold transition-colors group">
+                                          <Check size={12} className="group-hover:text-white"/>
+                                          Registrar
+                                        </button>
                                       )}
 
-                                      {/* ⋮ menú */}
+                                      {/* ⋮ menú contextual */}
                                       <div className="relative">
                                         <button onClick={()=>setOpenMenu(isMenuOpen?null:menuKey)} className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors">
                                           <MoreVertical size={14} className="text-gray-400"/>
@@ -1009,37 +1020,42 @@ export default function LigaDetailPage() {
                                         {isMenuOpen && (
                                           <>
                                             <div className="fixed inset-0 z-20" onClick={()=>setOpenMenu(null)}/>
-                                            <div className="absolute right-0 top-8 z-30 bg-white rounded-2xl shadow-xl border border-gray-100 py-1.5 w-52 overflow-hidden">
-                                              {waUrl && (
+                                            <div className="absolute right-0 top-8 z-30 bg-white rounded-2xl shadow-xl border border-gray-100 py-1.5 w-56 overflow-hidden">
+                                              {/* WhatsApp — siempre visible */}
+                                              {waUrl ? (
                                                 <a href={waUrl} target="_blank" rel="noreferrer"
                                                   onClick={()=>setOpenMenu(null)}
                                                   className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
                                                   <Smartphone size={15} className="text-green-500 flex-shrink-0"/>
-                                                  Recordatorio WhatsApp
+                                                  Enviar WhatsApp
                                                 </a>
+                                              ) : (
+                                                <div className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-300 cursor-default" title="El jugador no tiene teléfono registrado">
+                                                  <Smartphone size={15} className="flex-shrink-0"/>
+                                                  Enviar WhatsApp
+                                                </div>
                                               )}
-                                              {hasLinked && (
-                                                <button onClick={()=>{ setOpenMenu(null); sendReminderChat(entry, block.title); }}
-                                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                                                  <MessageSquare size={15} className="text-blue-500 flex-shrink-0"/>
-                                                  Mensaje interno
-                                                </button>
-                                              )}
-                                              {!waUrl && !hasLinked && (
-                                                <div className="px-4 py-2.5 text-xs text-gray-400 italic">Sin datos de contacto</div>
-                                              )}
-                                              <div className="my-1 border-t border-gray-100"/>
-                                              <button onClick={()=>{ setOpenMenu(null); setPaymentModal({blockId:block.id,blockTitle:block.title,entry}); setModalMethod((entry.paymentMethod==="transferencia"?"transferencia":"efectivo") as "efectivo"|"transferencia"); setModalFile(null); }}
-                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                                                <Upload size={15} className="text-violet-500 flex-shrink-0"/>
-                                                {isPagado ? "Editar pago / comprobante" : "Registrar pago"}
+
+                                              {/* Mensaje interno */}
+                                              <button
+                                                onClick={()=>{ setOpenMenu(null); sendReminderChat(entry, block.title); }}
+                                                disabled={!hasLinked}
+                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:text-gray-300 disabled:hover:bg-transparent text-left"
+                                                title={!hasLinked?"El jugador no tiene cuenta vinculada":""}>
+                                                <MessageSquare size={15} className="text-blue-500 flex-shrink-0"/>
+                                                Mensaje interno
                                               </button>
+
+                                              {/* Marcar impago — solo cuando no es pendiente */}
                                               {!isPending && (
-                                                <button onClick={()=>{ setOpenMenu(null); setPaymentStatus(block.id,entry.participantId,"pendiente"); }}
-                                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors text-left">
-                                                  <X size={15} className="flex-shrink-0"/>
-                                                  Marcar impago
-                                                </button>
+                                                <>
+                                                  <div className="my-1 border-t border-gray-100"/>
+                                                  <button onClick={()=>{ setOpenMenu(null); setPaymentStatus(block.id,entry.participantId,"pendiente"); }}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors text-left">
+                                                    <X size={15} className="flex-shrink-0"/>
+                                                    Marcar como impago
+                                                  </button>
+                                                </>
                                               )}
                                             </div>
                                           </>
