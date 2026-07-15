@@ -941,7 +941,7 @@ export default function LigaDetailPage() {
                                 <div className="text-center">Modo</div>
                                 <div className="text-center">Comprobante</div>
                                 <div className="text-center">$</div>
-                                <div className="text-center">Acción</div>
+                                <div/>
                               </div>
                             )}
 
@@ -1002,8 +1002,8 @@ export default function LigaDetailPage() {
                                           <div className="w-4 h-4 border-2 border-pn-green border-t-transparent rounded-full animate-spin"/>
                                         </div>
                                       ) : isPagado ? (
-                                        <div className="w-7 h-7 rounded-lg bg-pn-green flex items-center justify-center" title="Pagado">
-                                          <Check size={13} className="text-white"/>
+                                        <div className="w-5 h-5 rounded-md bg-pn-green flex items-center justify-center mx-auto" title="Pagado">
+                                          <Check size={10} className="text-white"/>
                                         </div>
                                       ) : isReview ? (
                                         /* En revisión: confirmar o rechazar rápido */
