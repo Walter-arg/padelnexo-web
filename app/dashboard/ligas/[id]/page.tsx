@@ -688,7 +688,7 @@ export default function LigaDetailPage() {
                                 <div key={i} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0">
                                   {p.foto
                                     ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
-                                    : <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center font-black text-blue-500 text-sm flex-shrink-0">{(p.nombre?.[0]??"?").toUpperCase()}</div>}
+                                    : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
                                   <div className="flex-1 min-w-0">
                                     <div className="font-bold text-pn-navy text-sm">{p.nombre} {p.apellido??""}</div>
                                     <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
@@ -724,7 +724,7 @@ export default function LigaDetailPage() {
                                   <div key={i} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0">
                                     {p.foto
                                       ? <img src={p.foto} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
-                                      : <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${lado==="drive" ? "bg-blue-50 text-blue-500" : "bg-violet-50 text-violet-500"}`}>{(p.nombre?.[0]??"?").toUpperCase()}</div>}
+                                      : <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
                                     <div className="flex-1 min-w-0">
                                       <div className="font-bold text-pn-navy text-sm truncate">{p.nombre} {p.apellido??""}</div>
                                       <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
@@ -744,7 +744,7 @@ export default function LigaDetailPage() {
                           <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-100">
                             {p.foto
                               ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
-                              : <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center font-black text-blue-500 text-sm flex-shrink-0">{(p.nombre?.[0]??"?").toUpperCase()}</div>}
+                              : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
                             <div className="flex-1 min-w-0">
                               <div className="font-bold text-pn-navy text-sm">{p.nombre} {p.apellido??""}</div>
                               <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
