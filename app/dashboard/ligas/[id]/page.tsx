@@ -287,6 +287,7 @@ export default function LigaDetailPage() {
   const [comprobanteUrl, setComprobanteUrl] = useState<string|null>(null);
   const [savingPayment, setSavingPayment] = useState<string|null>(null);
   const [openMenu, setOpenMenu] = useState<string|null>(null);
+  const [playerProfile, setPlayerProfile] = useState<any|null>(null);
   const [openBlocks, setOpenBlocks] = useState<Record<string,boolean>>({});
   const [paymentModal, setPaymentModal] = useState<{blockId:string;blockTitle:string;entry:any}|null>(null);
   const [modalMethod, setModalMethod] = useState<"efectivo"|"transferencia">("efectivo");
@@ -685,7 +686,7 @@ export default function LigaDetailPage() {
                             <div key={num} className="rounded-2xl overflow-hidden border border-gray-100">
                               <div className="px-4 py-2 bg-gray-50 text-xs font-bold text-gray-400">Pareja {num}</div>
                               {pp.map((p:any,i:number)=>(
-                                <div key={i} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0">
+                                <div key={i} onClick={()=>setPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0 cursor-pointer hover:bg-gray-50 transition-colors">
                                   {p.foto
                                     ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
                                     : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
@@ -721,7 +722,7 @@ export default function LigaDetailPage() {
                               )}
                               <div className="flex flex-col">
                                 {col.map((p:any,i:number)=>(
-                                  <div key={i} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0">
+                                  <div key={i} onClick={()=>setPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0 cursor-pointer hover:bg-gray-50 transition-colors">
                                     {p.foto
                                       ? <img src={p.foto} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
                                       : <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
@@ -741,7 +742,7 @@ export default function LigaDetailPage() {
                     : (
                       <div className="flex flex-col gap-2">
                         {players.map((p:any,i:number)=>(
-                          <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-100">
+                          <div key={i} onClick={()=>setPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors">
                             {p.foto
                               ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
                               : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
@@ -1164,6 +1165,118 @@ export default function LigaDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Modal perfil jugador */}
+      {playerProfile && (()=>{
+        const pp = playerProfile;
+        const phone = pp.telefono || pp.celular || pp.phone || pp.whatsapp || "";
+        const foto = pp.foto || pp.avatarUrl || pp.fotoURL || "";
+        let waHref = "";
+        if (phone) {
+          let digits = phone.replace(/\D/g,"");
+          if (!digits.startsWith("54")) {
+            if (digits.startsWith("0")) digits = digits.slice(1);
+            digits = "54" + digits;
+          }
+          waHref = `https://wa.me/${digits}`;
+        }
+        const ciudad = [pp.ciudad, pp.provincia].filter(Boolean).join(", ");
+        const isGuest = pp.type === "guest";
+        return (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={()=>setPlayerProfile(null)}>
+            <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e=>e.stopPropagation()}>
+              {/* Header con gradiente */}
+              <div className="relative bg-gradient-to-br from-pn-navy to-pn-navy/80 px-6 pt-8 pb-16">
+                <button onClick={()=>setPlayerProfile(null)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                  <X size={16} className="text-white"/>
+                </button>
+                <div className="flex flex-col items-center gap-3">
+                  {foto
+                    ? <img src={foto} className="w-20 h-20 rounded-full object-cover border-4 border-white/20"/>
+                    : <div className="w-20 h-20 rounded-full bg-white/10 border-4 border-white/20 flex items-center justify-center">
+                        <svg viewBox="0 0 24 24" className="w-10 h-10 text-white/60" fill="currentColor">
+                          <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                        </svg>
+                      </div>}
+                  <div className="text-center">
+                    <div className="font-black text-white text-xl leading-tight">{`${pp.nombre||""} ${pp.apellido||""}`.trim()||"Jugador"}</div>
+                    <div className="mt-1.5 flex items-center justify-center gap-2">
+                      {isGuest
+                        ? <span className="text-xs bg-amber-400/20 text-amber-300 font-semibold px-2.5 py-0.5 rounded-full">Invitado</span>
+                        : <span className="text-xs bg-pn-green/20 text-pn-mint font-semibold px-2.5 py-0.5 rounded-full">Registrado</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info cards */}
+              <div className="-mt-8 mx-4 bg-white rounded-2xl shadow-lg border border-gray-100 divide-y divide-gray-50">
+                {pp.categoria && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Trophy size={15} className="text-amber-400 flex-shrink-0"/>
+                    <span className="text-sm text-gray-500">Categoría</span>
+                    <span className="ml-auto text-sm font-bold text-pn-navy">{pp.categoria}</span>
+                  </div>
+                )}
+                {pp.ladoJuego && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Shield size={15} className={`flex-shrink-0 ${pp.ladoJuego==="drive"?"text-blue-400":"text-violet-400"}`}/>
+                    <span className="text-sm text-gray-500">Lado</span>
+                    <span className={`ml-auto text-sm font-bold ${pp.ladoJuego==="drive"?"text-blue-600":"text-violet-600"}`}>
+                      {pp.ladoJuego==="drive"?"Drive":"Revés"}
+                    </span>
+                  </div>
+                )}
+                {pp.pairNumber != null && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Users size={15} className="text-gray-400 flex-shrink-0"/>
+                    <span className="text-sm text-gray-500">Pareja</span>
+                    <span className="ml-auto text-sm font-bold text-pn-navy">#{pp.pairNumber}</span>
+                  </div>
+                )}
+                {ciudad && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <MapPin size={15} className="text-gray-400 flex-shrink-0"/>
+                    <span className="text-sm text-gray-500">Ubicación</span>
+                    <span className="ml-auto text-sm font-bold text-pn-navy text-right">{ciudad}</span>
+                  </div>
+                )}
+                {phone && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Smartphone size={15} className="text-gray-400 flex-shrink-0"/>
+                    <span className="text-sm text-gray-500">Teléfono</span>
+                    <span className="ml-auto text-sm font-bold text-pn-navy">{phone}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex gap-3 p-4">
+                {waHref && (
+                  <a href={waHref} target="_blank"
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#25D366] text-white text-sm font-black hover:bg-[#20bc5a] transition-colors">
+                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                    </svg>
+                    WhatsApp
+                  </a>
+                )}
+                {pp.linkedUserId && (
+                  <button
+                    onClick={async()=>{
+                      await sendReminderChat({participantId: participantKey(pp)}, "Liga");
+                      setPlayerProfile(null);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-pn-navy text-white text-sm font-black hover:bg-pn-navy/90 transition-colors">
+                    <MessageSquare size={15}/>
+                    Mensaje
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Toast */}
       {toast && (
