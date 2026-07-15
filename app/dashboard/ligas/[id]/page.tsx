@@ -1200,18 +1200,20 @@ export default function LigaDetailPage() {
         const lado = pp.ladoJuego || pp.ladoPreferido || "";
         return (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={()=>{ setPlayerProfile(null); setProfileLoading(false); }}>
-            <div className="bg-[#F6FBF8] rounded-3xl w-full max-w-sm shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="bg-[#F6FBF8] rounded-3xl w-full max-w-sm shadow-2xl relative overflow-hidden" style={{maxHeight:"90vh"}} onClick={e=>e.stopPropagation()}>
 
-              {/* Orbs decorativos (replica los de la app) */}
+              {/* Orbs decorativos — capa fija, no scrolleable */}
               <div className="absolute top-0 right-0 w-44 h-44 rounded-full bg-[rgba(31,171,137,0.12)] -translate-y-10 translate-x-10 pointer-events-none"/>
-              <div className="absolute left-0 w-52 h-52 rounded-full bg-[rgba(11,132,87,0.08)] translate-y-4 -translate-x-12 pointer-events-none" style={{bottom:"80px"}}/>
+              <div className="absolute bottom-20 left-0 w-52 h-52 rounded-full bg-[rgba(11,132,87,0.08)] -translate-x-12 pointer-events-none"/>
 
               <button onClick={()=>{ setPlayerProfile(null); setProfileLoading(false); }}
                 className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-[#CFE7DC] flex items-center justify-center transition-colors">
                 <X size={15} className="text-[#5F7D72]"/>
               </button>
 
-              <div className="p-5 flex flex-col gap-3 relative">
+              {/* Contenido scrolleable */}
+              <div className="overflow-y-auto" style={{maxHeight:"90vh"}}>
+              <div className="p-5 pb-8 flex flex-col gap-3 relative">
 
                 {/* Hero card */}
                 <div className="bg-white rounded-[26px] border border-[#CFE7DC] p-5 flex flex-col items-center text-center" style={{boxShadow:"0 12px 18px rgba(23,58,46,0.08)"}}>
@@ -1297,6 +1299,7 @@ export default function LigaDetailPage() {
                 </div>
 
               </div>
+              </div>{/* fin scroll */}
             </div>
           </div>
         );
