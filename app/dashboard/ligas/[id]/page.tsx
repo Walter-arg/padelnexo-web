@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc, collection, addDoc, setDoc, increment, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -287,6 +287,7 @@ export default function LigaDetailPage() {
   const [comprobanteUrl, setComprobanteUrl] = useState<string|null>(null);
   const [savingPayment, setSavingPayment] = useState<string|null>(null);
   const [openMenu, setOpenMenu] = useState<string|null>(null);
+  const [openBlocks, setOpenBlocks] = useState<Record<string,boolean>>({});
   const [paymentModal, setPaymentModal] = useState<{blockId:string;blockTitle:string;entry:any}|null>(null);
   const [modalMethod, setModalMethod] = useState<"efectivo"|"transferencia">("efectivo");
   const [modalFile, setModalFile] = useState<File|null>(null);
@@ -910,7 +911,6 @@ export default function LigaDetailPage() {
 
                     if (blocks.length === 0) return null;
 
-                    const [openBlocks, setOpenBlocks] = React.useState<Record<string,boolean>>({});
                     const toggleBlock = (id: string) => setOpenBlocks(p => ({...p, [id]: !p[id]}));
 
                     return (
