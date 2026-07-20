@@ -289,6 +289,10 @@ export default function LigaDetailPage() {
   const [openMenu, setOpenMenu] = useState<string|null>(null);
   const [playerProfile, setPlayerProfile] = useState<any|null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileView, setProfileView] = useState<"main"|"message"|"report">("main");
+  const [profileMsgText, setProfileMsgText] = useState("");
+  const [profileReportText, setProfileReportText] = useState("");
+  const [profileActionLoading, setProfileActionLoading] = useState(false);
   const [openBlocks, setOpenBlocks] = useState<Record<string,boolean>>({});
   const [paymentModal, setPaymentModal] = useState<{blockId:string;blockTitle:string;entry:any}|null>(null);
   const [modalMethod, setModalMethod] = useState<"efectivo"|"transferencia">("efectivo");
@@ -321,6 +325,9 @@ export default function LigaDetailPage() {
 
   async function openPlayerProfile(p: any) {
     setPlayerProfile(p);
+    setProfileView("main");
+    setProfileMsgText("");
+    setProfileReportText("");
     if (p.linkedUserId) {
       setProfileLoading(true);
       try {
@@ -329,6 +336,73 @@ export default function LigaDetailPage() {
       } catch {}
       setProfileLoading(false);
     }
+  }
+
+  function closePlayerProfile() {
+    setPlayerProfile(null);
+    setProfileLoading(false);
+    setProfileView("main");
+    setProfileMsgText("");
+    setProfileReportText("");
+  }
+
+  async function sendProfileMessage() {
+    const pp = playerProfile;
+    if (!profileMsgText.trim() || !pp?.linkedUserId) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    setProfileActionLoading(true);
+    const otherUserId = pp.linkedUserId;
+    const text = profileMsgText.trim();
+    const playerName = `${pp.nombre||""} ${pp.apellido||""}`.trim();
+    const conversationId = [currentUser.uid, otherUserId].sort().join("__");
+    const convRef = doc(db, "conversations", conversationId);
+    const msgsRef = collection(db, "conversations", conversationId, "messages");
+    try {
+      await setDoc(convRef, {
+        participants: [currentUser.uid, otherUserId].sort(),
+        participantNames: { [currentUser.uid]: currentUser.displayName||"Organizador", [otherUserId]: playerName },
+        unreadBy: [otherUserId], lastMessageText: text, lastMessageSenderId: currentUser.uid,
+        updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
+      }, { merge: true });
+      await addDoc(msgsRef, { text, senderId: currentUser.uid, recipientId: otherUserId, createdAt: serverTimestamp() });
+      await updateDoc(convRef, {
+        updatedAt: serverTimestamp(), [`unreadCountBy.${otherUserId}`]: increment(1),
+        [`unreadCountBy.${currentUser.uid}`]: 0, unreadBy: [otherUserId],
+        lastMessageText: text, lastMessageSenderId: currentUser.uid,
+      });
+      showToast("Mensaje enviado.");
+      closePlayerProfile();
+    } catch { showToast("No pudimos enviar el mensaje.", false); }
+    setProfileActionLoading(false);
+  }
+
+  async function submitProfileReport() {
+    const pp = playerProfile;
+    if (!profileReportText.trim() || !pp) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    setProfileActionLoading(true);
+    const playerName = `${pp.nombre||""} ${pp.apellido||""}`.trim();
+    const targetId = pp.linkedUserId || pp.id || "";
+    try {
+      await addDoc(collection(db, "reports"), {
+        reporterId: currentUser.uid,
+        reporterName: currentUser.displayName || "Organizador",
+        reporterRole: "organizer",
+        targetType: "profile",
+        targetId,
+        targetTitle: playerName,
+        description: profileReportText.trim(),
+        metadata: { category: pp.categoria||"", city: pp.ciudad||"", reportedUserId: targetId, reportedUserName: playerName },
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      showToast("Reporte enviado. Lo revisaremos a la brevedad.");
+      closePlayerProfile();
+    } catch { showToast("No pudimos enviar el reporte.", false); }
+    setProfileActionLoading(false);
   }
 
   function buildWhatsAppUrl(participantId: string, roundTitle: string): string {
@@ -1199,14 +1273,14 @@ export default function LigaDetailPage() {
         const isGuest = pp.type === "guest";
         const lado = pp.ladoJuego || pp.ladoPreferido || "";
         return (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={()=>{ setPlayerProfile(null); setProfileLoading(false); }}>
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={closePlayerProfile}>
             <div className="bg-[#F6FBF8] rounded-3xl w-full max-w-sm shadow-2xl relative overflow-hidden" style={{maxHeight:"90vh"}} onClick={e=>e.stopPropagation()}>
 
               {/* Orbs decorativos — capa fija, no scrolleable */}
               <div className="absolute top-0 right-0 w-44 h-44 rounded-full bg-[rgba(31,171,137,0.12)] -translate-y-10 translate-x-10 pointer-events-none"/>
               <div className="absolute bottom-20 left-0 w-52 h-52 rounded-full bg-[rgba(11,132,87,0.08)] -translate-x-12 pointer-events-none"/>
 
-              <button onClick={()=>{ setPlayerProfile(null); setProfileLoading(false); }}
+              <button onClick={profileView==="main" ? closePlayerProfile : ()=>setProfileView("main")}
                 className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-[#CFE7DC] flex items-center justify-center transition-colors">
                 <X size={15} className="text-[#5F7D72]"/>
               </button>
@@ -1278,25 +1352,78 @@ export default function LigaDetailPage() {
                   </div>
                 )}
 
-                {/* Botones */}
-                <div className="flex gap-3 mt-1">
-                  {waHref && (
-                    <a href={waHref} target="_blank"
-                      className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#25D366] text-white text-sm font-black hover:bg-[#20bc5a] transition-colors">
-                      <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="currentColor">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                      </svg>
-                      WhatsApp
-                    </a>
-                  )}
-                  {pp.linkedUserId && (
-                    <button onClick={async()=>{ await sendReminderChat({participantId:participantKey(pp)},"Liga"); setPlayerProfile(null); }}
-                      className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-pn-navy text-white text-sm font-black hover:bg-pn-navy/90 transition-colors">
-                      <MessageSquare size={15}/>
-                      Mensaje
-                    </button>
-                  )}
-                </div>
+                {/* Vista: componer mensaje */}
+                {profileView === "message" && (
+                  <div className="bg-white rounded-[20px] border border-[#CFE7DC] p-4 flex flex-col gap-3">
+                    <div className="text-[11px] font-extrabold text-[#086847] uppercase tracking-wider">Mensaje a {`${pp.nombre||""}`.trim()}</div>
+                    <textarea
+                      value={profileMsgText} onChange={e=>setProfileMsgText(e.target.value)}
+                      placeholder="Escribí tu mensaje..."
+                      rows={3}
+                      className="w-full text-sm text-[#173A2E] border border-[#CFE7DC] rounded-xl p-3 resize-none focus:outline-none focus:border-[#0B8457]"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={()=>setProfileView("main")} className="flex-1 py-2.5 rounded-xl border-2 border-gray-100 text-sm font-bold text-gray-500">Cancelar</button>
+                      <button onClick={sendProfileMessage} disabled={!profileMsgText.trim()||profileActionLoading}
+                        className="flex-1 py-2.5 rounded-xl bg-pn-navy text-white text-sm font-black disabled:opacity-50 flex items-center justify-center gap-1.5">
+                        {profileActionLoading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> : <><MessageSquare size={13}/>Enviar</>}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Vista: reportar perfil */}
+                {profileView === "report" && (
+                  <div className="bg-white rounded-[20px] border border-[#FFB866] p-4 flex flex-col gap-3">
+                    <div className="text-[11px] font-extrabold text-[#C45B00] uppercase tracking-wider">Reportar perfil</div>
+                    <textarea
+                      value={profileReportText} onChange={e=>setProfileReportText(e.target.value)}
+                      placeholder="Describí el motivo del reporte..."
+                      rows={3}
+                      className="w-full text-sm text-[#173A2E] border border-[#FFB866]/50 rounded-xl p-3 resize-none focus:outline-none focus:border-[#C45B00]"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={()=>setProfileView("main")} className="flex-1 py-2.5 rounded-xl border-2 border-gray-100 text-sm font-bold text-gray-500">Cancelar</button>
+                      <button onClick={submitProfileReport} disabled={!profileReportText.trim()||profileActionLoading}
+                        className="flex-1 py-2.5 rounded-xl bg-[#FFF3E0] border border-[#FFB866] text-[#C45B00] text-sm font-black disabled:opacity-50 flex items-center justify-center gap-1.5">
+                        {profileActionLoading ? <div className="w-4 h-4 border-2 border-[#C45B00] border-t-transparent rounded-full animate-spin"/> : "Enviar reporte"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Vista principal: botones de acción */}
+                {profileView === "main" && (
+                  <>
+                    <div className="flex gap-3 mt-1">
+                      {waHref && (
+                        <a href={waHref} target="_blank"
+                          className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#25D366] text-white text-sm font-black hover:bg-[#20bc5a] transition-colors">
+                          <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="currentColor">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                          </svg>
+                          WhatsApp
+                        </a>
+                      )}
+                      {pp.linkedUserId && (
+                        <button onClick={()=>setProfileView("message")}
+                          className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-pn-navy text-white text-sm font-black hover:bg-pn-navy/90 transition-colors">
+                          <MessageSquare size={15}/>
+                          Mensaje
+                        </button>
+                      )}
+                    </div>
+                    {pp.linkedUserId && (
+                      <button onClick={()=>setProfileView("report")}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-2xl bg-[#FFF3E0] border border-[#FFB866] text-[#C45B00] text-xs font-black hover:bg-[#FFE0B2] transition-colors">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
+                        </svg>
+                        Reportar perfil
+                      </button>
+                    )}
+                  </>
+                )}
 
               </div>
               </div>{/* fin scroll */}
