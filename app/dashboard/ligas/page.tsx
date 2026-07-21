@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, query, where, getDocs, addDoc, serverTimestamp, getDoc, doc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, query, where, getDocs, getDoc, doc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -31,12 +31,10 @@ function LeagueAvatar({ url }: { url?: string }) {
   return <img src={url} className="w-12 h-12 rounded-2xl object-cover" onError={() => setError(true)} alt="" />;
 }
 
-const emptyForm = { nombre: "", sexo: "Masculino", teamType: "pair", categoria: "9na (Iniciantes)", dayKey: "" };
 const emptyFiltros = { sexo: "", categoria: "", dia: "", complejo: "" };
 
 export default function LigasPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
   const [profileLogoUrl, setProfileLogoUrl] = useState("");
   const [ligas, setLigas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,15 +45,10 @@ export default function LigasPage() {
   const [filtroOpen, setFiltroOpen] = useState(false);
   const filtroRef = useRef<HTMLDivElement>(null);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) { router.push("/login"); return; }
-      setUser(u);
       const [profileSnap, snap] = await Promise.all([
         getDoc(doc(db, "users", u.uid)),
         getDocs(query(collection(db, "leagues"), where("organizerId", "==", u.uid))),
@@ -80,42 +73,6 @@ export default function LigasPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.nombre.trim()) return;
-    setSaving(true);
-    setSaveError("");
-    try {
-      const payload = {
-        nombre: form.nombre.trim(),
-        sexo: form.sexo,
-        teamType: form.teamType,
-        modalidadCategoria: "libre",
-        categoria: form.categoria,
-        matchFormat: "two_sets_super_tiebreak",
-        scheduleConfig: { dayKey: form.dayKey || null, timeSlots: [] },
-        fixtureConfig: { roundMode: "single", minPlayersCount: 8, datesCount: 6, manualTeams: [] },
-        complejo: { nombre: "Complejo sin definir", direccion: "", coordinates: null, organizerLogoUrl: "" },
-        complejoNombre: "Complejo sin definir",
-        localidad: { nombre: "", provincia: "", pais: "Argentina" },
-        provincia: "",
-        paymentDefaults: { currency: "ARS", registrationFeeEnabled: false, registrationFeeAmount: 0, roundPricePerPlayer: 0 },
-        players: [], teams: [],
-        organizerId: user!.uid, organizerLogoUrl: profileLogoUrl,
-        status: "active", createdBy: user!.uid, createdByName: user!.displayName || "",
-        createdAt: serverTimestamp(), createdAtMillis: Date.now(),
-      };
-      const ref = await addDoc(collection(db, "leagues"), payload);
-      setLigas((prev) => [{ id: ref.id, ...payload }, ...prev]);
-      setModalOpen(false);
-      setForm(emptyForm);
-    } catch {
-      setSaveError("No se pudo crear la liga. Intentá de nuevo.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   // Complejos únicos de las ligas cargadas
   const complejos = Array.from(
@@ -146,7 +103,7 @@ export default function LigasPage() {
       <div className="flex gap-2 mb-5">
         {/* Crear liga */}
         <button
-          onClick={() => { setModalOpen(true); setSaveError(""); }}
+          onClick={() => router.push("/dashboard/ligas/nueva")}
           className="flex items-center gap-1.5 bg-pn-green hover:bg-pn-dark text-white font-black px-4 py-2.5 rounded-xl transition-all shadow-md shadow-pn-green/20 whitespace-nowrap text-sm flex-shrink-0"
         >
           <Plus size={16} /> Crear liga
@@ -310,7 +267,7 @@ export default function LigasPage() {
             {(search || filtrosActivos) ? "No hay ligas con ese filtro" : tab === "activas" ? "No tenés ligas activas" : "No tenés ligas archivadas"}
           </p>
           {!search && !filtrosActivos && tab === "activas" && (
-            <button onClick={() => setModalOpen(true)} className="mt-4 text-sm text-pn-green font-semibold hover:underline">
+            <button onClick={() => router.push("/dashboard/ligas/nueva")} className="mt-4 text-sm text-pn-green font-semibold hover:underline">
               + Crear primera liga
             </button>
           )}
@@ -357,75 +314,6 @@ export default function LigasPage() {
         </div>
       )}
 
-      {/* ── Modal Nueva Liga ── */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
-            <button onClick={() => setModalOpen(false)} className="absolute top-5 right-5 text-gray-400 hover:text-gray-600">
-              <X size={20} />
-            </button>
-            <h2 className="text-xl font-black text-pn-navy mb-6">Nueva liga</h2>
-            <form onSubmit={handleCreate} className="flex flex-col gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-pn-navy mb-1.5">Nombre *</label>
-                <input
-                  type="text"
-                  value={form.nombre}
-                  onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                  placeholder="Ej: Liga Verano 2026"
-                  required
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green focus:ring-2 focus:ring-pn-green/20 transition-all"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-semibold text-pn-navy mb-1.5">Género</label>
-                  <select value={form.sexo} onChange={(e) => setForm({ ...form, sexo: e.target.value })}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green bg-white">
-                    <option value="Masculino">Caballeros</option>
-                    <option value="Femenino">Damas</option>
-                    <option value="Mixto">Mixta</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-pn-navy mb-1.5">Tipo</label>
-                  <select value={form.teamType} onChange={(e) => setForm({ ...form, teamType: e.target.value })}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green bg-white">
-                    <option value="pair">Pareja fija</option>
-                    <option value="individual">Individual</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-semibold text-pn-navy mb-1.5">Categoría</label>
-                  <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green bg-white">
-                    {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-pn-navy mb-1.5">Día de juego</label>
-                  <select value={form.dayKey} onChange={(e) => setForm({ ...form, dayKey: e.target.value })}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green bg-white">
-                    <option value="">Sin definir</option>
-                    {DIAS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              {saveError && <p className="text-sm text-red-500 bg-red-50 rounded-xl px-4 py-3">{saveError}</p>}
-              <button
-                type="submit"
-                disabled={saving || !form.nombre.trim()}
-                className="w-full bg-pn-green hover:bg-pn-dark text-white font-black py-4 rounded-xl transition-all shadow-lg shadow-pn-green/20 disabled:opacity-60 mt-2"
-              >
-                {saving ? "Creando..." : "Crear liga"}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }
