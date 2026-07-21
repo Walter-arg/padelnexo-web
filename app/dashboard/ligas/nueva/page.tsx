@@ -82,9 +82,7 @@ function sanitizeDecimal(val: string): string {
 function defaultForm() {
   return {
     nombre:              "",
-    complejoNombre:      "",
-    localidadNombre:     "",
-    localidadProvincia:  "",
+    complejoNombre: "",
 
     teamType:      "pair"       as "pair" | "individual",
     sexo:          "Masculino"  as "Masculino" | "Femenino" | "Mixto",
@@ -340,9 +338,7 @@ export default function NuevaLigaPage() {
 
       setForm((prev) => ({
         ...prev,
-        complejoNombre:     first?.nombre || "",
-        localidadNombre:    ud.localidad?.nombre || "",
-        localidadProvincia: ud.localidad?.provincia || "",
+        complejoNombre: first?.nombre || "",
 
         teamType:      ld.teamType      || "pair",
         sexo:          ld.sexo          || "Masculino",
@@ -424,7 +420,6 @@ export default function NuevaLigaPage() {
 
     if (!form.nombre.trim()) errs.nombre = "El nombre es obligatorio";
     if (!form.complejoNombre.trim()) errs.complejoNombre = "El complejo es obligatorio";
-    if (!form.localidadNombre.trim()) errs.localidadNombre = "La localidad es obligatoria";
     if (form.timeSlots.length === 0) errs.timeSlots = "Agregá al menos un horario";
     if (!form.roundsCount || parseInt(form.roundsCount) < 1)
       errs.roundsCount = "La cantidad de fechas debe ser mayor a 0";
@@ -542,8 +537,8 @@ export default function NuevaLigaPage() {
       complejo,
       complejoNombre: complejo.nombre,
       localidad: {
-        nombre:    form.localidadNombre.trim(),
-        provincia: form.localidadProvincia.trim(),
+        nombre:    complejo.localidad?.nombre   || "",
+        provincia: complejo.localidad?.provincia || "",
         pais:      "Argentina",
       },
 
@@ -604,10 +599,6 @@ export default function NuevaLigaPage() {
   // ── Derived values ──────────────────────────────────────────────
   const complejos: any[] = userData?.complejos || [];
   const secondCatOptions  = getSecondCatOptions(form.sumTarget, form.fixedCategoryA);
-  const categoryPreview   = buildCategoryLabel(
-    form.sexo, form.categoryMode, form.sumTarget,
-    form.fixedCategoryA, form.fixedCategoryB
-  );
 
   // ── Render ──────────────────────────────────────────────────────
   if (loading) {
@@ -657,19 +648,29 @@ export default function NuevaLigaPage() {
             </div>
 
             {/* Complejo */}
-            <div className="mb-4" data-field-error={errors.complejoNombre || undefined}>
+            <div data-field-error={errors.complejoNombre || undefined}>
               <FieldLabel required>Complejo</FieldLabel>
               {complejos.length > 0 ? (
-                <select
-                  value={form.complejoNombre}
-                  onChange={(e) => set("complejoNombre", e.target.value)}
-                  className={`w-full border rounded-2xl px-4 py-3 text-sm text-pn-navy focus:outline-none focus:ring-2 focus:ring-pn-green/20 bg-white transition-all ${errors.complejoNombre ? "border-red-300" : "border-gray-200 focus:border-pn-green"}`}
-                >
-                  <option value="">Seleccioná un complejo</option>
-                  {complejos.map((c: any) => (
-                    <option key={c.nombre} value={c.nombre}>{c.nombre}</option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    value={form.complejoNombre}
+                    onChange={(e) => set("complejoNombre", e.target.value)}
+                    className={`w-full border rounded-2xl px-4 py-3 text-sm text-pn-navy focus:outline-none focus:ring-2 focus:ring-pn-green/20 bg-white transition-all ${errors.complejoNombre ? "border-red-300" : "border-gray-200 focus:border-pn-green"}`}
+                  >
+                    <option value="">Seleccioná un complejo</option>
+                    {complejos.map((c: any) => (
+                      <option key={c.nombre} value={c.nombre}>{c.nombre}</option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const c = complejos.find((c: any) => c.nombre === form.complejoNombre);
+                    return c?.localidad?.nombre ? (
+                      <p className="text-xs text-gray-400 mt-1.5 pl-1">
+                        📍 {c.localidad.nombre}{c.localidad.provincia ? `, ${c.localidad.provincia}` : ""}
+                      </p>
+                    ) : null;
+                  })()}
+                </>
               ) : (
                 <input
                   type="text"
@@ -680,28 +681,6 @@ export default function NuevaLigaPage() {
                 />
               )}
               <FieldError msg={errors.complejoNombre} />
-            </div>
-
-            {/* Localidad */}
-            <div data-field-error={errors.localidadNombre || undefined}>
-              <FieldLabel required>Localidad</FieldLabel>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={form.localidadNombre}
-                  onChange={(e) => set("localidadNombre", e.target.value)}
-                  placeholder="Ej. Córdoba"
-                  className={`flex-1 border rounded-2xl px-4 py-3 text-sm text-pn-navy focus:outline-none focus:ring-2 focus:ring-pn-green/20 transition-all ${errors.localidadNombre ? "border-red-300 bg-red-50" : "border-gray-200 focus:border-pn-green"}`}
-                />
-                <input
-                  type="text"
-                  value={form.localidadProvincia}
-                  onChange={(e) => set("localidadProvincia", e.target.value)}
-                  placeholder="Provincia"
-                  className="w-36 border border-gray-200 rounded-2xl px-4 py-3 text-sm text-pn-navy focus:outline-none focus:border-pn-green focus:ring-2 focus:ring-pn-green/20 transition-all"
-                />
-              </div>
-              <FieldError msg={errors.localidadNombre} />
             </div>
           </SectionCard>
 
@@ -832,12 +811,6 @@ export default function NuevaLigaPage() {
                 </div>
               )}
 
-              {/* Preview del label de categoría */}
-              {categoryPreview && (
-                <div className="mt-3 bg-pn-mint border border-pn-mint-dark rounded-xl px-4 py-2.5 text-sm font-semibold text-pn-dark">
-                  {categoryPreview}
-                </div>
-              )}
             </div>
           </SectionCard>
 
