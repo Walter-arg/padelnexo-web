@@ -1351,7 +1351,18 @@ export default function LigaDetailPage() {
       <div className="flex gap-6 items-start">
 
         {/* ══ PANEL IZQUIERDO (sticky) ══════════════════════════════════ */}
-        <aside className={`${tab === "fixture" ? "hidden" : "hidden lg:flex"} flex-col gap-4 w-72 flex-shrink-0 sticky top-20`}>
+        <aside
+          className={
+            tab === "fixture"
+              ? "hidden 2xl:flex flex-col gap-3 w-56 fixed overflow-y-auto z-10"
+              : "hidden lg:flex flex-col gap-4 w-72 flex-shrink-0 sticky top-20"
+          }
+          style={tab === "fixture" ? {
+            top: "82px",
+            left: "max(8px, calc((100vw - 1024px) / 2 - 240px))",
+            maxHeight: "calc(100vh - 90px)",
+          } : {}}
+        >
 
           {/* Card info liga */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
