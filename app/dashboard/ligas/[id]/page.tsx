@@ -1,21 +1,111 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, addDoc, setDoc, increment, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, addDoc, setDoc, increment, serverTimestamp, getDocs, query as fsQuery, where } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  Users,
+  Users, UserPlus, User as UserIcon, Trash2, ArrowLeftRight,
   X, Save, RefreshCw, Eye, Archive, Shield,
-  MapPin, Clock, ChevronLeft, Trophy,
+  MapPin, Clock, ChevronLeft, ChevronDown, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
-  MessageSquare, Smartphone, Banknote,
+  MessageSquare, Smartphone, Banknote, Search, Plus,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
+
+// ── Helpers de jugadores ───────────────────────────────────────────────────
+function normalizeText(str: string): string {
+  return (str ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+function normalizePlayerEntry(p: any): any {
+  return {
+    id: p.id ?? `guest-${Date.now()}`,
+    type: p.type ?? "guest",
+    linkedUserId: p.linkedUserId ?? "",
+    nombre: p.nombre ?? "Jugador",
+    apellido: p.apellido ?? "",
+    telefono: p.telefono ?? p.celular ?? p.whatsapp ?? "",
+    categoria: p.categoria ?? "",
+    sexo: p.sexo ?? "",
+    ciudad: p.ciudad ?? "",
+    provincia: p.provincia ?? "",
+    foto: p.foto ?? "",
+    ladoJuego: p.ladoJuego ?? "ambos",
+    ladoPreferido: p.ladoPreferido ?? "Ambos lados",
+    pairNumber: p.pairNumber ?? 0,
+  };
+}
+
+// ── PlayerSlotRow ──────────────────────────────────────────────────────────
+function PlayerSlotRow({ player, onView, onDelete, onSwap, isSwapActive, showSide }: {
+  player: any;
+  onView: () => void;
+  onDelete: () => void;
+  onSwap?: () => void;
+  isSwapActive?: boolean;
+  showSide?: boolean;
+}) {
+  const isGuest = player.type === "guest";
+  return (
+    <div className="bg-[#F7FBF9] border border-[#CFE7DC] rounded-xl px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={onView} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+          {player.foto
+            ? <img src={player.foto} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
+            : <div className="w-7 h-7 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0">
+                <UserIcon size={13} className="text-[#9CA3AF]" />
+              </div>
+          }
+          <div className="min-w-0">
+            <div className="text-sm font-black text-[#173A2E] truncate">{player.nombre} {player.apellido ?? ""}</div>
+            <div className="text-[11px] text-[#5F7D72] font-semibold">{isGuest ? "Solo visible en esta liga" : "Ver perfil"}</div>
+          </div>
+        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {onSwap && (
+            <button onClick={onSwap}
+              className={`w-7 h-7 rounded-[10px] border flex items-center justify-center transition-colors ${isSwapActive ? "bg-[#086847] border-[#086847]" : "bg-[#EDF7F2] border-[#C9E5D8] hover:bg-[#C9E5D8]"}`}
+              title="Reemplazar por jugador registrado">
+              <ArrowLeftRight size={12} className={isSwapActive ? "text-white" : "text-[#086847]"} />
+            </button>
+          )}
+          <button onClick={onDelete}
+            className="w-7 h-7 rounded-[10px] bg-[#FFF1F1] border border-[#F2C4C4] flex items-center justify-center hover:bg-red-100 transition-colors"
+            title="Eliminar de la liga">
+            <Trash2 size={12} className="text-[#D64545]" />
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {showSide && player.ladoJuego && player.ladoJuego !== "ambos" && (
+          <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-[#EDF7F2] border border-[#C9E5D8] text-[#086847]">
+            {player.ladoJuego === "drive" ? "Drive" : "Reves"}
+          </span>
+        )}
+        {player.categoria && (
+          <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-[#EDF7F2] border border-[#C9E5D8] text-[#086847]">
+            {player.categoria}
+          </span>
+        )}
+        {player.sexo && (
+          <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-[#FFF4E7] border border-[#E8C58E] text-[#8A5A2B] capitalize">
+            {player.sexo}
+          </span>
+        )}
+      </div>
+      {isSwapActive && (
+        <p className="text-[11px] text-[#086847] font-bold mt-1.5 leading-tight">
+          Seleccioná arriba un jugador registrado para reemplazar este nombre manual.
+        </p>
+      )}
+    </div>
+  );
+}
 
 const DAY_LABELS: Record<string, string> = {
   monday: "Lunes", tuesday: "Martes", wednesday: "Miércoles",
@@ -322,6 +412,34 @@ export default function LigaDetailPage() {
   const [toast, setToast] = useState<{msg:string;ok:boolean}|null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Player management state ──────────────────────────────────────────────
+  const [registeredPlayers, setRegisteredPlayers] = useState<any[]>([]);
+  const [playersLoaded, setPlayersLoaded] = useState(false);
+  const [playerQuery, setPlayerQuery] = useState("");
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestName, setGuestName] = useState("");
+  const [guestLastName, setGuestLastName] = useState("");
+  const [sidePickerOpen, setSidePickerOpen] = useState(false);
+  const [pairPickerOpen, setPairPickerOpen] = useState(false);
+  const [pendingPlayer, setPendingPlayer] = useState<any>(null);
+  const [pendingIsGuest, setPendingIsGuest] = useState(false);
+  const [replacementTargetId, setReplacementTargetId] = useState("");
+  const [savingPlayers, setSavingPlayers] = useState(false);
+  const [registrationRequests, setRegistrationRequests] = useState<any[]>([]);
+  const [expandedPairs, setExpandedPairs] = useState<number[]>([]);
+
+  const filteredRegisteredPlayers = useMemo(() => {
+    if (!playerQuery) return registeredPlayers.slice(0, 12);
+    const q = normalizeText(playerQuery);
+    return registeredPlayers
+      .filter(p =>
+        normalizeText(`${p.nombre ?? ""} ${p.apellido ?? ""}`).includes(q) ||
+        normalizeText(p.categoria ?? "").includes(q) ||
+        normalizeText(p.ciudad ?? "").includes(q)
+      )
+      .slice(0, 12);
+  }, [registeredPlayers, playerQuery]);
+
   useEffect(()=>{
     const unsub = onAuthStateChanged(auth, async(u)=>{
       if(!u){router.push("/login");return;}
@@ -331,6 +449,30 @@ export default function LigaDetailPage() {
     });
     return unsub;
   },[ligaId,router]);
+
+  // Carga jugadores registrados + solicitudes al abrir el tab
+  useEffect(()=>{
+    if(tab !== "jugadores" || playersLoaded) return;
+    async function load() {
+      try {
+        const snap = await getDocs(fsQuery(collection(db,"users"), where("accountDeleted","!=",true)));
+        const all: any[] = snap.docs
+          .map(d=>({id:d.id,...d.data()}))
+          .filter((u:any)=>u.role!=="blocked"&&u.role!=="deleted");
+        all.sort((a:any,b:any)=>normalizeText(`${a.nombre??""} ${a.apellido??""}`).localeCompare(normalizeText(`${b.nombre??""} ${b.apellido??""}`)));
+        setRegisteredPlayers(all);
+      } catch {}
+      setPlayersLoaded(true);
+    }
+    async function loadRequests() {
+      try {
+        const snap = await getDocs(fsQuery(collection(db,"leagueRegistrationRequests"),where("leagueId","==",ligaId)));
+        setRegistrationRequests(snap.docs.map(d=>({id:d.id,...d.data()})));
+      } catch {}
+    }
+    load();
+    loadRequests();
+  },[tab,playersLoaded,ligaId]);
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok });
@@ -525,6 +667,117 @@ export default function LigaDetailPage() {
     setResultModal(null);
   }
 
+  // ── Player management functions ──────────────────────────────────────────
+  async function persistPlayers(nextPlayers: any[]) {
+    setSavingPlayers(true);
+    try {
+      await updateDoc(doc(db,"leagues",ligaId),{
+        players: nextPlayers.map(normalizePlayerEntry),
+        updatedAt: serverTimestamp(),
+      });
+      setLiga((prev:any)=>({...prev,players:nextPlayers}));
+    } catch { showToast("Error al guardar jugadores.",false); }
+    setSavingPlayers(false);
+  }
+
+  function handleAddRegisteredPlayer(rp: any) {
+    if(replacementTargetId) {
+      const target=(liga?.players??[]).find((p:any)=>p.id===replacementTargetId);
+      if(!target) return;
+      const newP=normalizePlayerEntry({
+        id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
+        nombre:rp.nombre??"",apellido:rp.apellido??"",
+        telefono:rp.telefono??rp.celular??"",categoria:rp.categoria??"",
+        sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",foto:rp.foto??"",
+        ladoJuego:target.ladoJuego,ladoPreferido:target.ladoPreferido,pairNumber:target.pairNumber,
+      });
+      persistPlayers((liga?.players??[]).map((p:any)=>p.id===replacementTargetId?newP:p));
+      setReplacementTargetId("");
+      return;
+    }
+    setPendingPlayer(rp);
+    setPendingIsGuest(false);
+    if(liga?.teamType==="pair") setPairPickerOpen(true);
+    else setSidePickerOpen(true);
+  }
+
+  function handleGuestCreate() {
+    if(!guestName.trim()||!guestLastName.trim()) return;
+    setPendingIsGuest(true);
+    setPendingPlayer(null);
+    setGuestModalOpen(false);
+    if(liga?.teamType==="pair") setPairPickerOpen(true);
+    else setSidePickerOpen(true);
+  }
+
+  function assignToSide(lado:"drive"|"reves") {
+    let newP: any;
+    if(pendingIsGuest) {
+      newP=normalizePlayerEntry({id:`guest-${Date.now()}`,type:"guest",linkedUserId:"",
+        nombre:guestName.trim(),apellido:guestLastName.trim(),ladoJuego:lado,
+        ladoPreferido:lado==="drive"?"Drive":"Reves",pairNumber:0});
+      setGuestName("");setGuestLastName("");
+    } else {
+      const rp=pendingPlayer;
+      newP=normalizePlayerEntry({id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
+        nombre:rp.nombre??"",apellido:rp.apellido??"",telefono:rp.telefono??rp.celular??"",
+        categoria:rp.categoria??"",sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",
+        foto:rp.foto??"",ladoJuego:lado,ladoPreferido:lado==="drive"?"Drive":"Reves",pairNumber:0});
+    }
+    persistPlayers([...(liga?.players??[]),newP]);
+    setPendingPlayer(null);setPendingIsGuest(false);setSidePickerOpen(false);
+  }
+
+  function assignToPair(pairNumber: number) {
+    let newP: any;
+    if(pendingIsGuest) {
+      newP=normalizePlayerEntry({id:`guest-${Date.now()}`,type:"guest",linkedUserId:"",
+        nombre:guestName.trim(),apellido:guestLastName.trim(),pairNumber,ladoJuego:"ambos",ladoPreferido:"Ambos lados"});
+      setGuestName("");setGuestLastName("");
+    } else {
+      const rp=pendingPlayer;
+      newP=normalizePlayerEntry({id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
+        nombre:rp.nombre??"",apellido:rp.apellido??"",telefono:rp.telefono??rp.celular??"",
+        categoria:rp.categoria??"",sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",
+        foto:rp.foto??"",pairNumber,ladoJuego:"ambos",ladoPreferido:"Ambos lados"});
+    }
+    persistPlayers([...(liga?.players??[]),newP]);
+    setPendingPlayer(null);setPendingIsGuest(false);setPairPickerOpen(false);
+  }
+
+  function handleDeletePlayer(playerId: string) {
+    if(!confirm("¿Eliminar este jugador de la liga?")) return;
+    persistPlayers((liga?.players??[]).filter((p:any)=>p.id!==playerId));
+  }
+
+  async function handleConfirmRequest(req: any) {
+    const currentMax=(liga?.players??[]).reduce((m:number,p:any)=>Math.max(m,p.pairNumber??0),0);
+    const nextPairNum=currentMax+1;
+    const newPlayers:any[]=[];
+    const addP=(src:any)=>{
+      const linked=src?.linkedUserId||"";
+      newPlayers.push(normalizePlayerEntry({
+        id:linked?`registered-${linked}`:`guest-${Date.now()+newPlayers.length}`,
+        type:linked?"registered":"guest",linkedUserId:linked,
+        nombre:src?.nombre??"",apellido:src?.apellido??"",
+        foto:src?.foto??"",categoria:src?.categoria??"",sexo:src?.sexo??"",ciudad:src?.ciudad??"",
+        pairNumber:liga?.teamType==="pair"?nextPairNum:0,ladoJuego:"ambos",ladoPreferido:"Ambos lados",
+      }));
+    };
+    addP(req.requester);
+    if(req.partner) addP(req.partner);
+    await persistPlayers([...(liga?.players??[]),...newPlayers]);
+    await updateDoc(doc(db,"leagueRegistrationRequests",req.id),{status:"confirmed"});
+    setRegistrationRequests(prev=>prev.map((r:any)=>r.id===req.id?{...r,status:"confirmed"}:r));
+    showToast("Inscripción confirmada.");
+  }
+
+  async function handleRejectRequest(reqId: string) {
+    await updateDoc(doc(db,"leagueRegistrationRequests",reqId),{status:"rejected"});
+    setRegistrationRequests(prev=>prev.map((r:any)=>r.id===reqId?{...r,status:"rejected"}:r));
+    showToast("Solicitud rechazada.");
+  }
+
   if(loading) return (
     <DashboardLayout title="">
       <div className="flex justify-center py-20">
@@ -540,6 +793,23 @@ export default function LigaDetailPage() {
 
   const players: any[]       = liga.players ?? [];
   const rounds: any[]        = liga.fixture?.rounds ?? [];
+
+  // ── Player computed values ───────────────────────────────────────────────
+  const minimumPlayersCount = Math.max(2, liga.fixtureConfig?.minPlayersCount ?? 8);
+  const pairPlayersTargetCount = minimumPlayersCount * 2;
+  const sideTargetCount = Math.ceil(minimumPlayersCount / 2);
+  const driveCount = players.filter((p:any)=>p.ladoJuego==="drive").length;
+  const revesCount = players.filter((p:any)=>p.ladoJuego==="reves").length;
+
+  const pairGroupsMap: Record<number,any[]> = {};
+  players.forEach((p:any)=>{ const n=p.pairNumber??0; if(!pairGroupsMap[n])pairGroupsMap[n]=[]; pairGroupsMap[n].push(p); });
+  const pairGroups = Object.entries(pairGroupsMap)
+    .sort(([a],[b])=>Number(a)-Number(b))
+    .map(([pn,pp])=>({pairNumber:Number(pn),players:pp}));
+  const completePairsCount = pairGroups.filter(g=>g.players.length>=2).length;
+  const missingPlayersCount = Math.max(0, pairPlayersTargetCount - players.length);
+  const nextPairNumber = pairGroups.length>0 ? Math.max(...pairGroups.map(g=>g.pairNumber))+1 : 1;
+  const pendingRequests = registrationRequests.filter((r:any)=>r.status==="pending"||r.status==="awaiting_partner");
   const roundPayments: any[] = liga.roundPayments ?? [];
   const standings            = buildStandings(liga);
   const matchFormat          = liga.matchFormat ?? "three_full_sets";
@@ -780,90 +1050,213 @@ export default function LigaDetailPage() {
 
               {/* ── JUGADORES ─────────────────────────────────────────── */}
               {tab==="jugadores" && (
-                <div>
-                  {players.length === 0 && (
-                    <p className="text-center text-gray-400 py-12">No hay jugadores inscriptos.</p>
-                  )}
-                  {liga.teamType==="pair"
-                    ? (
+                <div className="flex flex-col gap-4">
+
+                  {/* Summary */}
+                  <div className="flex flex-col gap-0.5">
+                    {liga.teamType==="pair" ? (
+                      <>
+                        <div className="text-sm font-bold text-[#5F7D72]">
+                          Parejas completas cargadas {completePairsCount}/{minimumPlayersCount}
+                        </div>
+                        <div className={`text-xs font-bold ${missingPlayersCount===0?"text-[#086847]":"text-[#8A5700]"}`}>
+                          {missingPlayersCount===0 ? "✓ Mínimo completo" : `Faltan ${missingPlayersCount} jugadores para llegar a ${pairPlayersTargetCount}.`}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm font-bold text-[#5F7D72]">
+                          Jugadores cargados {players.length}/{minimumPlayersCount}
+                          <span className="ml-3 font-semibold text-xs">Drive {driveCount}/{sideTargetCount} · Reves {revesCount}/{sideTargetCount}</span>
+                        </div>
+                        <div className={`text-xs font-bold ${players.length>=minimumPlayersCount?"text-[#086847]":"text-[#8A5700]"}`}>
+                          {players.length>=minimumPlayersCount ? "✓ Mínimo completo" : `Faltan ${minimumPlayersCount-players.length} jugadores.`}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Solicitudes de inscripción */}
+                  {pendingRequests.length>0 && (
+                    <div className="bg-[#F2FBF4] border border-[#BFE6C8] rounded-2xl p-3">
+                      <div className="text-[11px] font-black text-[#086847] uppercase tracking-wider text-center mb-2">Solicitudes de inscripción</div>
                       <div className="flex flex-col gap-2">
-                        {(() => {
-                          const pares: Record<number,any[]> = {};
-                          players.forEach((p:any)=>{ const n=p.pairNumber??0; if(!pares[n])pares[n]=[]; pares[n].push(p); });
-                          return Object.entries(pares).sort(([a],[b])=>Number(a)-Number(b)).map(([num,pp])=>(
-                            <div key={num} className="rounded-2xl overflow-hidden border border-gray-100">
-                              <div className="px-4 py-2 bg-gray-50 text-xs font-bold text-gray-400">Pareja {num}</div>
-                              {pp.map((p:any,i:number)=>(
-                                <div key={i} onClick={()=>openPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0 cursor-pointer hover:bg-gray-50 transition-colors">
-                                  {p.foto
-                                    ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
-                                    : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-pn-navy text-sm">{p.nombre} {p.apellido??""}</div>
-                                    <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
-                                  </div>
-                                  {p.type==="guest" && <span className="text-xs bg-amber-50 text-amber-500 font-semibold px-2 py-0.5 rounded-full">Invitado</span>}
-                                </div>
-                              ))}
-                            </div>
-                          ));
-                        })()}
-                      </div>
-                    )
-                    : isIndividual
-                    ? (
-                      <div className="grid grid-cols-2 gap-4">
-                        {(["drive","reves"] as const).map((lado)=>{
-                          const col = players.filter((p:any)=>p.ladoJuego===lado);
+                        {pendingRequests.map((req:any)=>{
+                          const rName=`${req.requester?.nombre??""} ${req.requester?.apellido??""}`.trim();
+                          const pName=req.partner?`${req.partner?.nombre??""} ${req.partner?.apellido??""}`.trim():null;
                           return (
-                            <div key={lado} className="rounded-2xl border border-gray-100 overflow-hidden">
-                              <div className={`px-4 py-2.5 flex items-center gap-2 ${lado==="drive" ? "bg-blue-50" : "bg-violet-50"}`}>
-                                <span className={`text-xs font-black uppercase tracking-wide ${lado==="drive" ? "text-blue-600" : "text-violet-600"}`}>
-                                  {lado === "drive" ? "Drive" : "Revés"}
-                                </span>
-                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${lado==="drive" ? "bg-blue-100 text-blue-500" : "bg-violet-100 text-violet-500"}`}>
-                                  {col.length}
-                                </span>
+                            <div key={req.id} className="bg-white border border-[#CFE7DC] rounded-xl p-2.5 flex items-center gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-black text-[#173A2E] text-sm truncate">{rName}</div>
+                                {pName&&<div className="text-[11px] text-[#5F7D72] font-semibold">+ {pName}</div>}
+                                <div className="text-[11px] text-[#5F7D72]">{req.status==="awaiting_partner"?"Esperando compañero":"Pendiente"}</div>
                               </div>
-                              {col.length === 0 && (
-                                <p className="text-center text-gray-300 text-xs py-6">Sin jugadores</p>
-                              )}
-                              <div className="flex flex-col">
-                                {col.map((p:any,i:number)=>(
-                                  <div key={i} onClick={()=>openPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 border-t border-gray-50 first:border-0 cursor-pointer hover:bg-gray-50 transition-colors">
-                                    {p.foto
-                                      ? <img src={p.foto} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
-                                      : <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-bold text-pn-navy text-sm truncate">{p.nombre} {p.apellido??""}</div>
-                                      <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
-                                    </div>
-                                    {p.type==="guest" && <span className="text-xs bg-amber-50 text-amber-500 font-semibold px-2 py-0.5 rounded-full flex-shrink-0">Invitado</span>}
-                                  </div>
-                                ))}
-                              </div>
+                              <button onClick={()=>handleConfirmRequest(req)} className="px-2.5 py-1.5 bg-[#086847] text-white text-[11px] font-black rounded-full whitespace-nowrap">Aceptar</button>
+                              <button onClick={()=>handleRejectRequest(req.id)} className="px-2.5 py-1.5 bg-[#F4F5F7] border border-[#CFE7DC] text-[#5F7D72] text-[11px] font-black rounded-full whitespace-nowrap">Rechazar</button>
                             </div>
                           );
                         })}
                       </div>
-                    )
-                    : (
-                      <div className="flex flex-col gap-2">
-                        {players.map((p:any,i:number)=>(
-                          <div key={i} onClick={()=>openPlayerProfile(p)} className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors">
-                            {p.foto
-                              ? <img src={p.foto} className="w-10 h-10 rounded-full object-cover flex-shrink-0"/>
-                              : <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><svg viewBox="0 0 24 24" className="w-6 h-6 text-gray-400" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>}
-                            <div className="flex-1 min-w-0">
-                              <div className="font-bold text-pn-navy text-sm">{p.nombre} {p.apellido??""}</div>
-                              <div className="text-xs text-gray-400">{p.categoria}{p.ciudad?` · ${p.ciudad}`:""}</div>
-                            </div>
-                            {p.type==="guest" && <span className="text-xs bg-amber-50 text-amber-500 font-semibold px-2 py-0.5 rounded-full">Invitado</span>}
+                    </div>
+                  )}
+
+                  {/* Header de sección + botón crear */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-black text-[#173A2E]">
+                      {liga.teamType==="pair" ? "Parejas de la liga" : "Jugadores de la liga"}
+                    </span>
+                    <button
+                      onClick={()=>setGuestModalOpen(true)}
+                      disabled={savingPlayers}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#086847] hover:bg-[#0B8457] text-white text-xs font-black rounded-xl transition-colors disabled:opacity-55"
+                    >
+                      <UserPlus size={14} /> Crear Jugador
+                    </button>
+                  </div>
+
+                  {/* Búsqueda de jugadores registrados */}
+                  <div>
+                    <div className="relative mb-2">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5F7D72]" />
+                      <input
+                        type="text"
+                        placeholder="Buscar jugadores de la plataforma..."
+                        value={playerQuery}
+                        onChange={e=>setPlayerQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 rounded-[18px] border border-[#CFE7DC] text-sm text-[#173A2E] bg-white focus:outline-none focus:border-[#1FAB89] placeholder:text-[#5F7D72]"
+                      />
+                    </div>
+
+                    {!playersLoaded ? (
+                      <div className="text-xs text-center text-[#5F7D72] py-2">Cargando jugadores...</div>
+                    ) : (
+                      <>
+                        <div className="text-[11px] font-black text-[#5F7D72] uppercase tracking-wider text-center mb-2">
+                          Jugadores registrados en la app
+                        </div>
+                        {filteredRegisteredPlayers.length===0 && playerQuery && (
+                          <div className="bg-[#F7FBF9] border border-[#CFE7DC] rounded-[18px] p-3 text-center text-xs text-[#5F7D72] font-semibold mb-2">
+                            Sin resultados para &ldquo;{playerQuery}&rdquo;
                           </div>
-                        ))}
-                      </div>
-                    )
-                  }
+                        )}
+                        <div className="flex flex-col gap-1.5 mb-2">
+                          {filteredRegisteredPlayers.map((rp:any)=>{
+                            const alreadyAdded=players.some((p:any)=>p.linkedUserId===rp.id);
+                            const isReplaceMode=!!replacementTargetId;
+                            return (
+                              <div key={rp.id} className="bg-white border border-[#CFE7DC] rounded-[14px] flex items-center justify-between px-3 py-2 gap-2">
+                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                  {rp.foto
+                                    ? <img src={rp.foto} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
+                                    : <div className="w-7 h-7 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0"><UserIcon size={13} className="text-[#9CA3AF]"/></div>
+                                  }
+                                  <div className="min-w-0">
+                                    <div className="text-[13px] font-black text-[#173A2E] truncate">{rp.nombre} {rp.apellido??""}</div>
+                                    <div className="text-[11px] text-[#5F7D72] font-semibold">{rp.categoria}{rp.ciudad?` · ${rp.ciudad}`:""}</div>
+                                  </div>
+                                </div>
+                                <button
+                                  disabled={alreadyAdded||savingPlayers}
+                                  onClick={()=>handleAddRegisteredPlayer(rp)}
+                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-white flex-shrink-0 transition-colors ${alreadyAdded?"bg-[#A9C9BC] cursor-default":isReplaceMode?"bg-[#086847] hover:bg-[#0B8457]":"bg-[#0B8457] hover:bg-[#086847]"}`}
+                                >
+                                  {alreadyAdded ? "Agregado" : isReplaceMode ? <><ArrowLeftRight size={11}/> Reemplazar</> : <><Plus size={11}/> Agregar</>}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="h-px bg-[#CFE7DC]" />
+
+                  {/* Lista principal de jugadores */}
+                  {players.length===0 && (
+                    <div className="bg-white border border-[#CFE7DC] rounded-[20px] p-6 text-center">
+                      <div className="font-black text-[#173A2E] text-base mb-1">Sin jugadores</div>
+                      <div className="text-[#5F7D72] text-sm">Sumá jugadores desde la búsqueda o creá nombres manuales para esta liga.</div>
+                    </div>
+                  )}
+
+                  {liga.teamType==="pair" ? (
+                    <div className="flex flex-col gap-1.5">
+                      {pairGroups.map(({pairNumber:pn,players:pp})=>{
+                        const isExpanded=expandedPairs.includes(pn);
+                        const status=pp.length>=2?"Completa":pp.length===1?"1 libre":"2 libres";
+                        const statusColor=pp.length>=2?"text-[#086847]":"text-[#8A5700]";
+                        return (
+                          <div key={pn} className="bg-white border border-[#CFE7DC] rounded-2xl px-4 py-2.5">
+                            <button
+                              className="w-full flex items-center justify-between"
+                              onClick={()=>setExpandedPairs(prev=>prev.includes(pn)?prev.filter(n=>n!==pn):[...prev,pn])}
+                            >
+                              <span className="text-sm font-black text-[#173A2E]">Pareja {pn}</span>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-black ${statusColor}`}>{status}</span>
+                                <ChevronDown size={15} className={`text-[#086847] transition-transform ${isExpanded?"rotate-180":""}`}/>
+                              </div>
+                            </button>
+                            {!isExpanded&&pp.length>0&&(
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {pp.map((p:any,i:number)=>(
+                                  <div key={i} className="flex items-center gap-1">
+                                    {p.foto?<img src={p.foto} className="w-4 h-4 rounded-full object-cover" alt=""/>:<div className="w-4 h-4 rounded-full bg-[#E5E7EB]"/>}
+                                    <span className="text-xs font-bold text-[#173A2E]">{p.nombre}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {!isExpanded&&pp.length===0&&(
+                              <div className="text-xs text-[#5F7D72] font-semibold mt-1.5">Sin jugadores asignados</div>
+                            )}
+                            {isExpanded&&(
+                              <div className="mt-2 flex flex-col gap-1.5">
+                                {pp.map((p:any)=>(
+                                  <PlayerSlotRow key={p.id} player={p}
+                                    onView={()=>openPlayerProfile(p)}
+                                    onDelete={()=>handleDeletePlayer(p.id)}
+                                    onSwap={p.type==="guest"?()=>setReplacementTargetId(replacementTargetId===p.id?"":p.id):undefined}
+                                    isSwapActive={replacementTargetId===p.id}
+                                  />
+                                ))}
+                                {Array.from({length:Math.max(0,2-pp.length)}).map((_,i)=>(
+                                  <div key={`free-${i}`} className="bg-[#F7FBF9] border border-[#CFE7DC] rounded-xl flex items-center gap-2 px-3 py-2">
+                                    <div className="w-7 h-7 rounded-full bg-[#EEF6F2] border border-[#CFE7DC] flex items-center justify-center">
+                                      <UserIcon size={12} className="text-[#5F7D72]"/>
+                                    </div>
+                                    <span className="text-sm font-black text-[#5F7D72]">Libre</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* Botón nueva pareja vacía */}
+                      <button
+                        onClick={()=>assignToPair(nextPairNumber)}
+                        disabled={savingPlayers}
+                        className="flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-[#CFE7DC] rounded-2xl text-xs font-black text-[#5F7D72] hover:border-[#1FAB89] hover:text-[#086847] transition-colors disabled:opacity-55"
+                      >
+                        <Plus size={14}/> Nueva pareja vacía
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {players.map((p:any)=>(
+                        <PlayerSlotRow key={p.id} player={p}
+                          onView={()=>openPlayerProfile(p)}
+                          onDelete={()=>handleDeletePlayer(p.id)}
+                          onSwap={p.type==="guest"?()=>setReplacementTargetId(replacementTargetId===p.id?"":p.id):undefined}
+                          isSwapActive={replacementTargetId===p.id}
+                          showSide
+                        />
+                      ))}
+                    </div>
+                  )}
+
                 </div>
               )}
 
@@ -1466,6 +1859,100 @@ export default function LigaDetailPage() {
           </div>
         );
       })()}
+
+      {/* ── Modal: crear jugador manual ──────────────────────────────── */}
+      {guestModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{background:"rgba(19,44,35,0.38)"}} onClick={()=>setGuestModalOpen(false)}>
+          <div className="bg-white w-full max-w-lg rounded-t-[28px] px-6 pt-5 pb-8" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5"/>
+            <h3 className="text-xl font-black text-[#173A2E] mb-1">Crear jugador</h3>
+            <p className="text-sm text-[#5F7D72] mb-5">Este jugador solo existirá en esta liga (sin cuenta en la app).</p>
+            <div className="flex flex-col gap-3 mb-5">
+              <input
+                type="text"
+                placeholder="Nombre"
+                value={guestName}
+                onChange={e=>setGuestName(e.target.value)}
+                className="w-full border border-[#CFE7DC] rounded-[18px] px-4 py-3 text-sm text-[#173A2E] focus:outline-none focus:border-[#1FAB89] placeholder:text-[#5F7D72]"
+              />
+              <input
+                type="text"
+                placeholder="Apellido"
+                value={guestLastName}
+                onChange={e=>setGuestLastName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&handleGuestCreate()}
+                className="w-full border border-[#CFE7DC] rounded-[18px] px-4 py-3 text-sm text-[#173A2E] focus:outline-none focus:border-[#1FAB89] placeholder:text-[#5F7D72]"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={()=>setGuestModalOpen(false)} className="flex-1 py-3 rounded-2xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+              <button onClick={handleGuestCreate} disabled={!guestName.trim()||!guestLastName.trim()} className="flex-1 py-3 rounded-2xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-55">
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: elegir lado Drive/Reves (liga individual) ─────────── */}
+      {sidePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:"rgba(19,44,35,0.38)"}} onClick={()=>{setSidePickerOpen(false);setPendingPlayer(null);setPendingIsGuest(false);}}>
+          <div className="bg-white border border-[#CFE7DC] rounded-[24px] p-6 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[#173A2E] mb-2">¿Qué lado juega?</h3>
+            <p className="text-sm text-[#5F7D72] mb-5">
+              {pendingIsGuest ? `${guestName} ${guestLastName}` : `${pendingPlayer?.nombre ?? ""} ${pendingPlayer?.apellido ?? ""}`}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={()=>assignToSide("drive")} className="flex-1 py-3 rounded-2xl bg-[#0B8457] text-white text-sm font-black hover:bg-[#086847] transition-colors">Drive</button>
+              <button onClick={()=>assignToSide("reves")} className="flex-1 py-3 rounded-2xl bg-[#0B8457] text-white text-sm font-black hover:bg-[#086847] transition-colors">Reves</button>
+            </div>
+            <button onClick={()=>{setSidePickerOpen(false);setPendingPlayer(null);setPendingIsGuest(false);}} className="w-full mt-3 py-2.5 text-sm font-bold text-[#5F7D72]">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: elegir pareja (liga pair) ─────────────────────────── */}
+      {pairPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{background:"rgba(19,44,35,0.38)"}} onClick={()=>{setPairPickerOpen(false);setPendingPlayer(null);setPendingIsGuest(false);}}>
+          <div className="bg-white w-full max-w-lg rounded-t-[28px] px-5 pt-5 pb-8 max-h-[75vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4"/>
+            <h3 className="text-lg font-black text-[#173A2E] mb-1">Asignar a una pareja</h3>
+            <p className="text-sm text-[#5F7D72] mb-4">
+              {pendingIsGuest ? `${guestName} ${guestLastName}` : `${pendingPlayer?.nombre ?? ""} ${pendingPlayer?.apellido ?? ""}`}
+            </p>
+            <div className="overflow-y-auto flex flex-col gap-2 flex-1 pb-2">
+              {pairGroups.map(({pairNumber:pn,players:pp})=>{
+                const isFull=pp.length>=2;
+                return (
+                  <div key={pn} className="bg-[#F7FBF9] border border-[#CFE7DC] rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-black text-[#173A2E]">Pareja {pn}</div>
+                      <div className="text-[11px] text-[#5F7D72] font-semibold">
+                        {pp.length===0?"Sin jugadores":pp.map((p:any)=>`${p.nombre} ${p.apellido??""}`).join(" / ")}
+                      </div>
+                    </div>
+                    <button
+                      onClick={()=>assignToPair(pn)}
+                      disabled={isFull||savingPlayers}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black text-white whitespace-nowrap transition-colors ${isFull?"bg-[#A9C9BC] cursor-not-allowed":"bg-[#0B8457] hover:bg-[#086847]"}`}
+                    >
+                      {isFull ? "Completa" : "Asignar aquí"}
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={()=>assignToPair(nextPairNumber)}
+                disabled={savingPlayers}
+                className="flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-[#CFE7DC] rounded-xl text-xs font-black text-[#5F7D72] hover:border-[#1FAB89] hover:text-[#086847] transition-colors"
+              >
+                <Plus size={13}/> Nueva pareja
+              </button>
+            </div>
+            <button onClick={()=>{setPairPickerOpen(false);setPendingPlayer(null);setPendingIsGuest(false);}} className="mt-3 py-2.5 text-sm font-bold text-[#5F7D72] text-center">Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
