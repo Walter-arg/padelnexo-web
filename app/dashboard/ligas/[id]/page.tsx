@@ -8,7 +8,7 @@ import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  Users, DollarSign,
+  Users,
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
@@ -197,6 +197,27 @@ const REGISTRATION_ROUND_ID = "__league_registration_fee__";
 
 function participantKey(player: any): string {
   return player.linkedUserId || player.id || player.nombre || "";
+}
+
+const EDAD_MINIMA_MENSAJES = 14;
+
+function calcularEdad(fechaNacimiento: string): number | null {
+  if (!fechaNacimiento) return null;
+  const parts = String(fechaNacimiento).split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return null;
+  const [year, month, day] = parts;
+  const today = new Date();
+  const birth = new Date(year, month - 1, day);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
+function esMenorRestringido(fechaNacimiento: string): boolean {
+  if (!fechaNacimiento) return false;
+  const age = calcularEdad(fechaNacimiento);
+  return age !== null && age < EDAD_MINIMA_MENSAJES;
 }
 
 function playerLabel(player: any): string {
@@ -1272,6 +1293,12 @@ export default function LigaDetailPage() {
         const ciudad = [pp.ciudad, pp.provincia].filter(Boolean).join(", ");
         const isGuest = pp.type === "guest";
         const lado = pp.ladoJuego || pp.ladoPreferido || "";
+        const fechaNac = pp.fechaNacimiento || "";
+        const sinFecha = pp.linkedUserId && !fechaNac;
+        const esMenor = pp.linkedUserId && fechaNac && esMenorRestringido(fechaNac);
+        const mensajeBlockReason = sinFecha
+          ? "No configuró su fecha de nacimiento"
+          : esMenor ? `Mensajería no disponible para menores de ${EDAD_MINIMA_MENSAJES} años` : "";
         return (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={closePlayerProfile}>
             <div className="bg-[#F6FBF8] rounded-3xl w-full max-w-sm shadow-2xl relative overflow-hidden" style={{maxHeight:"90vh"}} onClick={e=>e.stopPropagation()}>
@@ -1406,11 +1433,19 @@ export default function LigaDetailPage() {
                         </a>
                       )}
                       {pp.linkedUserId && (
-                        <button onClick={()=>setProfileView("message")}
-                          className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-pn-navy text-white text-sm font-black hover:bg-pn-navy/90 transition-colors">
-                          <MessageSquare size={15}/>
-                          Mensaje
-                        </button>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <button
+                            onClick={mensajeBlockReason ? undefined : ()=>setProfileView("message")}
+                            disabled={!!mensajeBlockReason}
+                            title={mensajeBlockReason}
+                            className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-black transition-colors ${mensajeBlockReason ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-pn-navy text-white hover:bg-pn-navy/90"}`}>
+                            <MessageSquare size={15}/>
+                            Mensaje
+                          </button>
+                          {mensajeBlockReason && (
+                            <div className="text-[10px] text-gray-400 text-center leading-tight px-1">{mensajeBlockReason}</div>
+                          )}
+                        </div>
                       )}
                     </div>
                     {pp.linkedUserId && (
