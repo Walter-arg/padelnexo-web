@@ -1005,7 +1005,7 @@ export default function LigaDetailPage() {
               return (
                 <button
                   key={m.id}
-                  onClick={() => setTab(m.id)}
+                  onClick={() => m.id === "fixture" ? router.push(`/dashboard/ligas/${ligaId}/fixture`) : setTab(m.id)}
                   className={`group relative rounded-2xl p-5 text-left transition-all duration-200 border-2 ${
                     isActive
                       ? `${m.lightBg} border-current ${m.lightText} shadow-md`
