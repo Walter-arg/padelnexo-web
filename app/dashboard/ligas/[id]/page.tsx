@@ -445,7 +445,7 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
   const res = match.result; const hasRes = !!res?.winner && res.winner !== ""; const aWon = res?.winner==="teamA"; const bWon = res?.winner==="teamB"; const isWO = res?.reason==="walkover"; const dotColor = fxRepDotColor(match);
   function renderTeam(team: any, teamKey: string) {
     const players = team.players ?? [];
-    if (!players.length) return <span className="text-[9px] font-black text-[#173A2E]">{team.label}</span>;
+    if (!players.length) return <span className="text-[12px] font-black text-[#173A2E]">{team.label}</span>;
     const isWinner = (teamKey==="teamA"&&aWon)||(teamKey==="teamB"&&bWon);
     return (
       <div className="flex flex-col gap-0.5">
@@ -453,14 +453,14 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
           const key = fxRepKey(teamKey, p); const entry = (match.replacements??{})[key];
           const isPend = entry?.requested && !entry?.replacement; const isAsgn = entry?.requested && entry?.replacement;
           return (
-            <div key={pi} className="flex items-start gap-0.5">
-              {isWinner&&pi===0?<span className="text-[10px] text-[#36D66B] flex-shrink-0">👍</span>:<span className="w-3.5 flex-shrink-0"/>}
+            <div key={pi} className="flex items-start gap-1">
+              {isWinner&&pi===0?<span className="text-[13px] text-[#36D66B] flex-shrink-0 leading-tight">👍</span>:<span className="w-4 flex-shrink-0"/>}
               <div className="flex flex-col">
-                <span className={`text-[9px] font-black leading-tight ${isPend?"text-[#A85B0E]":isAsgn?"text-[#5F7D72] line-through":isWinner?"text-[#176B5B]":"text-[#173A2E]"}`}>
+                <span className={`text-[12px] font-black leading-snug ${isPend?"text-[#A85B0E]":isAsgn?"text-[#5F7D72] line-through":isWinner?"text-[#176B5B]":"text-[#173A2E]"}`}>
                   {isPend&&<span className="text-[#D47713] mr-0.5">⇄</span>}{isAsgn&&<span className="text-[#247653] mr-0.5">⇄</span>}
                   {p.nombre} {p.apellido??""}
                 </span>
-                {isAsgn&&<span className="text-[8px] font-black text-[#247653] leading-tight">▸ {entry.replacement.nombre} {entry.replacement.apellido??""}</span>}
+                {isAsgn&&<span className="text-[10px] font-black text-[#247653] leading-tight">▸ {entry.replacement.nombre} {entry.replacement.apellido??""}</span>}
               </div>
             </div>
           );
@@ -469,23 +469,23 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
     );
   }
   return (
-    <div className="grid items-center px-1.5 py-1.5 min-h-[56px] border-b border-[#E4ECEA] last:border-0" style={{gridTemplateColumns:"0.8fr 2.65fr 0.58fr 0.48fr 0.34fr"}}>
-      <div className="flex items-center justify-center">
+    <div className="grid items-center px-3 py-2 min-h-[68px] border-b border-[#E4ECEA] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr"}}>
+      <div className="flex items-center justify-center pr-1">
         <button onClick={canEdit?onResultClick:undefined}
-          className={`text-[9px] font-black text-center leading-tight ${hasRes&&canEdit?"text-[#176B5B] underline":hasRes?"text-[#173A2E]":"text-[#173A2E]"} ${canEdit&&!hasRes?"hover:text-[#0B8457]":""}`}>
-          {hasRes?(isWO?"WO":res.score||"✓"):"Pendiente"}
+          className={`text-[12px] font-black text-center leading-tight ${hasRes&&canEdit?"text-[#176B5B] underline":hasRes?"text-[#173A2E]":"text-[#5F7D72]"} ${canEdit&&!hasRes?"hover:text-[#0B8457] transition-colors":""}`}>
+          {hasRes?(isWO?"WO":res.score||"✓"):"—"}
         </button>
       </div>
-      <div className="flex flex-col gap-1 px-1">
+      <div className="flex flex-col gap-1.5 px-2">
         {renderTeam(match.teamA,"teamA")}
-        <div className="text-[8px] font-black text-[#5F7D72] text-center leading-none">—</div>
+        <div className="text-[10px] font-black text-[#5F7D72] leading-none">—</div>
         {renderTeam(match.teamB,"teamB")}
       </div>
-      <div className="text-center"><span className={`text-[9px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??"" }</span></div>
-      <div className="text-center"><span className={`text-[9px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??"" }</span></div>
+      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot?.split(" ")[0]??""}</span></div>
+      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??""}</span></div>
       <div className="flex items-center justify-center relative">
-        {canEdit&&<button onClick={onActionsClick} className="w-[22px] h-[22px] bg-[#EDF7F2] border border-[#C9E5D8] rounded-[8px] flex items-center justify-center hover:bg-[#DDF6EF] transition-colors"><MoreVertical size={12} className="text-[#086847]"/></button>}
-        {dotColor&&<div className="absolute top-0 right-0 w-2 h-2 rounded-full border border-white" style={{background:dotColor}}/>}
+        {canEdit&&<button onClick={onActionsClick} className="w-7 h-7 bg-[#EDF7F2] border border-[#C9E5D8] rounded-[8px] flex items-center justify-center hover:bg-[#DDF6EF] transition-colors"><MoreVertical size={14} className="text-[#086847]"/></button>}
+        {dotColor&&<div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white" style={{background:dotColor}}/>}
       </div>
     </div>
   );
@@ -496,25 +496,25 @@ function FxRoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspens
   const status = fxRoundStatus(round); const st = FX_STATUS[status];
   return (
     <div className="rounded-xl overflow-hidden border border-[#BCD8D4]">
-      <div className={`px-3 py-1.5 flex items-center justify-between border-b border-[#9FCFC3] ${st.hBg}`} style={{minHeight:34}}>
-        <span className="text-[13px] font-black text-[#1E5F57] uppercase tracking-[.06em]">{round.title??`Fecha ${round.number}`}</span>
-        <div className="flex items-center gap-1.5">
-          <div className={`w-[7px] h-[7px] rounded-[4px] ${st.dot}`}/>
-          <span className={`text-[8px] font-black ${st.text}`}>{st.label}</span>
-          {canEdit&&<button onClick={onSuspensionClick} className="ml-1 w-5 h-5 rounded-lg bg-white/50 flex items-center justify-center hover:bg-white/80 transition-colors"><MoreVertical size={10} className="text-[#1E5F57]"/></button>}
+      <div className={`px-4 py-2 flex items-center justify-between border-b border-[#9FCFC3] ${st.hBg}`} style={{minHeight:38}}>
+        <span className="text-[14px] font-black text-[#1E5F57] uppercase tracking-[.06em]">{round.title??`Fecha ${round.number}`}</span>
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${st.dot}`}/>
+          <span className={`text-[11px] font-black ${st.text}`}>{st.label}</span>
+          {canEdit&&<button onClick={onSuspensionClick} className="ml-1 w-6 h-6 rounded-lg bg-white/50 flex items-center justify-center hover:bg-white/80 transition-colors"><MoreVertical size={12} className="text-[#1E5F57]"/></button>}
         </div>
       </div>
       {round.matches?.length>0&&(
-        <div className="grid items-center px-1.5 py-1.5 bg-[#DCEFEB] border-b border-[#BCD8D4]" style={{gridTemplateColumns:"0.8fr 2.65fr 0.58fr 0.48fr 0.34fr",minHeight:28}}>
-          {["RESULTADOS","PAREJAS","DIA","HORA",""].map((col,i)=><div key={i} className="text-[8px] font-black text-[#285E59] text-center">{col}</div>)}
+        <div className="grid items-center px-3 py-1.5 bg-[#DCEFEB] border-b border-[#BCD8D4]" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr",minHeight:32}}>
+          {["RESULTADOS","PAREJAS","DIA","HORA",""].map((col,i)=><div key={i} className="text-[10px] font-black text-[#285E59] text-center">{col}</div>)}
         </div>
       )}
       <div className="bg-white">
         {(!round.matches||round.matches.length===0)
-          ?<div className="px-4 py-3 text-sm text-[#5F7D72] italic text-center">Sin partidos</div>
+          ?<div className="px-4 py-4 text-sm text-[#5F7D72] italic text-center">Sin partidos</div>
           :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)}/>)
         }
-        {round.byeLabels?.length>0&&<div className="px-3 py-1.5 text-[10px] text-[#5F7D72] italic border-t border-[#E4ECEA]">Libre: {round.byeLabels.join(", ")}</div>}
+        {round.byeLabels?.length>0&&<div className="px-4 py-2 text-[11px] text-[#5F7D72] italic border-t border-[#E4ECEA]">Libre: {round.byeLabels.join(", ")}</div>}
       </div>
     </div>
   );
@@ -1351,7 +1351,7 @@ export default function LigaDetailPage() {
       <div className="flex gap-6 items-start">
 
         {/* ══ PANEL IZQUIERDO (sticky) ══════════════════════════════════ */}
-        <aside className="hidden lg:flex flex-col gap-4 w-72 flex-shrink-0 sticky top-20">
+        <aside className={`${tab === "fixture" ? "hidden" : "hidden lg:flex"} flex-col gap-4 w-72 flex-shrink-0 sticky top-20`}>
 
           {/* Card info liga */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
