@@ -12,7 +12,7 @@ import {
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, ChevronDown, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
-  MessageSquare, Smartphone, Banknote, Search, Plus,
+  MessageSquare, Smartphone, Banknote, Search, Plus, AlertCircle,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -111,6 +111,414 @@ const DAY_LABELS: Record<string, string> = {
   monday: "Lunes", tuesday: "Martes", wednesday: "Miércoles",
   thursday: "Jueves", friday: "Viernes", saturday: "Sábado", sunday: "Domingo",
 };
+
+// ── Fixture: algoritmos de generación ──────────────────────────────────────
+function fxBuildTeamLabel(players: any[]): string {
+  return players.map(p => p?.nombre ?? "").filter(Boolean).join(" / ");
+}
+function fxNormalizeTeam(t: any, idx: number): any {
+  return { id: t?.id ?? `team-${idx}`, label: t?.label ?? fxBuildTeamLabel(t?.players ?? []), players: t?.players ?? [] };
+}
+function fxNormalizePlayer(p: any): any {
+  return { id: p?.id ?? `guest-${Date.now()}`, type: p?.type ?? "guest", linkedUserId: p?.linkedUserId ?? "", nombre: p?.nombre ?? "Jugador", apellido: p?.apellido ?? "", categoria: p?.categoria ?? "", sexo: p?.sexo ?? "", foto: p?.foto ?? p?.avatarUrl ?? p?.fotoURL ?? p?.photoURL ?? "", ladoJuego: p?.ladoJuego ?? "ambos", pairNumber: p?.pairNumber ?? 0 };
+}
+function fxBuildPairTeams(league: any): any[] {
+  const players = (Array.isArray(league?.players) ? league.players : []).map(fxNormalizePlayer);
+  const grouped: Record<number, any[]> = {};
+  players.forEach((p: any) => { const n = Number(p.pairNumber) || 0; if (n > 0) grouped[n] = [...(grouped[n] ?? []), p]; });
+  const groupedTeams = Object.entries(grouped).sort(([a], [b]) => Number(a) - Number(b)).filter(([, tp]) => (tp as any[]).length >= 2).map(([n, tp]: [string, any]) => ({ id: `pair-team-${n}`, label: fxBuildTeamLabel((tp as any[]).slice(0, 2)), players: (tp as any[]).slice(0, 2) }));
+  if (Object.keys(grouped).length > 0) return groupedTeams;
+  const manualTeams = Array.isArray(league?.fixtureConfig?.manualTeams) ? league.fixtureConfig.manualTeams.map((t: any, i: number) => fxNormalizeTeam(t, i)) : [];
+  if (manualTeams.length) return manualTeams;
+  const teams: any[] = [];
+  for (let i = 0; i + 1 < players.length; i += 2) { const tp = [players[i], players[i + 1]]; teams.push({ id: `pair-team-${teams.length + 1}`, label: fxBuildTeamLabel(tp), players: tp }); }
+  return teams;
+}
+function fxRoundRobin(teams: any[]): any[] {
+  if (!teams.length) return [];
+  const rot = teams.length % 2 === 0 ? [...teams] : [...teams, { id: "__bye__", label: "Libre" }];
+  const rounds: any[] = [];
+  for (let ri = 0; ri < rot.length - 1; ri++) {
+    const matches: any[] = []; const byeLabels: string[] = [];
+    for (let i = 0; i < rot.length / 2; i++) {
+      const a = rot[i], b = rot[rot.length - 1 - i];
+      if (a.id === "__bye__" || b.id === "__bye__") { byeLabels.push((a.id === "__bye__" ? b : a).label); continue; }
+      matches.push({ teamA: a, teamB: b });
+    }
+    rounds.push({ matches, byeLabels });
+    const fixed = rot[0], rotating = rot.slice(1); rotating.unshift(rotating.pop()); rot.splice(0, rot.length, fixed, ...rotating);
+  }
+  return rounds;
+}
+function fxCreateMatch(match: any, ri: number, mi: number, timeSlot = ""): any {
+  return { id: `round-${ri + 1}-match-${mi + 1}`, order: mi + 1, timeSlot, teamA: fxNormalizeTeam(match.teamA, mi * 2), teamB: fxNormalizeTeam(match.teamB, mi * 2 + 1), result: { winner: "", score: "", reason: "", sets: [] }, replacements: {} };
+}
+function fxRotate<T>(arr: T[], by: number): T[] { if (!arr.length) return arr; const n = ((by % arr.length) + arr.length) % arr.length; return [...arr.slice(n), ...arr.slice(0, n)]; }
+function fxGeneratePair(league: any): any {
+  const teams = fxBuildPairTeams(league);
+  const roundsCount = Number(league?.fixtureConfig?.roundsCount) || 6;
+  const timeSlots: string[] = league?.scheduleConfig?.timeSlots ?? [];
+  const base = fxRoundRobin(teams);
+  return { generatedAtMillis: Date.now(), rounds: Array.from({ length: roundsCount }, (_, ri) => { const b = base[ri % Math.max(base.length, 1)] ?? { matches: [], byeLabels: [] }; return { id: `round-${ri + 1}`, number: ri + 1, title: `Fecha ${ri + 1}`, scheduleLabel: "", completedAtMillis: 0, suspendedAtMillis: 0, suspensionReason: "", suspensionMode: "", rescheduledDateMillis: 0, byeLabels: b.byeLabels, matches: b.matches.map((m: any, mi: number) => fxCreateMatch(m, ri, mi, timeSlots[mi % timeSlots.length] ?? "")) }; }) };
+}
+function fxGenerateIndividual(league: any): any {
+  const players = (Array.isArray(league?.players) ? league.players : []).map(fxNormalizePlayer);
+  const drive = players.filter((p: any) => p.ladoJuego === "drive");
+  const reves = players.filter((p: any) => p.ladoJuego === "reves");
+  const pairsCount = Math.min(drive.length, reves.length);
+  const roundsCount = Number(league?.fixtureConfig?.roundsCount) || 6;
+  const timeSlots: string[] = league?.scheduleConfig?.timeSlots ?? [];
+  return { generatedAtMillis: Date.now(), rounds: Array.from({ length: roundsCount }, (_, ri) => { const rotReves = fxRotate(reves, ri); const teams = Array.from({ length: pairsCount }, (_2: any, pi: number) => { const tp = [drive[pi], rotReves[pi]]; return { id: `round-${ri + 1}-team-${pi + 1}`, label: fxBuildTeamLabel(tp), players: tp }; }); const rotTeams = fxRotate(teams, ri); const matches: any[] = []; const byeLabels: string[] = []; for (let i = 0; i < rotTeams.length; i += 2) { const a = rotTeams[i], b = rotTeams[i + 1]; if (!b) { byeLabels.push(a.label); continue; } matches.push(fxCreateMatch({ teamA: a, teamB: b }, ri, matches.length, timeSlots[matches.length % timeSlots.length] ?? "")); } return { id: `round-${ri + 1}`, number: ri + 1, title: `Fecha ${ri + 1}`, scheduleLabel: "", completedAtMillis: 0, suspendedAtMillis: 0, suspensionReason: "", suspensionMode: "", rescheduledDateMillis: 0, byeLabels, matches }; }) };
+}
+function fxValidate(league: any): { valid: boolean; message: string } {
+  const players = Array.isArray(league?.players) ? league.players : [];
+  if (!players.length) return { valid: false, message: "Primero debés cargar jugadores en la liga." };
+  if (league?.teamType === "pair") {
+    const grouped: Record<number, any[]> = {};
+    players.map(fxNormalizePlayer).forEach((p: any) => { const n = Number(p.pairNumber) || 0; if (n > 0) grouped[n] = [...(grouped[n] ?? []), p]; });
+    if (Object.values(grouped).some((g: any[]) => g.length !== 2)) return { valid: false, message: "Todas las parejas deben tener exactamente dos jugadores." };
+    if (fxBuildPairTeams(league).length < 2) return { valid: false, message: "Necesitás al menos dos parejas para generar el fixture." };
+    return { valid: true, message: "" };
+  }
+  const norm = players.map(fxNormalizePlayer);
+  const drive = norm.filter((p: any) => p.ladoJuego === "drive");
+  const reves = norm.filter((p: any) => p.ladoJuego === "reves");
+  if (drive.length < 2 || reves.length < 2) return { valid: false, message: "Necesitás al menos 2 Drive y 2 Reves para el fixture individual." };
+  return { valid: true, message: "" };
+}
+function fxGenerate(league: any): any {
+  const v = fxValidate(league);
+  if (!v.valid) throw new Error(v.message);
+  return league?.teamType === "individual" ? fxGenerateIndividual(league) : fxGeneratePair(league);
+}
+
+// ── Fixture: status ────────────────────────────────────────────────────────
+type RoundStatus = "played" | "suspended" | "reprogrammed" | "pending";
+function fxRoundStatus(round: any): RoundStatus {
+  const matches = round.matches ?? [];
+  if (matches.length > 0 && matches.every((m: any) => m.result?.winner && m.result.winner !== "")) return "played";
+  if (round.suspendedAtMillis > 0) return Date.now() - round.suspendedAtMillis < 86_400_000 ? "suspended" : "reprogrammed";
+  return "pending";
+}
+const FX_STATUS: Record<RoundStatus, { dot: string; text: string; label: string; hBg: string }> = {
+  played:       { dot: "bg-[#3A9A82]", text: "text-[#24725E]", label: "JUGADA",      hBg: "bg-[#CDE9E3]" },
+  pending:      { dot: "bg-[#7D8987]", text: "text-[#596563]", label: "PENDIENTE",   hBg: "bg-[#CDE9E3]" },
+  suspended:    { dot: "bg-[#C76464]", text: "text-[#994646]", label: "SUSPENDIDA",  hBg: "bg-[#FFE8E8]" },
+  reprogrammed: { dot: "bg-[#D68A2D]", text: "text-[#9A601C]", label: "REPROGRAMADA",hBg: "bg-[#FFF3E3]" },
+};
+function fxRepKey(teamKey: string, player: any): string {
+  return player?.id ? `${teamKey}:${player.id}` : `${teamKey}:guest-0-${player?.nombre ?? ""}-${player?.apellido ?? ""}`;
+}
+function fxRepDotColor(match: any): string | null {
+  const entries = Object.values(match.replacements ?? {});
+  if (!entries.length) return null;
+  return entries.some((e: any) => e?.replacement) ? "#2A9A6B" : "#E88319";
+}
+
+// ── FixtureResultModal ─────────────────────────────────────────────────────
+function FixtureResultModal({ match, matchFormat, onClose, onSave }: { match: any; matchFormat: string; onClose: () => void; onSave: (r: any) => void }) {
+  const [winner, setWinner] = useState(match.result?.winner ?? "");
+  const [sets, setSets] = useState<{own:string;rival:string}[]>(match.result?.sets?.length ? match.result.sets : [{own:"",rival:""},{own:"",rival:""},{own:"",rival:""}]);
+  const aLabel = match.teamA?.label ?? "Pareja A";
+  const bLabel = match.teamB?.label ?? "Pareja B";
+  const maxSets = matchFormat === "single_set" ? 1 : 3;
+  function handleSave() {
+    if (!winner) return;
+    const useSets = winner === "walkover" ? [] : sets.slice(0, maxSets).filter((s: any) => s.own !== "" || s.rival !== "");
+    onSave({ winner, score: useSets.map((s: any) => `${s.own}/${s.rival}`).join(" "), reason: winner === "walkover" ? "walkover" : "normal", sets: useSets });
+  }
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-[22px] p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="text-center mb-4">
+          <div className="text-[18px] font-black text-[#086847]">Resultado</div>
+          <div className="text-[11px] text-[#5F7D72] mt-0.5">Seleccioná ganador y cargá los sets.</div>
+        </div>
+        <div className="flex flex-col gap-2 mb-4">
+          {[{v:"teamA",l:aLabel},{v:"teamB",l:bLabel},{v:"walkover",l:"Walkover"}].map(opt=>(
+            <button key={opt.v} onClick={()=>setWinner(opt.v)}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-[14px] border text-sm font-black text-left transition-all ${winner===opt.v?"bg-[#DDF6EF] border-[#89D9C4] text-[#176B5B]":"bg-[#F7FAF8] border-[#CFE7DC] text-[#086847] hover:border-[#89D9C4]"}`}>
+              <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${winner===opt.v?"bg-[#0B8457] border-[#0B8457]":"border-[#CFE7DC]"}`}/>
+              {opt.l}
+              {winner===opt.v&&<span className="ml-auto text-[9px] font-black text-[#176B5B]">GANADOR</span>}
+            </button>
+          ))}
+        </div>
+        {winner && winner!=="walkover" && (
+          <div className="mb-4">
+            {Array.from({length:maxSets}).map((_,i)=>(
+              <div key={i} className="flex items-center gap-2 mb-1.5">
+                <span className="text-[11px] font-black text-[#086847] w-28 text-right">{i===2?"3er set (opc.)": `Set ${i+1}`}</span>
+                <input value={sets[i]?.own??""} onChange={e=>setSets(p=>p.map((s,j)=>j===i?{...s,own:e.target.value}:s))}
+                  className="flex-1 text-center border border-[#CFE7DC] rounded-xl h-[38px] text-[15px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]" placeholder="0" type="number" min="0" max="99"/>
+                <span className="text-[#5F7D72] font-black">/</span>
+                <input value={sets[i]?.rival??""} onChange={e=>setSets(p=>p.map((s,j)=>j===i?{...s,rival:e.target.value}:s))}
+                  className="flex-1 text-center border border-[#CFE7DC] rounded-xl h-[38px] text-[15px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]" placeholder="0" type="number" min="0" max="99"/>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+          <button onClick={handleSave} disabled={!winner} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-40 flex items-center justify-center gap-2">
+            <Save size={14}/>Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── FixtureSuspensionModal ─────────────────────────────────────────────────
+function FixtureSuspensionModal({ round, onClose, onApply }: { round: any; onClose: () => void; onApply: (d: any) => void }) {
+  const [step, setStep] = useState(0);
+  const [scope, setScope] = useState("league_round");
+  const [mode, setMode] = useState("suspended");
+  const [reason, setReason] = useState("weather");
+  const isSuspended = round.suspendedAtMillis > 0;
+  const stepLabels = ["", "¿Qué suspender?", "¿Cuándo se reprograma?", "¿Por qué motivo?"];
+  const allOpts: any[][] = [
+    [],
+    [{v:"league_round",l:"Esta fecha completa"},{v:"selected_matches",l:"Partidos puntuales"}],
+    [{v:"next_week",l:"La próxima semana"},{v:"manual",l:"Elegir fecha manual"},{v:"suspended",l:"Sin fecha definida"}],
+    [{v:"weather",l:"Inclemencia climática"},{v:"holiday",l:"Feriado"},{v:"technical",l:"Problema técnico"},{v:"other",l:"Otros motivos"}],
+  ];
+  const stepVal = [scope, scope, mode, reason][step];
+  const stepSetter = [setScope, setScope, setMode, setReason][step];
+  if (step === 0) return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-[22px] p-6 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-black text-[#086847]">Fecha {round.number}</h3>
+          <button onClick={onClose}><X size={16} className="text-[#5F7D72]"/></button>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={()=>setStep(1)} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#FFF3E3] border border-[#E8C58E] text-sm font-black text-[#8A5A2B] text-left">
+            <AlertCircle size={15} className="text-[#D68A2D] flex-shrink-0"/>Suspender esta fecha
+          </button>
+          {isSuspended&&<button onClick={()=>onApply({remove:true})} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#086847] text-left">
+            <Check size={15} className="flex-shrink-0"/>Quitar suspensión
+          </button>}
+          <button onClick={onClose} className="px-4 py-3 rounded-xl bg-[#F7FAF8] border border-[#CFE7DC] text-sm font-bold text-[#5F7D72] text-center">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-[22px] p-6 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-black text-[#086847] text-base">{stepLabels[step]}</h3>
+          <button onClick={onClose}><X size={16} className="text-[#5F7D72]"/></button>
+        </div>
+        <p className="text-xs text-[#5F7D72] mb-4">Paso {step} de 3</p>
+        <div className="flex flex-col gap-2 mb-5">
+          {allOpts[step].map((opt:any)=>(
+            <button key={opt.v} onClick={()=>stepSetter(opt.v)}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-black text-left ${stepVal===opt.v?"bg-[#DDF6EF] border-[#89D9C4] text-[#176B5B]":"bg-[#F7FAF8] border-[#CFE7DC] text-[#086847]"}`}>
+              <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${stepVal===opt.v?"bg-[#0B8457] border-[#0B8457]":"border-[#CFE7DC]"}`}/>
+              {opt.l}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={()=>setStep(s=>s-1)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Atrás</button>
+          {step===3
+            ?<button onClick={()=>onApply({scope,mode,reason})} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black">Confirmar</button>
+            :<button onClick={()=>setStep(s=>s+1)} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black">Siguiente →</button>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── FixtureReplacementModal ────────────────────────────────────────────────
+function FixtureReplacementModal({ match, allPlayers, onClose, onSave }: { match: any; allPlayers: any[]; onClose: () => void; onSave: (r: Record<string,any>) => void }) {
+  const [query, setQuery] = useState("");
+  const [pendingKey, setPendingKey] = useState<string|null>(null);
+  const [draft, setDraft] = useState<Record<string,any>>({...(match.replacements??{})});
+  const matchPlayers = [
+    ...((match.teamA?.players??[]).map((p:any)=>({...p,teamKey:"teamA"}))),
+    ...((match.teamB?.players??[]).map((p:any)=>({...p,teamKey:"teamB"}))),
+  ];
+  const filtered = useMemo(()=>{
+    const q = query.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+    if(!q) return allPlayers.slice(0,10);
+    return allPlayers.filter(p=>`${p.nombre??""} ${p.apellido??""}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").includes(q)).slice(0,10);
+  },[query,allPlayers]);
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-[28px] sm:rounded-[22px] pt-5 pb-6 px-5 w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-black text-[#086847] text-base">Reemplazos</h3>
+          <button onClick={onClose}><X size={16} className="text-[#5F7D72]"/></button>
+        </div>
+        {matchPlayers.map((player:any,idx:number)=>{
+          const key = fxRepKey(player.teamKey, player);
+          const entry = draft[key];
+          const isPending = entry?.requested && !entry?.replacement;
+          const isAssigned = entry?.requested && entry?.replacement;
+          return (
+            <div key={idx} className="mb-2.5 bg-[#F7FAF8] border border-[#CFE7DC] rounded-xl px-3 py-2">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div>
+                  <div className="text-sm font-black text-[#173A2E]">{player.nombre} {player.apellido??""}</div>
+                  <div className="text-[10px] text-[#5F7D72]">{player.teamKey==="teamA"?match.teamA?.label:match.teamB?.label}</div>
+                </div>
+                {isPending&&<span className="text-[9px] font-black text-[#D47713]">PENDIENTE</span>}
+                {isAssigned&&<span className="text-[9px] font-black text-[#24725E]">ASIGNADO</span>}
+              </div>
+              {isAssigned&&<div className="text-[11px] text-[#5F7D72] mb-1">Reemplazante: <span className="font-black text-[#247653]">{entry.replacement.nombre} {entry.replacement.apellido??""}</span></div>}
+              <div className="flex gap-1.5">
+                {!entry&&<button onClick={()=>setDraft(d=>({...d,[key]:{requested:true,titular:{id:player.id,nombre:player.nombre,apellido:player.apellido},replacement:null,requestedAtMillis:Date.now()}}))} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#FFF3E3] border border-[#E8C58E] text-[#8A5A2B]">Solicitar</button>}
+                {isPending&&<button onClick={()=>{setPendingKey(key);setQuery("");}} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#DDF6EF] border border-[#89D9C4] text-[#176B5B]">Asignar</button>}
+                {entry&&<button onClick={()=>setDraft(d=>{const n={...d};delete n[key];return n;})} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#FFF1F1] border border-[#F2C4C4] text-[#D64545]">Cancelar</button>}
+              </div>
+            </div>
+          );
+        })}
+        {pendingKey&&(
+          <div className="mt-3">
+            <p className="text-xs font-bold text-[#086847] mb-2">Buscar reemplazante</p>
+            <div className="flex items-center gap-2 bg-[#F7FAF8] border border-[#CFE7DC] rounded-xl px-3 py-2 mb-2">
+              <Search size={13} className="text-[#5F7D72] flex-shrink-0"/>
+              <input value={query} onChange={e=>setQuery(e.target.value)} className="flex-1 text-sm bg-transparent outline-none text-[#173A2E] placeholder-[#5F7D72]" placeholder="Nombre del reemplazante..." autoFocus/>
+            </div>
+            <div className="flex flex-col gap-1 max-h-44 overflow-y-auto">
+              {filtered.map((rp:any,i:number)=>(
+                <button key={i} onClick={()=>{
+                  const titEntry = matchPlayers.find((p:any)=>fxRepKey(p.teamKey,p)===pendingKey);
+                  setDraft(d=>({...d,[pendingKey]:{...(d[pendingKey]??{}),requested:true,titular:titEntry?{id:titEntry.id,nombre:titEntry.nombre,apellido:titEntry.apellido}:{},replacement:{id:rp.id,linkedUserId:rp.linkedUserId??rp.id,nombre:rp.nombre,apellido:rp.apellido}}}));
+                  setPendingKey(null); setQuery("");
+                }} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-[#CFE7DC] text-left hover:bg-[#DDF6EF] hover:border-[#89D9C4] transition-colors">
+                  {(rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL)
+                    ?<img src={rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL} className="w-6 h-6 rounded-full object-cover flex-shrink-0" alt=""/>
+                    :<div className="w-6 h-6 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0 text-[10px] font-black text-[#9CA3AF]">{(rp.nombre??"?")[0]}</div>
+                  }
+                  <div><div className="text-sm font-black text-[#173A2E]">{rp.nombre} {rp.apellido??""}</div>{rp.categoria&&<div className="text-[10px] text-[#5F7D72]">{rp.categoria}</div>}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex gap-3 mt-4">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+          <button onClick={()=>onSave(draft)} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black flex items-center justify-center gap-2"><Save size={14}/>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── FixtureGenerateModal ───────────────────────────────────────────────────
+function FixtureGenerateModal({ league, onClose, onGenerate }: { league: any; onClose: () => void; onGenerate: (f: any) => void }) {
+  const validation = fxValidate(league);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function go() { setBusy(true); setErr(""); try { onGenerate(fxGenerate(league)); } catch(e:any){ setErr(e?.message??"Error."); } setBusy(false); }
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-[22px] p-6 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-black text-[#086847] text-lg">Generar fixture</h3>
+          <button onClick={onClose}><X size={16} className="text-[#5F7D72]"/></button>
+        </div>
+        {!validation.valid&&<div className="bg-[#FFF1F1] border border-[#F2CACA] rounded-xl px-4 py-3 mb-4 text-sm text-[#8C2D2D] font-semibold">{validation.message}</div>}
+        {err&&<div className="bg-[#FFF1F1] border border-[#F2CACA] rounded-xl px-4 py-3 mb-4 text-sm text-[#8C2D2D] font-semibold">{err}</div>}
+        {validation.valid&&<div className="bg-[#EEF9F1] border border-[#CFE7DC] rounded-xl px-4 py-3 mb-4 text-sm text-[#086847] font-semibold">
+          Se generarán <strong>{league?.fixtureConfig?.roundsCount??6}</strong> fechas · {league?.teamType==="individual"?"Individual (Drive/Reves)":"Round Robin (parejas)"}
+        </div>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+          <button onClick={go} disabled={!validation.valid||busy} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-40 flex items-center justify-center gap-2">
+            {busy?<RefreshCw size={14} className="animate-spin"/>:<Trophy size={14}/>}{busy?"Generando...":"Generar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MatchRow (fixture) ─────────────────────────────────────────────────────
+function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: any; canEdit: boolean; onResultClick: ()=>void; onActionsClick: ()=>void }) {
+  const res = match.result; const hasRes = !!res?.winner && res.winner !== ""; const aWon = res?.winner==="teamA"; const bWon = res?.winner==="teamB"; const isWO = res?.reason==="walkover"; const dotColor = fxRepDotColor(match);
+  function renderTeam(team: any, teamKey: string) {
+    const players = team.players ?? [];
+    if (!players.length) return <span className="text-[9px] font-black text-[#173A2E]">{team.label}</span>;
+    const isWinner = (teamKey==="teamA"&&aWon)||(teamKey==="teamB"&&bWon);
+    return (
+      <div className="flex flex-col gap-0.5">
+        {players.map((p:any,pi:number)=>{
+          const key = fxRepKey(teamKey, p); const entry = (match.replacements??{})[key];
+          const isPend = entry?.requested && !entry?.replacement; const isAsgn = entry?.requested && entry?.replacement;
+          return (
+            <div key={pi} className="flex items-start gap-0.5">
+              {isWinner&&pi===0?<span className="text-[10px] text-[#36D66B] flex-shrink-0">👍</span>:<span className="w-3.5 flex-shrink-0"/>}
+              <div className="flex flex-col">
+                <span className={`text-[9px] font-black leading-tight ${isPend?"text-[#A85B0E]":isAsgn?"text-[#5F7D72] line-through":isWinner?"text-[#176B5B]":"text-[#173A2E]"}`}>
+                  {isPend&&<span className="text-[#D47713] mr-0.5">⇄</span>}{isAsgn&&<span className="text-[#247653] mr-0.5">⇄</span>}
+                  {p.nombre} {p.apellido??""}
+                </span>
+                {isAsgn&&<span className="text-[8px] font-black text-[#247653] leading-tight">▸ {entry.replacement.nombre} {entry.replacement.apellido??""}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  return (
+    <div className="grid items-center px-1.5 py-1.5 min-h-[56px] border-b border-[#E4ECEA] last:border-0" style={{gridTemplateColumns:"0.8fr 2.65fr 0.58fr 0.48fr 0.34fr"}}>
+      <div className="flex items-center justify-center">
+        <button onClick={canEdit?onResultClick:undefined}
+          className={`text-[9px] font-black text-center leading-tight ${hasRes&&canEdit?"text-[#176B5B] underline":hasRes?"text-[#173A2E]":"text-[#173A2E]"} ${canEdit&&!hasRes?"hover:text-[#0B8457]":""}`}>
+          {hasRes?(isWO?"WO":res.score||"✓"):"Pendiente"}
+        </button>
+      </div>
+      <div className="flex flex-col gap-1 px-1">
+        {renderTeam(match.teamA,"teamA")}
+        <div className="text-[8px] font-black text-[#5F7D72] text-center leading-none">—</div>
+        {renderTeam(match.teamB,"teamB")}
+      </div>
+      <div className="text-center"><span className={`text-[9px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??"" }</span></div>
+      <div className="text-center"><span className={`text-[9px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??"" }</span></div>
+      <div className="flex items-center justify-center relative">
+        {canEdit&&<button onClick={onActionsClick} className="w-[22px] h-[22px] bg-[#EDF7F2] border border-[#C9E5D8] rounded-[8px] flex items-center justify-center hover:bg-[#DDF6EF] transition-colors"><MoreVertical size={12} className="text-[#086847]"/></button>}
+        {dotColor&&<div className="absolute top-0 right-0 w-2 h-2 rounded-full border border-white" style={{background:dotColor}}/>}
+      </div>
+    </div>
+  );
+}
+
+// ── RoundBlock (fixture) ───────────────────────────────────────────────────
+function FxRoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensionClick }: { round: any; canEdit: boolean; onResultClick: (id:string)=>void; onActionsClick: (id:string)=>void; onSuspensionClick: ()=>void }) {
+  const status = fxRoundStatus(round); const st = FX_STATUS[status];
+  return (
+    <div className="rounded-xl overflow-hidden border border-[#BCD8D4]">
+      <div className={`px-3 py-1.5 flex items-center justify-between border-b border-[#9FCFC3] ${st.hBg}`} style={{minHeight:34}}>
+        <span className="text-[13px] font-black text-[#1E5F57] uppercase tracking-[.06em]">{round.title??`Fecha ${round.number}`}</span>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-[7px] h-[7px] rounded-[4px] ${st.dot}`}/>
+          <span className={`text-[8px] font-black ${st.text}`}>{st.label}</span>
+          {canEdit&&<button onClick={onSuspensionClick} className="ml-1 w-5 h-5 rounded-lg bg-white/50 flex items-center justify-center hover:bg-white/80 transition-colors"><MoreVertical size={10} className="text-[#1E5F57]"/></button>}
+        </div>
+      </div>
+      {round.matches?.length>0&&(
+        <div className="grid items-center px-1.5 py-1.5 bg-[#DCEFEB] border-b border-[#BCD8D4]" style={{gridTemplateColumns:"0.8fr 2.65fr 0.58fr 0.48fr 0.34fr",minHeight:28}}>
+          {["RESULTADOS","PAREJAS","DIA","HORA",""].map((col,i)=><div key={i} className="text-[8px] font-black text-[#285E59] text-center">{col}</div>)}
+        </div>
+      )}
+      <div className="bg-white">
+        {(!round.matches||round.matches.length===0)
+          ?<div className="px-4 py-3 text-sm text-[#5F7D72] italic text-center">Sin partidos</div>
+          :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)}/>)
+        }
+        {round.byeLabels?.length>0&&<div className="px-3 py-1.5 text-[10px] text-[#5F7D72] italic border-t border-[#E4ECEA]">Libre: {round.byeLabels.join(", ")}</div>}
+      </div>
+    </div>
+  );
+}
 
 // ── Tabla de posiciones ────────────────────────────────────────────────────
 function buildStandings(liga: any) {
@@ -412,6 +820,16 @@ export default function LigaDetailPage() {
   const [toast, setToast] = useState<{msg:string;ok:boolean}|null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Fixture state ────────────────────────────────────────────────────────
+  const [fixtureDraft, setFixtureDraft] = useState<any>({ generatedAtMillis: 0, rounds: [] });
+  const [fxResultTarget, setFxResultTarget] = useState<{roundId:string;matchId:string}|null>(null);
+  const [fxActionsTarget, setFxActionsTarget] = useState<{roundId:string;matchId:string}|null>(null);
+  const [fxSuspTarget, setFxSuspTarget] = useState<string|null>(null);
+  const [fxGenOpen, setFxGenOpen] = useState(false);
+  const [fxConfirmRegen, setFxConfirmRegen] = useState(false);
+  const [fxConfirmDelete, setFxConfirmDelete] = useState(false);
+  const [fxSaving, setFxSaving] = useState(false);
+
   // ── Player management state ──────────────────────────────────────────────
   const [registeredPlayers, setRegisteredPlayers] = useState<any[]>([]);
   const [playersLoaded, setPlayersLoaded] = useState(false);
@@ -444,7 +862,11 @@ export default function LigaDetailPage() {
     const unsub = onAuthStateChanged(auth, async(u)=>{
       if(!u){router.push("/login");return;}
       const snap = await getDoc(doc(db,"leagues",ligaId));
-      if(snap.exists()) setLiga({id:snap.id,...snap.data()});
+      if(snap.exists()) {
+        const data:any = {id:snap.id,...snap.data()};
+        setLiga(data);
+        setFixtureDraft(data.fixture ?? {generatedAtMillis:0,rounds:[]});
+      }
       setLoading(false);
     });
     return unsub;
@@ -452,7 +874,7 @@ export default function LigaDetailPage() {
 
   // Carga jugadores registrados + solicitudes al abrir el tab
   useEffect(()=>{
-    if(tab !== "jugadores" || playersLoaded) return;
+    if((tab !== "jugadores" && tab !== "fixture") || playersLoaded) return;
     async function load() {
       try {
         const snap = await getDocs(fsQuery(collection(db,"users"), where("accountDeleted","!=",true)));
@@ -667,6 +1089,50 @@ export default function LigaDetailPage() {
     setResultModal(null);
   }
 
+  // ── Fixture CRUD ──────────────────────────────────────────────────────────
+  async function fxSaveToFirestore(fixture: any) {
+    setFxSaving(true);
+    try {
+      await updateDoc(doc(db,"leagues",ligaId),{fixture, updatedAt:serverTimestamp()});
+      setLiga((p:any)=>({...p,fixture}));
+      setFixtureDraft(fixture);
+      showToast("Fixture guardado.");
+    } catch { showToast("Error al guardar.", false); }
+    setFxSaving(false);
+  }
+
+  function fxUpdateMatch(roundId:string, matchId:string, updater:(m:any)=>any) {
+    setFixtureDraft((prev:any)=>{
+      const rounds = prev.rounds.map((r:any)=>{
+        if(r.id!==roundId) return r;
+        const matches = r.matches.map((m:any)=>m.id!==matchId?m:updater(m));
+        const allDone = matches.length>0 && matches.every((m:any)=>m.result?.winner&&m.result.winner!=="");
+        return {...r, matches, completedAtMillis: allDone?(r.completedAtMillis||Date.now()):0};
+      });
+      return {...prev, rounds};
+    });
+  }
+
+  function fxUpdateRound(roundId:string, updater:(r:any)=>any) {
+    setFixtureDraft((prev:any)=>({...prev, rounds:prev.rounds.map((r:any)=>r.id!==roundId?r:updater(r))}));
+  }
+
+  async function fxHandleGenerate(fixture: any) {
+    setFxGenOpen(false);
+    await fxSaveToFirestore(fixture);
+  }
+
+  async function fxHandleDelete() {
+    setFxConfirmDelete(false);
+    await fxSaveToFirestore({generatedAtMillis:0, rounds:[]});
+  }
+
+  async function fxHandleRegenerate() {
+    setFxConfirmRegen(false);
+    try { await fxSaveToFirestore(fxGenerate(liga)); }
+    catch(e:any){ showToast(e?.message??"Error al regenerar.", false); }
+  }
+
   // ── Player management functions ──────────────────────────────────────────
   async function persistPlayers(nextPlayers: any[]) {
     setSavingPlayers(true);
@@ -792,7 +1258,14 @@ export default function LigaDetailPage() {
   );
 
   const players: any[]       = liga.players ?? [];
-  const rounds: any[]        = liga.fixture?.rounds ?? [];
+  const rounds: any[]        = fixtureDraft?.rounds ?? [];
+  const fxHasFixture         = (fixtureDraft?.generatedAtMillis ?? 0) > 0 && rounds.length > 0;
+  const fxHasUnsaved         = fxHasFixture && JSON.stringify(fixtureDraft) !== JSON.stringify(liga?.fixture ?? {generatedAtMillis:0,rounds:[]});
+  const fxValidation         = fxValidate(liga);
+  const fxActiveMatch        = fxResultTarget ? rounds.flatMap((r:any)=>r.matches??[]).find((m:any)=>m.id===fxResultTarget.matchId) : null;
+  const fxActionsMatch       = fxActionsTarget ? rounds.flatMap((r:any)=>r.matches??[]).find((m:any)=>m.id===fxActionsTarget.matchId) : null;
+  const fxSuspRound          = fxSuspTarget ? rounds.find((r:any)=>r.id===fxSuspTarget) : null;
+  const fxCanEdit            = liga.organizerId === auth.currentUser?.uid;
 
   // ── Player computed values ───────────────────────────────────────────────
   const minimumPlayersCount = Math.max(2, liga.fixtureConfig?.minPlayersCount ?? 8);
@@ -1005,7 +1478,7 @@ export default function LigaDetailPage() {
               return (
                 <button
                   key={m.id}
-                  onClick={() => m.id === "fixture" ? router.push(`/dashboard/ligas/${ligaId}/fixture`) : setTab(m.id)}
+                  onClick={() => setTab(m.id)}
                   className={`group relative rounded-2xl p-5 text-left transition-all duration-200 border-2 ${
                     isActive
                       ? `${m.lightBg} border-current ${m.lightText} shadow-md`
@@ -1262,70 +1735,66 @@ export default function LigaDetailPage() {
 
               {/* ── FIXTURE ───────────────────────────────────────────── */}
               {tab==="fixture" && (
-                <div className="flex flex-col gap-4">
-                  {rounds.length===0 && <p className="text-center text-gray-400 py-12">El fixture todavía no fue generado.</p>}
-                  {rounds.map((round:any,ri:number)=>{
-                    const isSusp = !!round.suspendedAtMillis;
-                    const isDone = !!round.completedAtMillis;
-                    return (
-                      <div key={ri} className="rounded-2xl overflow-hidden border border-gray-100">
-                        <div className={`px-5 py-3 flex items-center justify-between ${isSusp?"bg-amber-50":isDone?"bg-pn-mint":"bg-gray-50"}`}>
-                          <span className="font-black text-pn-navy text-base uppercase tracking-wide">
-                            {round.title??`Fecha ${round.number??ri+1}`}
-                          </span>
-                          <span className={`flex items-center gap-1.5 text-xs font-bold ${isSusp?"text-amber-500":isDone?"text-pn-green":"text-gray-400"}`}>
-                            <span className={`w-2 h-2 rounded-full ${isSusp?"bg-amber-400":isDone?"bg-pn-green":"bg-gray-300"}`}/>
-                            {isSusp?"SUSPENDIDA":isDone?"COMPLETADA":"PENDIENTE"}
-                          </span>
-                        </div>
-                        {round.scheduleLabel && (
-                          <div className="px-5 py-1.5 text-xs text-gray-400 bg-gray-50 border-b border-gray-100">{round.scheduleLabel}</div>
-                        )}
-                        {(round.matches??[]).length>0 && (
-                          <div className="grid text-xs font-bold text-pn-green uppercase px-4 py-2 border-b border-gray-100"
-                            style={{gridTemplateColumns:"90px 1fr 52px 52px 32px"}}>
-                            <div>Resultado</div><div className="text-center">Parejas</div>
-                            <div className="text-center">Día</div><div className="text-center">Hora</div><div/>
-                          </div>
-                        )}
-                        <div className="divide-y divide-gray-50">
-                          {(round.matches??[]).map((m:any,mi:number)=>{
-                            const aLabel=m.teamA?.label??m.pair1Name??"Pareja A";
-                            const bLabel=m.teamB?.label??m.pair2Name??"Pareja B";
-                            const res=m.result;
-                            const hasRes=res?.winner&&res.winner!=="";
-                            const aWon=res?.winner==="teamA";
-                            const bWon=res?.winner==="teamB";
-                            const isWO=res?.reason==="walkover"||res?.winner==="walkover";
-                            const dia=m.dayLabel??round.scheduleConfig?.dayKey??null;
-                            const hora=m.timeSlot??null;
-                            const hasRep=Object.keys(m.replacements??{}).length>0;
-                            return (
-                              <div key={mi} className="grid items-center px-4 py-3 hover:bg-gray-50/50 transition-colors"
-                                style={{gridTemplateColumns:"90px 1fr 52px 52px 32px"}}>
-                                <div>
-                                  {hasRes
-                                    ? <button onClick={()=>setResultModal({ri,mi})} className={`text-sm font-bold ${isWO?"text-amber-500":"text-pn-green"} hover:underline text-left`}>{isWO?"WO":res.score||"✓"}</button>
-                                    : <button onClick={()=>setResultModal({ri,mi})} className="text-sm font-bold text-gray-400 hover:text-pn-green transition-colors">Pendiente</button>}
-                                </div>
-                                <div className="text-center px-2">
-                                  <div className={`text-sm font-bold truncate ${aWon?"text-pn-green":"text-pn-navy"}`}>{aWon&&"👍 "}{aLabel}</div>
-                                  <div className="text-xs text-gray-300 my-0.5">—</div>
-                                  <div className={`text-sm font-bold truncate ${bWon?"text-pn-green":"text-pn-navy"}`}>{bWon&&"👍 "}{bLabel}</div>
-                                </div>
-                                <div className="text-center text-xs font-bold text-blue-500">{dia?DAY_LABELS[dia]??dia:""}</div>
-                                <div className="text-center text-xs font-bold text-blue-500">{hora??""}</div>
-                                <div className="text-center">{hasRep&&<RefreshCw size={13} className="text-amber-400 mx-auto"/>}</div>
-                              </div>
-                            );
-                          })}
-                          {(!round.matches||round.matches.length===0) && (
-                            <div className="px-4 py-3 text-sm text-gray-400 italic">Sin partidos</div>
-                          )}
-                        </div>
+                <div className="flex flex-col gap-3">
+                  {/* Unsaved changes banner */}
+                  {fxHasUnsaved && (
+                    <div className="bg-[#FFF3E3] border border-[#E8C58E] rounded-xl px-4 py-3 flex items-center gap-3">
+                      <AlertCircle size={15} className="text-[#D68A2D] flex-shrink-0"/>
+                      <span className="text-sm font-bold text-[#8A5A2B]">Hay cambios sin guardar en el fixture.</span>
+                    </div>
+                  )}
+
+                  {/* Validation warning (sin fixture aún) */}
+                  {!fxHasFixture && !fxValidation.valid && (
+                    <div className="bg-[#FFF1F1] border border-[#F2CACA] rounded-xl px-4 py-3 text-sm text-[#8C2D2D] font-semibold">{fxValidation.message}</div>
+                  )}
+
+                  {/* Botón generar */}
+                  {!fxHasFixture && fxCanEdit && (
+                    <div className="text-center py-10">
+                      <div className="text-[#5F7D72] text-sm mb-4">Todavía no hay fechas armadas.</div>
+                      <button onClick={()=>setFxGenOpen(true)} disabled={!fxValidation.valid||fxSaving}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black hover:bg-[#086847] transition-colors disabled:opacity-40">
+                        {fxSaving?<RefreshCw size={15} className="animate-spin"/>:<Trophy size={15}/>}
+                        {fxSaving?"Generando...":"Generar fixture"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Rounds */}
+                  {fxHasFixture && rounds.map((round:any)=>(
+                    <FxRoundBlock key={round.id} round={round} canEdit={fxCanEdit}
+                      onResultClick={matchId=>setFxResultTarget({roundId:round.id,matchId})}
+                      onActionsClick={matchId=>setFxActionsTarget({roundId:round.id,matchId})}
+                      onSuspensionClick={()=>setFxSuspTarget(round.id)}
+                    />
+                  ))}
+
+                  {/* Guardar cambios */}
+                  {fxHasUnsaved && fxCanEdit && (
+                    <button onClick={()=>fxSaveToFirestore(fixtureDraft)} disabled={fxSaving}
+                      className="w-full py-3.5 rounded-xl bg-[#0B8457] text-white text-sm font-black flex items-center justify-center gap-2 hover:bg-[#086847] transition-colors disabled:opacity-60 mt-1">
+                      {fxSaving?<RefreshCw size={15} className="animate-spin"/>:<Save size={15}/>}
+                      {fxSaving?"Guardando...":"GUARDAR CAMBIOS"}
+                    </button>
+                  )}
+
+                  {/* Zona peligrosa */}
+                  {fxHasFixture && fxCanEdit && (
+                    <div className="border border-[#F2C4C4] rounded-xl overflow-hidden mt-2">
+                      <div className="px-4 py-2 bg-[#FFF1F1] border-b border-[#F2C4C4]">
+                        <span className="text-[10px] font-black text-[#994646] uppercase tracking-wider">Zona peligrosa</span>
                       </div>
-                    );
-                  })}
+                      <div className="px-4 py-3 flex gap-3">
+                        <button onClick={()=>setFxConfirmRegen(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-[#F2C4C4] text-sm font-black text-[#994646] hover:bg-[#FFF1F1] transition-colors">
+                          <RefreshCw size={13}/>Regenerar
+                        </button>
+                        <button onClick={()=>setFxConfirmDelete(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#D64545] text-white text-sm font-black hover:bg-[#B83030] transition-colors">
+                          <Trash2 size={13}/>Eliminar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1950,6 +2419,50 @@ export default function LigaDetailPage() {
               </button>
             </div>
             <button onClick={()=>{setPairPickerOpen(false);setPendingPlayer(null);setPendingIsGuest(false);}} className="mt-3 py-2.5 text-sm font-bold text-[#5F7D72] text-center">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fixture modals ─────────────────────────────────────────────── */}
+      {fxGenOpen && liga && (
+        <FixtureGenerateModal league={liga} onClose={()=>setFxGenOpen(false)} onGenerate={fxHandleGenerate}/>
+      )}
+      {fxActiveMatch && fxResultTarget && (
+        <FixtureResultModal match={fxActiveMatch} matchFormat={matchFormat} onClose={()=>setFxResultTarget(null)}
+          onSave={result=>{ fxUpdateMatch(fxResultTarget.roundId, fxResultTarget.matchId, m=>({...m,result,completedAtMillis:result.winner?Date.now():0})); setFxResultTarget(null); }}
+        />
+      )}
+      {fxActionsMatch && fxActionsTarget && (
+        <FixtureReplacementModal match={fxActionsMatch} allPlayers={registeredPlayers} onClose={()=>setFxActionsTarget(null)}
+          onSave={replacements=>{ fxUpdateMatch(fxActionsTarget.roundId, fxActionsTarget.matchId, m=>({...m,replacements})); setFxActionsTarget(null); showToast("Reemplazos guardados. Presioná GUARDAR CAMBIOS."); }}
+        />
+      )}
+      {fxSuspRound && fxSuspTarget && (
+        <FixtureSuspensionModal round={fxSuspRound} onClose={()=>setFxSuspTarget(null)}
+          onApply={data=>{ if(data.remove){ fxUpdateRound(fxSuspTarget,r=>({...r,suspendedAtMillis:0,suspensionReason:"",suspensionMode:""})); } else { fxUpdateRound(fxSuspTarget,r=>({...r,suspendedAtMillis:Date.now(),suspensionReason:data.reason,suspensionMode:data.mode})); } setFxSuspTarget(null); showToast("Suspensión aplicada. Presioná GUARDAR CAMBIOS."); }}
+        />
+      )}
+      {fxConfirmRegen && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[22px] p-7 w-full max-w-sm shadow-2xl">
+            <h3 className="font-black text-[#173A2E] text-lg mb-2">¿Regenerar fixture?</h3>
+            <p className="text-sm text-[#5F7D72] mb-5">Se perderán todos los resultados actuales.</p>
+            <div className="flex gap-3">
+              <button onClick={()=>setFxConfirmRegen(false)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+              <button onClick={fxHandleRegenerate} className="flex-1 py-3 rounded-xl bg-[#D64545] text-white text-sm font-black">Regenerar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {fxConfirmDelete && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[22px] p-7 w-full max-w-sm shadow-2xl">
+            <h3 className="font-black text-[#173A2E] text-lg mb-2">¿Eliminar fixture?</h3>
+            <p className="text-sm text-[#5F7D72] mb-5">Esta acción es irreversible.</p>
+            <div className="flex gap-3">
+              <button onClick={()=>setFxConfirmDelete(false)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+              <button onClick={fxHandleDelete} className="flex-1 py-3 rounded-xl bg-[#D64545] text-white text-sm font-black">Eliminar</button>
+            </div>
           </div>
         </div>
       )}
