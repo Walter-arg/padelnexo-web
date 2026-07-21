@@ -688,7 +688,7 @@ export default function LigaDetailPage() {
         id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
         nombre:rp.nombre??"",apellido:rp.apellido??"",
         telefono:rp.telefono??rp.celular??"",categoria:rp.categoria??"",
-        sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",foto:rp.foto??"",
+        sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",foto:rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL||"",
         ladoJuego:target.ladoJuego,ladoPreferido:target.ladoPreferido,pairNumber:target.pairNumber,
       });
       persistPlayers((liga?.players??[]).map((p:any)=>p.id===replacementTargetId?newP:p));
@@ -722,7 +722,7 @@ export default function LigaDetailPage() {
       newP=normalizePlayerEntry({id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
         nombre:rp.nombre??"",apellido:rp.apellido??"",telefono:rp.telefono??rp.celular??"",
         categoria:rp.categoria??"",sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",
-        foto:rp.foto??"",ladoJuego:lado,ladoPreferido:lado==="drive"?"Drive":"Reves",pairNumber:0});
+        foto:rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL||"",ladoJuego:lado,ladoPreferido:lado==="drive"?"Drive":"Reves",pairNumber:0});
     }
     persistPlayers([...(liga?.players??[]),newP]);
     setPendingPlayer(null);setPendingIsGuest(false);setSidePickerOpen(false);
@@ -739,7 +739,7 @@ export default function LigaDetailPage() {
       newP=normalizePlayerEntry({id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
         nombre:rp.nombre??"",apellido:rp.apellido??"",telefono:rp.telefono??rp.celular??"",
         categoria:rp.categoria??"",sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",
-        foto:rp.foto??"",pairNumber,ladoJuego:"ambos",ladoPreferido:"Ambos lados"});
+        foto:rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL||"",pairNumber,ladoJuego:"ambos",ladoPreferido:"Ambos lados"});
     }
     persistPlayers([...(liga?.players??[]),newP]);
     setPendingPlayer(null);setPendingIsGuest(false);setPairPickerOpen(false);
@@ -1146,8 +1146,8 @@ export default function LigaDetailPage() {
                             return (
                               <div key={rp.id} className="bg-white border border-[#CFE7DC] rounded-[14px] flex items-center justify-between px-3 py-2 gap-2">
                                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                  {rp.foto
-                                    ? <img src={rp.foto} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
+                                  {(rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL)
+                                    ? <img src={rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
                                     : <div className="w-7 h-7 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0"><UserIcon size={13} className="text-[#9CA3AF]"/></div>
                                   }
                                   <div className="min-w-0">
