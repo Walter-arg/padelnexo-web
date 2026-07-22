@@ -471,10 +471,20 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
   return (
     <div className="grid items-center px-3 py-2 min-h-[68px] border-b border-[#E4ECEA] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr"}}>
       <div className="flex items-center justify-center pr-1">
-        <button onClick={canEdit?onResultClick:undefined}
-          className={`text-[12px] font-black text-center leading-tight ${hasRes&&canEdit?"text-[#176B5B] underline":hasRes?"text-[#173A2E]":"text-[#5F7D72]"} ${canEdit&&!hasRes?"hover:text-[#0B8457] transition-colors":""}`}>
-          {hasRes?(isWO?"WO":res.score||"✓"):"—"}
-        </button>
+        {hasRes ? (
+          <button onClick={canEdit ? onResultClick : undefined}
+            className={`text-[12px] font-black text-center leading-tight ${canEdit ? "text-[#176B5B] underline hover:text-[#0B8457] transition-colors" : "text-[#173A2E]"}`}>
+            {isWO ? "WO" : res.score || "✓"}
+          </button>
+        ) : canEdit ? (
+          <button onClick={onResultClick}
+            className="flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors group">
+            <Plus size={12} className="text-[#0B8457]" />
+            <span className="text-[8px] font-black text-[#0B8457] leading-none">Cargar</span>
+          </button>
+        ) : (
+          <span className="text-[11px] text-[#CFE7DC] font-black">—</span>
+        )}
       </div>
       <div className="flex flex-col gap-1.5 px-2">
         {renderTeam(match.teamA,"teamA")}
