@@ -218,14 +218,28 @@ function fxRepDotColor(match: any): string | null {
 // ── FixtureResultModal ─────────────────────────────────────────────────────
 function FixtureResultModal({ match, matchFormat, onClose, onSave }: { match: any; matchFormat: string; onClose: () => void; onSave: (r: any) => void }) {
   const [winner, setWinner] = useState(match.result?.winner ?? "");
-  const [sets, setSets] = useState<{own:string;rival:string}[]>(match.result?.sets?.length ? match.result.sets : [{own:"",rival:""},{own:"",rival:""},{own:"",rival:""}]);
+  const [sets, setSets] = useState<{own:string;rival:string}[]>(
+    match.result?.sets?.length ? match.result.sets : [{own:"",rival:""},{own:"",rival:""},{own:"",rival:""}]
+  );
+  const inputRefs = useRef<Array<[HTMLInputElement|null, HTMLInputElement|null]>>([[null,null],[null,null],[null,null]]);
   const aLabel = match.teamA?.label ?? "Pareja A";
   const bLabel = match.teamB?.label ?? "Pareja B";
   const maxSets = matchFormat === "single_set" ? 1 : 3;
+
+  function advance(i: number, side: "own"|"rival") {
+    if (side === "own") {
+      inputRefs.current[i][1]?.focus();
+      inputRefs.current[i][1]?.select();
+    } else if (i + 1 < maxSets) {
+      inputRefs.current[i+1][0]?.focus();
+      inputRefs.current[i+1][0]?.select();
+    }
+  }
+
   function handleSave() {
     if (!winner) return;
-    const useSets = winner === "walkover" ? [] : sets.slice(0, maxSets).filter((s: any) => s.own !== "" || s.rival !== "");
-    onSave({ winner, score: useSets.map((s: any) => `${s.own}/${s.rival}`).join(" "), reason: winner === "walkover" ? "walkover" : "normal", sets: useSets });
+    const useSets = sets.slice(0, maxSets).filter((s: any) => s.own !== "" || s.rival !== "");
+    onSave({ winner, score: useSets.map((s: any) => `${s.own}/${s.rival}`).join(" "), reason: "normal", sets: useSets });
   }
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -235,7 +249,7 @@ function FixtureResultModal({ match, matchFormat, onClose, onSave }: { match: an
           <div className="text-[11px] text-[#5F7D72] mt-0.5">Seleccioná ganador y cargá los sets.</div>
         </div>
         <div className="flex flex-col gap-2 mb-4">
-          {[{v:"teamA",l:aLabel},{v:"teamB",l:bLabel},{v:"walkover",l:"Walkover"}].map(opt=>(
+          {[{v:"teamA",l:aLabel},{v:"teamB",l:bLabel}].map(opt=>(
             <button key={opt.v} onClick={()=>setWinner(opt.v)}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-[14px] border text-sm font-black text-left transition-all ${winner===opt.v?"bg-[#DDF6EF] border-[#89D9C4] text-[#176B5B]":"bg-[#F7FAF8] border-[#CFE7DC] text-[#086847] hover:border-[#89D9C4]"}`}>
               <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${winner===opt.v?"bg-[#0B8457] border-[#0B8457]":"border-[#CFE7DC]"}`}/>
@@ -244,16 +258,37 @@ function FixtureResultModal({ match, matchFormat, onClose, onSave }: { match: an
             </button>
           ))}
         </div>
-        {winner && winner!=="walkover" && (
+        {winner && (
           <div className="mb-4">
+            <div className="text-[10px] font-black text-[#5F7D72] uppercase tracking-wide mb-2 text-center">Sets</div>
             {Array.from({length:maxSets}).map((_,i)=>(
-              <div key={i} className="flex items-center gap-2 mb-1.5">
-                <span className="text-[11px] font-black text-[#086847] w-28 text-right">{i===2?"3er set (opc.)": `Set ${i+1}`}</span>
-                <input value={sets[i]?.own??""} onChange={e=>setSets(p=>p.map((s,j)=>j===i?{...s,own:e.target.value}:s))}
-                  className="flex-1 text-center border border-[#CFE7DC] rounded-xl h-[38px] text-[15px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]" placeholder="0" type="number" min="0" max="99"/>
-                <span className="text-[#5F7D72] font-black">/</span>
-                <input value={sets[i]?.rival??""} onChange={e=>setSets(p=>p.map((s,j)=>j===i?{...s,rival:e.target.value}:s))}
-                  className="flex-1 text-center border border-[#CFE7DC] rounded-xl h-[38px] text-[15px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]" placeholder="0" type="number" min="0" max="99"/>
+              <div key={i} className="flex items-center gap-2 mb-2 justify-center">
+                <span className="text-[11px] font-black text-[#086847] w-24 text-right">{i===2?"3er set (opc.)": `Set ${i+1}`}</span>
+                <input
+                  ref={el => { inputRefs.current[i][0] = el }}
+                  value={sets[i]?.own??""}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g,"").slice(0,2);
+                    const prev = sets[i].own;
+                    setSets(p => p.map((s,j) => j===i ? {...s,own:v} : s));
+                    if (prev === "" && v.length >= 1) advance(i, "own");
+                  }}
+                  className="w-11 h-10 text-center border border-[#CFE7DC] rounded-xl text-[16px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]"
+                  placeholder="0" inputMode="numeric"
+                />
+                <span className="text-[#5F7D72] font-black text-[13px]">/</span>
+                <input
+                  ref={el => { inputRefs.current[i][1] = el }}
+                  value={sets[i]?.rival??""}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g,"").slice(0,2);
+                    const prev = sets[i].rival;
+                    setSets(p => p.map((s,j) => j===i ? {...s,rival:v} : s));
+                    if (prev === "" && v.length >= 1) advance(i, "rival");
+                  }}
+                  className="w-11 h-10 text-center border border-[#CFE7DC] rounded-xl text-[16px] font-black text-[#173A2E] focus:outline-none focus:border-[#0B8457] bg-[#F7FAF8]"
+                  placeholder="0" inputMode="numeric"
+                />
               </div>
             ))}
           </div>
@@ -478,9 +513,10 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
           </button>
         ) : canEdit ? (
           <button onClick={onResultClick}
-            className="flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors group">
+            className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors">
             <Plus size={12} className="text-[#0B8457]" />
             <span className="text-[8px] font-black text-[#0B8457] leading-none">Cargar</span>
+            <span className="text-[8px] font-black text-[#0B8457] leading-none">resultado</span>
           </button>
         ) : (
           <span className="text-[11px] text-[#CFE7DC] font-black">—</span>
