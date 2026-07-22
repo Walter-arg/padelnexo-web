@@ -476,7 +476,7 @@ function FixtureGenerateModal({ league, onClose, onGenerate }: { league: any; on
 }
 
 // ── MatchRow (fixture) ─────────────────────────────────────────────────────
-function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: any; canEdit: boolean; onResultClick: ()=>void; onActionsClick: ()=>void }) {
+function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }: { match: any; canEdit: boolean; dayLabel?: string; onResultClick: ()=>void; onActionsClick: ()=>void }) {
   const res = match.result; const hasRes = !!res?.winner && res.winner !== ""; const aWon = res?.winner==="teamA"; const bWon = res?.winner==="teamB"; const isWO = res?.reason==="walkover"; const dotColor = fxRepDotColor(match);
   function renderTeam(team: any, teamKey: string) {
     const players = team.players ?? [];
@@ -527,7 +527,7 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
         <div className="text-[10px] font-black text-[#5F7D72] leading-none">—</div>
         {renderTeam(match.teamB,"teamB")}
       </div>
-      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot?.split(" ")[0]??""}</span></div>
+      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{dayLabel??""}</span></div>
       <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??""}</span></div>
       <div className="flex items-center justify-center relative">
         {canEdit&&<button onClick={onActionsClick} className="w-7 h-7 bg-[#EDF7F2] border border-[#C9E5D8] rounded-[8px] flex items-center justify-center hover:bg-[#DDF6EF] transition-colors"><MoreVertical size={14} className="text-[#086847]"/></button>}
@@ -538,7 +538,7 @@ function FxMatchRow({ match, canEdit, onResultClick, onActionsClick }: { match: 
 }
 
 // ── RoundBlock (fixture) ───────────────────────────────────────────────────
-function FxRoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensionClick }: { round: any; canEdit: boolean; onResultClick: (id:string)=>void; onActionsClick: (id:string)=>void; onSuspensionClick: ()=>void }) {
+function FxRoundBlock({ round, canEdit, dayLabel, onResultClick, onActionsClick, onSuspensionClick }: { round: any; canEdit: boolean; dayLabel?: string; onResultClick: (id:string)=>void; onActionsClick: (id:string)=>void; onSuspensionClick: ()=>void }) {
   const status = fxRoundStatus(round); const st = FX_STATUS[status];
   return (
     <div className="rounded-xl overflow-hidden border border-[#BCD8D4]">
@@ -558,7 +558,7 @@ function FxRoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspens
       <div className="bg-white">
         {(!round.matches||round.matches.length===0)
           ?<div className="px-4 py-4 text-sm text-[#5F7D72] italic text-center">Sin partidos</div>
-          :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)}/>)
+          :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} dayLabel={dayLabel} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)}/>)
         }
         {round.byeLabels?.length>0&&<div className="px-4 py-2 text-[11px] text-[#5F7D72] italic border-t border-[#E4ECEA]">Libre: {round.byeLabels.join(", ")}</div>}
       </div>
@@ -1810,6 +1810,7 @@ export default function LigaDetailPage() {
                   {/* Rounds */}
                   {fxHasFixture && rounds.map((round:any)=>(
                     <FxRoundBlock key={round.id} round={round} canEdit={fxCanEdit}
+                      dayLabel={DAY_LABELS[liga?.scheduleConfig?.dayKey ?? ""] ?? ""}
                       onResultClick={matchId=>setFxResultTarget({roundId:round.id,matchId})}
                       onActionsClick={matchId=>setFxActionsTarget({roundId:round.id,matchId})}
                       onSuspensionClick={()=>setFxSuspTarget(round.id)}
