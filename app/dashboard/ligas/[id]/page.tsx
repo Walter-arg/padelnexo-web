@@ -504,7 +504,7 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
     );
   }
   return (
-    <div className="grid items-center px-3 py-2 min-h-[68px] border-b border-[#E4ECEA] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr"}}>
+    <div className="grid items-center px-3 py-2 min-h-[68px] border-b-2 border-[#BCD8D4] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr"}}>
       <div className="flex items-center justify-center pr-1">
         {hasRes ? (
           <button onClick={canEdit ? onResultClick : undefined}
@@ -524,7 +524,7 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
       </div>
       <div className="flex flex-col gap-1.5 px-2">
         {renderTeam(match.teamA,"teamA")}
-        <div className="text-[10px] font-black text-[#5F7D72] leading-none">—</div>
+        <div className="text-[9px] font-black text-[#9FCFC3] leading-none tracking-widest">VS</div>
         {renderTeam(match.teamB,"teamB")}
       </div>
       <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{dayLabel??""}</span></div>
