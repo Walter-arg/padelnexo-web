@@ -39,12 +39,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-type FilterTab = "pendientes" | "publicados" | "activos" | "finalizados" | "cancelados";
+type FilterTab = "activos" | "publicados" | "pendientes" | "en_curso" | "finalizados" | "cancelados";
 
 const MAIN_TABS: { id: FilterTab; label: string }[] = [
-  { id: "pendientes", label: "Pendientes de publicar" },
-  { id: "publicados", label: "Publicados" },
   { id: "activos",    label: "Creados" },
+  { id: "publicados", label: "Publicados" },
+  { id: "pendientes", label: "Pendientes de publicar" },
+  { id: "en_curso",   label: "En curso" },
 ];
 
 const MENU_TABS: { id: FilterTab; label: string }[] = [
@@ -54,9 +55,10 @@ const MENU_TABS: { id: FilterTab; label: string }[] = [
 
 function matchesTab(status: string, tab: FilterTab): boolean {
   switch (tab) {
-    case "pendientes":  return status === "draft";
-    case "publicados":  return status === "published";
     case "activos":     return !["finished", "cancelled"].includes(status);
+    case "publicados":  return status === "published";
+    case "pendientes":  return status === "draft";
+    case "en_curso":    return ["registration_open", "registration_closed", "building", "in_progress"].includes(status);
     case "finalizados": return status === "finished";
     case "cancelados":  return status === "cancelled";
   }
