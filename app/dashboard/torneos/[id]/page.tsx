@@ -1494,7 +1494,7 @@ export default function TorneoDetailPage() {
                         const hasAvailability = Object.keys(reg.availability || {}).length > 0;
 
                         return (
-                          <div key={reg.id} className="rounded-[18px] border p-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                          <div key={reg.id} className="rounded-[18px] border-2 p-3" style={{ background: "#FFFFFF", borderColor: "#A8CFBC" }}>
                             {/* Fila principal: número | jugadores | estado */}
                             <div className="flex items-center gap-3 mb-2.5">
                               {/* Pareja # */}
@@ -1540,7 +1540,7 @@ export default function TorneoDetailPage() {
                             </div>
 
                             {/* Fila de acciones */}
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center justify-center gap-2 flex-wrap">
                               <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
                                 style={hasAvailability
                                   ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
