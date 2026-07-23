@@ -1,74 +1,92 @@
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from "react";
+import { useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { ChevronLeft, Loader2, ImageIcon, Plus, X } from "lucide-react";
+import { ChevronLeft, Loader2, ImageIcon } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type CategoryMode = "single" | "sum_fixed" | "sum_open";
 type ConfirmMode  = "both_paid" | "one_paid" | "manual";
-type CatConfig    = { categoryMode: CategoryMode; branch: string; sumTarget: string; fixedCategoryA: string };
+type VenueMode    = "single" | "multiple";
+type CatConfig    = { categoryMode: CategoryMode; branch: string; sumTarget: string; fixedCategoryA: string; fixedCategoryB: string };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CAT_OPTIONS = [
-  { label: "9na (Iniciantes)", value: "9na", num: 9 },
-  { label: "8va",  value: "8va",  num: 8 },
-  { label: "7ma",  value: "7ma",  num: 7 },
-  { label: "6ta",  value: "6ta",  num: 6 },
-  { label: "5ta",  value: "5ta",  num: 5 },
-  { label: "4ta",  value: "4ta",  num: 4 },
-  { label: "3ra",  value: "3ra",  num: 3 },
-  { label: "2da",  value: "2da",  num: 2 },
+  { label: "9na", value: "9na", num: 9 },
+  { label: "8va", value: "8va", num: 8 },
+  { label: "7ma", value: "7ma", num: 7 },
+  { label: "6ta", value: "6ta", num: 6 },
+  { label: "5ta", value: "5ta", num: 5 },
+  { label: "4ta", value: "4ta", num: 4 },
+  { label: "3ra", value: "3ra", num: 3 },
+  { label: "2da", value: "2da", num: 2 },
   { label: "1era", value: "1era", num: 1 },
 ];
-const SUM_OPTIONS = Array.from({ length: 17 }, (_, i) => ({ label: `Suma ${i + 2}`, value: String(i + 2) }));
-const PAIR_OPTS: { value: ConfirmMode; label: string; description: string }[] = [
-  { value: "both_paid", label: "PAGO DE AMBOS JUGADORES",  description: "Se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)" },
-  { value: "one_paid",  label: "PAGO DE UNO DE LOS 2",    description: "Se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)" },
-  { value: "manual",    label: "CONFIRMACIÓN MANUAL",      description: "El organizador confirma manualmente. (FLEXIBLE)" },
-];
-const BRANCHES = ["Masculino", "Femenino", "Mixto"] as const;
-const DEFAULT_CAT: CatConfig = { categoryMode: "single", branch: "Masculino", sumTarget: "10", fixedCategoryA: "7ma" };
+
+const SUM_OPTIONS = Array.from({ length: 17 }, (_, i) => ({
+  label: `Suma ${i + 2}`, value: String(i + 2),
+}));
+
+const DEFAULT_CAT: CatConfig = {
+  categoryMode: "single", branch: "Masculino",
+  sumTarget: "", fixedCategoryA: "", fixedCategoryB: "",
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function parseMoney(str: string) { return parseInt(str.replace(/\./g, ""), 10) || 0; }
-function fmtMoney(n: number)     { return n === 0 ? "" : n.toLocaleString("es-AR").replace(/,/g, "."); }
+function parseMoney(s: string)  { return parseInt(s.replace(/\./g, ""), 10) || 0; }
+function fmtMoney(n: number)    { return n === 0 ? "" : n.toLocaleString("es-AR").replace(/,/g, "."); }
 
 function buildComposition(c: CatConfig) {
-  const sumNum = parseInt(c.sumTarget) || 10;
+  const sumNum = parseInt(c.sumTarget) || 0;
   if (c.categoryMode === "single") {
     return {
       compositionType: "single_category",
       compositionConfig: { branch: c.branch, categoryFormat: "libre", fixedCategoryA: c.fixedCategoryA },
-      compositionLabel: `${c.fixedCategoryA} ${c.branch}`,
+      compositionLabel: `${c.fixedCategoryA} ${c.branch}`.trim(),
     };
   }
   if (c.categoryMode === "sum_fixed") {
-    const catANum = CAT_OPTIONS.find(o => o.value === c.fixedCategoryA)?.num ?? 0;
-    const catB    = CAT_OPTIONS.find(o => o.num === sumNum - catANum);
     return {
       compositionType: "sum",
-      compositionConfig: { branch: c.branch, categoryFormat: "suma", sumRule: "sum_fixed", sumTarget: sumNum, fixedCategoryA: c.fixedCategoryA, fixedCategoryB: catB?.value ?? "" },
-      compositionLabel: `${c.fixedCategoryA}+${catB?.value ?? "?"} ${c.branch}`,
+      compositionConfig: { branch: c.branch, categoryFormat: "suma", sumRule: "sum_fixed", sumTarget: sumNum, fixedCategoryA: c.fixedCategoryA, fixedCategoryB: c.fixedCategoryB },
+      compositionLabel: ([c.fixedCategoryA, c.fixedCategoryB].filter(Boolean).join("+") + ` ${c.branch}`).trim(),
     };
   }
   return {
     compositionType: "sum",
     compositionConfig: { branch: c.branch, categoryFormat: "suma", sumRule: "sum_open", sumTarget: sumNum },
-    compositionLabel: `Suma ${c.sumTarget} ${c.branch}`,
+    compositionLabel: `Suma ${c.sumTarget} ${c.branch}`.trim(),
   };
+}
+
+function getValidCatAOptions(sumTarget: string) {
+  if (!sumTarget) return CAT_OPTIONS;
+  const n = parseInt(sumTarget);
+  if (isNaN(n)) return CAT_OPTIONS;
+  return CAT_OPTIONS.filter(o => {
+    const b = n - o.num;
+    return CAT_OPTIONS.some(c => c.num === b);
+  });
+}
+
+function getValidCatBOptions(sumTarget: string, catA: string) {
+  if (!sumTarget || !catA) return [];
+  const n = parseInt(sumTarget);
+  const a = CAT_OPTIONS.find(o => o.value === catA);
+  if (!a || isNaN(n)) return CAT_OPTIONS;
+  return CAT_OPTIONS.filter(o => o.num === n - a.num);
 }
 
 // ── Page shell ────────────────────────────────────────────────────────────────
 export default function TorneoNuevaPage() {
   return (
     <Suspense fallback={
-      <DashboardLayout title="Torneos">
+      <DashboardLayout title="Torneos" wide>
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin" style={{ color: "#086847" }} />
         </div>
@@ -98,26 +116,30 @@ function TorneoNuevaInner() {
   const [coverImage, setCoverImage]     = useState("");
   const [coverPreview, setCoverPreview] = useState("");
 
-  // S2 – Tipo
+  // S2 – Tipo de torneo
   const [tournamentRuleSet, setTournamentRuleSet] = useState<"fap" | "apa">("fap");
 
-  // S3 – Modo
+  // S3 – Modo de armado
   const [creationMode, setCreationMode] = useState<"single" | "multiple">("single");
-  const [quantity, setQuantity]         = useState(2);
+  const [quantity, setQuantity]         = useState("2");
 
   // S4 – Nombre
   const [name, setName] = useState("");
 
   // S5 – Venues
+  const [venueMode, setVenueMode]           = useState<VenueMode>("single");
   const [selectedVenues, setSelectedVenues] = useState<string[]>([]);
   const [showTempModal, setShowTempModal]   = useState(false);
   const [tempName, setTempName]             = useState("");
+  const [tempBlindex, setTempBlindex]       = useState("");
+  const [tempCesped, setTempCesped]         = useState("");
+  const [tempCemento, setTempCemento]       = useState("");
   const [tempAddress, setTempAddress]       = useState("");
   const [savingTemp, setSavingTemp]         = useState(false);
   const [tempError, setTempError]           = useState("");
 
   // S6 – Categorías
-  const [singleCat, setSingleCat]     = useState<CatConfig>({ ...DEFAULT_CAT });
+  const [singleCat, setSingleCat]       = useState<CatConfig>({ ...DEFAULT_CAT });
   const [multiConfigs, setMultiConfigs] = useState<CatConfig[]>([{ ...DEFAULT_CAT }, { ...DEFAULT_CAT }]);
 
   // S7 – Costo
@@ -129,20 +151,28 @@ function TorneoNuevaInner() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate]     = useState("");
 
+  // Sync multiConfigs length with quantity
   useEffect(() => {
+    const qty = Math.max(2, parseInt(quantity) || 2);
     setMultiConfigs(prev => {
       const next = [...prev];
-      while (next.length < quantity) next.push({ ...DEFAULT_CAT });
-      return next.slice(0, quantity);
+      while (next.length < qty) next.push({ ...DEFAULT_CAT });
+      return next.slice(0, qty);
     });
   }, [quantity]);
 
+  // Auth + data load
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) { router.push("/login"); return; }
       setUser(u);
       const uSnap = await getDoc(doc(db, "users", u.uid));
-      setUserData(uSnap.exists() ? uSnap.data() : {});
+      const ud = uSnap.exists() ? uSnap.data() : {};
+      setUserData(ud);
+
+      if (!editId && Array.isArray(ud.complejos) && ud.complejos.length > 0) {
+        setSelectedVenues([ud.complejos[0].nombre]);
+      }
 
       if (editId) {
         const snap = await getDoc(doc(db, "tournaments", editId));
@@ -150,6 +180,7 @@ function TorneoNuevaInner() {
           const d: any = snap.data();
           setName(d.name ?? "");
           setTournamentRuleSet(d.tournamentRuleSet ?? "fap");
+          setVenueMode(d.venueMode ?? "single");
           setPairConfirmation(d.pairConfirmationMode ?? "manual");
           setEntryFeeStr(d.entryFee ? fmtMoney(d.entryFee) : "");
           setPaymentAlias(d.paymentAlias ?? "");
@@ -159,8 +190,10 @@ function TorneoNuevaInner() {
           if (d.coverImage) { setCoverImage(d.coverImage); setCoverPreview(d.coverImage); }
           if (d.compositionConfig) {
             const cc = d.compositionConfig;
-            const mode: CategoryMode = cc.sumRule === "sum_fixed" ? "sum_fixed" : cc.sumRule === "sum_open" ? "sum_open" : "single";
-            setSingleCat({ categoryMode: mode, branch: cc.branch ?? "Masculino", sumTarget: cc.sumTarget ? String(cc.sumTarget) : "10", fixedCategoryA: cc.fixedCategoryA ?? "7ma" });
+            const rule = cc.sumRule ?? "";
+            const mode: CategoryMode = (rule === "sum_fixed" || rule === "fixed") ? "sum_fixed"
+              : (rule === "sum_open" || rule === "open") ? "sum_open" : "single";
+            setSingleCat({ categoryMode: mode, branch: cc.branch ?? "Masculino", sumTarget: cc.sumTarget ? String(cc.sumTarget) : "", fixedCategoryA: cc.fixedCategoryA ?? "", fixedCategoryB: cc.fixedCategoryB ?? "" });
           }
         }
       }
@@ -169,22 +202,44 @@ function TorneoNuevaInner() {
     return unsub;
   }, [editId, router]);
 
-  const allVenues: any[] = [...(userData?.complejos ?? []), ...(userData?.tournamentComplexes ?? [])];
+  const approvedVenues: any[] = userData?.complejos ?? [];
+  const tempVenues: any[]     = userData?.tournamentComplexes ?? [];
+  const allVenues              = useMemo(() => [...approvedVenues, ...tempVenues], [userData]);
 
-  function toggleVenue(n: string) {
-    setSelectedVenues(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
+  function toggleVenue(nombre: string) {
+    setSelectedVenues(prev => {
+      if (venueMode === "single") return [nombre];
+      return prev.includes(nombre) ? prev.filter(x => x !== nombre) : [...prev, nombre];
+    });
+  }
+
+  function changeVenueMode(mode: VenueMode) {
+    setVenueMode(mode);
+    if (mode === "single") setSelectedVenues(prev => prev.slice(0, 1));
   }
 
   async function addTempVenue() {
     if (!tempName.trim()) { setTempError("El nombre es obligatorio."); return; }
+    const bl = parseInt(tempBlindex) || 0;
+    const cs = parseInt(tempCesped)  || 0;
+    const cm = parseInt(tempCemento) || 0;
+    if (bl + cs + cm === 0) { setTempError("Cargá al menos una cancha para guardar el lugar."); return; }
     setSavingTemp(true);
     try {
-      const v       = { name: tempName.trim(), address: tempAddress.trim() };
-      const current = userData?.tournamentComplexes ?? [];
-      await updateDoc(doc(db, "users", user.uid), { tournamentComplexes: [...current, v] });
-      setUserData((p: any) => ({ ...p, tournamentComplexes: [...current, v] }));
-      setSelectedVenues(p => [...p, v.name]);
-      setTempName(""); setTempAddress(""); setShowTempModal(false);
+      const v = { nombre: tempName.trim(), blindex: bl, cesped: cs, cemento: cm, totalCanchas: bl + cs + cm, direccion: tempAddress.trim() };
+      const current: any[] = userData?.tournamentComplexes ?? [];
+      const exists = current.some((c: any) => c.nombre?.toLowerCase() === v.nombre.toLowerCase());
+      const next = exists
+        ? current.map((c: any) => c.nombre?.toLowerCase() === v.nombre.toLowerCase() ? v : c)
+        : [...current, v];
+      await updateDoc(doc(db, "users", user.uid), { tournamentComplexes: next });
+      setUserData((p: any) => ({ ...p, tournamentComplexes: next }));
+      setSelectedVenues(prev => {
+        if (venueMode === "single") return [v.nombre];
+        return prev.includes(v.nombre) ? prev : [...prev, v.nombre];
+      });
+      setTempName(""); setTempBlindex(""); setTempCesped(""); setTempCemento(""); setTempAddress("");
+      setShowTempModal(false); setTempError("");
     } catch { setTempError("Error al guardar."); }
     setSavingTemp(false);
   }
@@ -204,9 +259,9 @@ function TorneoNuevaInner() {
   }
 
   function buildVenues() {
-    return selectedVenues.map(n => {
-      const v = allVenues.find((av: any) => av.name === n);
-      return { name: n, address: v?.address ?? "" };
+    return selectedVenues.map(nombre => {
+      const c = allVenues.find((av: any) => av.nombre === nombre);
+      return { name: nombre, address: c?.direccion ?? "" };
     });
   }
 
@@ -223,7 +278,7 @@ function TorneoNuevaInner() {
       tournamentRuleSet,
       status: "draft",
       registrationStatus: "closed",
-      venueMode: selectedVenues.length > 1 ? "multiple" : "single",
+      venueMode,
       venues: buildVenues(),
       temporaryVenues: [],
       ...comp,
@@ -236,9 +291,9 @@ function TorneoNuevaInner() {
       pairConfirmationMode: pairConfirmation,
       entryFee: fee,
       paymentMethods: fee > 0 ? ["transferencia"] : [],
-      paymentAlias: fee > 0 ? paymentAlias.trim() : "",
-      startDateMillis: new Date(startDate).setHours(0, 0, 0, 0),
-      endDateMillis:   new Date(endDate).setHours(0, 0, 0, 0),
+      paymentAlias: paymentAlias.trim(),
+      startDateMillis: startDate ? new Date(startDate).setHours(0, 0, 0, 0) : 0,
+      endDateMillis:   endDate   ? new Date(endDate).setHours(0, 0, 0, 0)   : 0,
       buildMode: "automatic",
       recommendedGroupSize: 4,
       allowManualCorrection: true,
@@ -246,18 +301,29 @@ function TorneoNuevaInner() {
       runnerUpPairId: "",
       confirmedRegistrationsCount: 0,
       createdBy: user.uid,
-      createdByName: userData?.name ?? "",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
   }
 
+  const previewNames = useMemo(() => {
+    if (creationMode !== "multiple" || !name.trim()) return [];
+    const qty = Math.max(2, parseInt(quantity) || 2);
+    return multiConfigs.slice(0, qty).map(cat => {
+      const suffix = buildComposition(cat).compositionLabel;
+      return [name.trim().toUpperCase(), suffix].filter(Boolean).join(" ");
+    });
+  }, [creationMode, name, quantity, multiConfigs]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim())           { setError("El nombre del torneo es obligatorio."); return; }
+    if (!name.trim()) { setError("Escribí el nombre del torneo."); return; }
     if (!selectedVenues.length) { setError("Seleccioná al menos un lugar de juego."); return; }
-    if (!startDate)             { setError("La fecha de inicio es obligatoria."); return; }
-    if (!endDate)               { setError("La fecha de fin es obligatoria."); return; }
+    if (creationMode !== "multiple" && !singleCat.fixedCategoryA) { setError("Seleccioná la categoría."); return; }
+    if (creationMode !== "multiple" && singleCat.categoryMode !== "single" && !singleCat.sumTarget) { setError("Seleccioná la suma objetivo."); return; }
+    if (creationMode !== "multiple" && singleCat.categoryMode === "sum_fixed" && !singleCat.fixedCategoryB) { setError("Seleccioná la Categoría B."); return; }
+    if (!startDate) { setError("Seleccioná la fecha de inicio."); return; }
+    if (!endDate)   { setError("Seleccioná la fecha de fin."); return; }
     if (!user) return;
     setSaving(true); setError("");
 
@@ -266,19 +332,12 @@ function TorneoNuevaInner() {
         const comp = buildComposition(singleCat);
         const fee  = parseMoney(entryFeeStr);
         await updateDoc(doc(db, "tournaments", editId), {
-          name: name.trim(),
-          tournamentRuleSet,
-          venues: buildVenues(),
-          venueMode: selectedVenues.length > 1 ? "multiple" : "single",
-          ...comp,
-          pairConfirmationMode: pairConfirmation,
-          entryFee: fee,
-          paymentMethods: fee > 0 ? ["transferencia"] : [],
-          paymentAlias: fee > 0 ? paymentAlias.trim() : "",
+          name: name.trim(), tournamentRuleSet, venues: buildVenues(), venueMode, ...comp,
+          pairConfirmationMode: pairConfirmation, entryFee: fee,
+          paymentMethods: fee > 0 ? ["transferencia"] : [], paymentAlias: paymentAlias.trim(),
           startDateMillis: new Date(startDate).setHours(0, 0, 0, 0),
           endDateMillis:   new Date(endDate).setHours(0, 0, 0, 0),
-          coverImage,
-          updatedAt: serverTimestamp(),
+          coverImage, updatedAt: serverTimestamp(),
         });
         router.push(`/dashboard/torneos/${editId}`);
         return;
@@ -288,12 +347,12 @@ function TorneoNuevaInner() {
         const newRef = await addDoc(collection(db, "tournaments"), buildBase(singleCat, name.trim().toUpperCase()));
         router.push(`/dashboard/torneos/${newRef.id}`);
       } else {
+        const qty   = Math.max(2, parseInt(quantity) || 2);
         const batch = writeBatch(db);
-        multiConfigs.forEach(cat => {
-          const comp           = buildComposition(cat);
-          const tournamentName = `${name.trim().toUpperCase()} ${comp.compositionLabel}`;
-          const newRef         = doc(collection(db, "tournaments"));
-          batch.set(newRef, buildBase(cat, tournamentName));
+        multiConfigs.slice(0, qty).forEach(cat => {
+          const comp   = buildComposition(cat);
+          const tName  = [name.trim().toUpperCase(), comp.compositionLabel].filter(Boolean).join(" ");
+          batch.set(doc(collection(db, "tournaments")), buildBase(cat, tName));
         });
         await batch.commit();
         router.push("/dashboard/torneos");
@@ -305,218 +364,228 @@ function TorneoNuevaInner() {
   }
 
   if (loading) return (
-    <DashboardLayout title="Torneos">
+    <DashboardLayout title="Torneos" wide>
       <div className="flex justify-center py-20">
         <Loader2 size={32} className="animate-spin" style={{ color: "#086847" }} />
       </div>
     </DashboardLayout>
   );
 
-  const fee = parseMoney(entryFeeStr);
-
   return (
-    <DashboardLayout title={isEdit ? "Editar torneo" : "Nuevo torneo"}>
+    <DashboardLayout title={isEdit ? "Editar torneo" : "Nuevo torneo"} wide>
       <a href="/dashboard/torneos" className="inline-flex items-center gap-1 text-sm mb-6 hover:opacity-70" style={{ color: "#5F7D72" }}>
         <ChevronLeft size={15} /> Volver a torneos
       </a>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5 max-w-2xl">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-3xl">
 
         {/* 1 · Afiche */}
-        <SectionCard title="Afiche del torneo">
+        <Card title="SUBIR AFICHE O FLYER">
           {coverPreview ? (
-            <div className="relative inline-block">
-              <img src={coverPreview} alt="Afiche" className="w-full max-w-xs rounded-xl border object-cover"
-                style={{ maxHeight: 240, borderColor: "#CFE7DC" }} />
-              <button type="button"
-                onClick={() => { setCoverImage(""); setCoverPreview(""); if (fileRef.current) fileRef.current.value = ""; }}
-                className="absolute top-2 right-2 rounded-full p-1 text-white shadow"
-                style={{ background: "#B24343" }}>
-                <X size={14} />
-              </button>
+            <div className="flex items-center gap-3 rounded-xl border p-3" style={{ background: "#F7FBF8", borderColor: "#DCE9E1" }}>
+              <img src={coverPreview} alt="Afiche" className="w-28 h-20 rounded-lg object-cover flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-black uppercase" style={{ color: "#086847" }}>Afiche cargado</p>
+                <p className="text-xs mt-1" style={{ color: "#5F7D72" }}>Imagen del torneo seleccionada.</p>
+              </div>
+              <button type="button" onClick={() => { setCoverImage(""); setCoverPreview(""); if (fileRef.current) fileRef.current.value = ""; }}
+                className="text-xs font-black hover:opacity-70" style={{ color: "#B24343" }}>Quitar</button>
             </div>
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-              className="flex flex-col items-center gap-2 w-full max-w-xs rounded-xl border-2 border-dashed py-8 hover:opacity-80"
-              style={{ borderColor: "#CFE7DC", background: "#F6FBF8" }}>
+              className="flex items-center gap-3 w-full rounded-xl border px-4 py-3 hover:opacity-80 transition-opacity"
+              style={{ background: "#F4FAF7", borderColor: "#CFE7DC" }}>
               {uploading
-                ? <Loader2 size={24} className="animate-spin" style={{ color: "#0B8457" }} />
-                : <ImageIcon size={24} style={{ color: "#5F7D72" }} />}
-              <span className="text-sm font-semibold" style={{ color: "#5F7D72" }}>
-                {uploading ? "Subiendo…" : "Subir afiche"}
+                ? <Loader2 size={20} className="animate-spin flex-shrink-0" style={{ color: "#0B8457" }} />
+                : <ImageIcon size={20} className="flex-shrink-0" style={{ color: "#086847" }} />}
+              <span>
+                <span className="block text-sm font-black" style={{ color: "#173A2E" }}>{uploading ? "Subiendo imagen…" : "Subir afiche o flyer"}</span>
+                <span className="block text-xs mt-0.5" style={{ color: "#5F7D72" }}>JPG, PNG, WEBP — opcional</span>
               </span>
-              <span className="text-xs" style={{ color: "#9AB5AB" }}>JPG, PNG, WEBP</span>
-              <span className="px-3 py-1.5 rounded-full text-xs font-bold text-white" style={{ background: "#0B8457" }}>Seleccionar</span>
             </button>
           )}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-        </SectionCard>
+        </Card>
 
         {/* 2 · Tipo de torneo */}
         {!isEdit && (
-          <SectionCard title="Tipo de torneo">
-            <p className="text-xs" style={{ color: "#5F7D72" }}>Reglamento del torneo</p>
-            <div className="flex gap-3 mt-1">
-              {(["fap", "apa"] as const).map(r => (
-                <button key={r} type="button" onClick={() => setTournamentRuleSet(r)}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase border-2 transition-all"
-                  style={tournamentRuleSet === r
-                    ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                    : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-                  {r.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </SectionCard>
+          <Card title="TIPO DE TORNEO">
+            <RadioList
+              options={[
+                { value: "fap", label: "TORNEO FAP", subtitle: "Federación Argentina de Pádel", description: "3 clasificados por zona de 4. Modalidad más extensa." },
+                { value: "apa", label: "TORNEO APA", subtitle: "Asociación Pádel Argentina",    description: "2 clasificados por zona de 4. Modalidad más corta." },
+              ]}
+              value={tournamentRuleSet}
+              onSelect={v => setTournamentRuleSet(v as "fap" | "apa")}
+              withSubtitle
+            />
+          </Card>
         )}
 
         {/* 3 · Modo de armado */}
         {!isEdit && (
-          <SectionCard title="Modo de armado">
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setCreationMode("single")}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all"
-                style={creationMode === "single"
-                  ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                  : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-                Torneo único
-              </button>
-              <button type="button" onClick={() => setCreationMode("multiple")}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all"
-                style={creationMode === "multiple"
-                  ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                  : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-                Múltiples torneos
-              </button>
-            </div>
+          <Card title="MODO DE ARMADO">
+            <RadioList
+              options={[
+                { value: "single",   label: "CREAR UNO",    description: "Crea un torneo independiente." },
+                { value: "multiple", label: "CREAR VARIOS", description: "Crea varios torneos iguales en una sola acción." },
+              ]}
+              value={creationMode}
+              onSelect={v => setCreationMode(v as "single" | "multiple")}
+            />
+            <BlueNote text={creationMode === "multiple" ? "Crea varios torneos iguales en una sola acción." : "Crea un torneo independiente."} />
             {creationMode === "multiple" && (
-              <div className="mt-3 flex flex-col gap-1">
-                <p className="text-xs font-semibold" style={{ color: "#5F7D72" }}>Cantidad de torneos</p>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => setQuantity(q => Math.max(2, q - 1))}
-                    className="w-9 h-9 rounded-full border-2 text-xl font-black flex items-center justify-center"
-                    style={{ borderColor: "#CFE7DC", color: "#0B8457" }}>−</button>
-                  <span className="text-xl font-black w-8 text-center" style={{ color: "#173A2E" }}>{quantity}</span>
-                  <button type="button" onClick={() => setQuantity(q => Math.min(10, q + 1))}
-                    className="w-9 h-9 rounded-full border-2 text-xl font-black flex items-center justify-center"
-                    style={{ borderColor: "#CFE7DC", color: "#0B8457" }}>+</button>
-                </div>
+              <div className="flex items-center justify-center gap-3 mt-1">
+                <span className="text-sm font-bold" style={{ color: "#173A2E" }}>Cantidad de torneos</span>
+                <input
+                  type="text" inputMode="numeric" maxLength={2} value={quantity}
+                  onChange={e => { const v = e.target.value.replace(/\D/g, ""); setQuantity(v || "2"); }}
+                  className="fi text-center font-black text-base" style={{ width: 56 }}
+                />
               </div>
             )}
-          </SectionCard>
+          </Card>
         )}
 
         {/* 4 · Nombre */}
-        <SectionCard title={creationMode === "multiple" && !isEdit ? "Nombre base" : "Nombre del torneo"}>
-          <input value={name} onChange={e => setName(e.target.value.toUpperCase())}
-            placeholder="ej: COPA VERANO 2025" className="form-input"
-            style={{ fontWeight: 700, letterSpacing: "0.5px" }} />
-          {creationMode === "multiple" && !isEdit && (
-            <p className="text-xs" style={{ color: "#5F7D72" }}>
-              Se usará como prefijo: «{name || "NOMBRE"} 7ma Masculino», etc.
-            </p>
+        <Card title="NOMBRE DEL TORNEO">
+          <input
+            value={name}
+            onChange={e => setName(e.target.value.toUpperCase())}
+            placeholder={creationMode === "multiple" && !isEdit ? "Torneo Apertura" : "Torneo de invierno"}
+            className="fi text-center font-bold tracking-wide"
+          />
+          {previewNames.length > 0 && (
+            <div className="rounded-xl border p-3 mt-1" style={{ background: "#F4FAF7", borderColor: "#CFE7DC" }}>
+              <p className="text-xs font-black uppercase text-center mb-2" style={{ color: "#086847" }}>Se van a crear</p>
+              {previewNames.map((n, i) => (
+                <p key={i} className="text-xs font-bold text-center leading-5" style={{ color: "#173A2E" }}>{n}</p>
+              ))}
+            </div>
           )}
-        </SectionCard>
+        </Card>
 
         {/* 5 · Lugares de juego */}
-        <SectionCard title="Lugares de juego">
-          {allVenues.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {allVenues.map((v: any) => (
-                <button key={v.name} type="button" onClick={() => toggleVenue(v.name)}
-                  className="px-3 py-1.5 rounded-full text-sm font-bold border-2 transition-all"
-                  style={selectedVenues.includes(v.name)
-                    ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                    : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-                  {v.name}
-                </button>
-              ))}
-            </div>
+        <Card title="SELECCIONAR LUGARES DE JUEGO">
+          <RadioList
+            options={[
+              { value: "single",   label: "SEDE ÚNICA",      description: "Usa una sede principal." },
+              { value: "multiple", label: "MÚLTIPLES SEDES", description: "Permite más de un lugar de juego." },
+            ]}
+            value={venueMode}
+            onSelect={v => changeVenueMode(v as VenueMode)}
+          />
+          <BlueNote text={venueMode === "multiple" ? "Permite más de un lugar de juego." : "Usa una sede principal."} />
+
+          {/* Complejos aprobados */}
+          {approvedVenues.length > 0 && (
+            <>
+              <p className="text-sm font-bold text-center mt-1 mb-2" style={{ color: "#173A2E" }}>Complejos aprobados</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {approvedVenues.map((c: any) => (
+                  <VenueChip key={`a-${c.nombre}`} label={c.nombre} active={selectedVenues.includes(c.nombre)}
+                    onPress={() => toggleVenue(c.nombre)} tint="approved" />
+                ))}
+              </div>
+            </>
           )}
-          {allVenues.length === 0 && (
-            <p className="text-sm" style={{ color: "#5F7D72" }}>No tenés complejos registrados. Podés agregar uno temporal.</p>
+
+          {/* Lugares temporales */}
+          {tempVenues.length > 0 && (
+            <>
+              <p className="text-sm font-bold text-center mt-3 mb-2" style={{ color: "#173A2E" }}>Lugares temporales</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {tempVenues.map((c: any) => (
+                  <VenueChip key={`t-${c.nombre}`} label={c.nombre} active={selectedVenues.includes(c.nombre)}
+                    onPress={() => toggleVenue(c.nombre)} tint="temp" />
+                ))}
+              </div>
+            </>
           )}
-          <button type="button" onClick={() => { setShowTempModal(true); setTempError(""); }}
-            className="inline-flex items-center gap-1.5 text-sm font-bold hover:opacity-70 transition-opacity"
-            style={{ color: "#0B8457" }}>
-            <Plus size={14} /> Agregar complejo temporal
-          </button>
-          {selectedVenues.length > 0 && (
-            <p className="text-xs font-semibold" style={{ color: "#086847" }}>
-              Seleccionado: {selectedVenues.join(", ")}
-            </p>
+
+          {approvedVenues.length === 0 && tempVenues.length === 0 && (
+            <p className="text-sm text-center" style={{ color: "#5F7D72" }}>No tenés complejos registrados.</p>
           )}
-        </SectionCard>
+
+          <div className="flex justify-center mt-3">
+            <button type="button" onClick={() => { setShowTempModal(true); setTempError(""); }}
+              className="px-5 py-2 rounded-xl border text-xs font-black uppercase tracking-wide transition-all hover:opacity-80"
+              style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F4FAF7" }}>
+              AGREGAR LUGAR TEMPORAL
+            </button>
+          </div>
+        </Card>
 
         {/* 6 · Categorías */}
-        {(creationMode === "single" || isEdit) ? (
-          <SectionCard title="Categoría">
-            <CategoryForm config={singleCat}
-              onChange={patch => setSingleCat(p => ({ ...p, ...patch }))} />
-          </SectionCard>
-        ) : (
-          multiConfigs.map((cat, i) => (
-            <SectionCard key={i} title={`Torneo ${i + 1} — Categoría`}>
-              <CategoryForm config={cat}
-                onChange={patch => setMultiConfigs(p => p.map((c, j) => j === i ? { ...c, ...patch } : c))} />
-            </SectionCard>
-          ))
-        )}
-
-        {/* 7 · Costo y modalidad */}
-        <SectionCard title="Costo y modalidad">
-          <Field label="Cuota de inscripción (ARS)">
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold" style={{ color: "#5F7D72" }}>$</span>
-              <input
-                value={entryFeeStr}
-                onChange={e => {
-                  const raw = e.target.value.replace(/\./g, "");
-                  const n   = parseInt(raw) || 0;
-                  setEntryFeeStr(n === 0 ? "" : n.toLocaleString("es-AR").replace(/,/g, "."));
-                }}
-                placeholder="0 = gratis" inputMode="numeric" className="form-input pl-7"
-              />
-            </div>
-          </Field>
-
-          {fee > 0 && (
-            <Field label="Alias / CVU para transferencia">
-              <input value={paymentAlias} onChange={e => setPaymentAlias(e.target.value)}
-                placeholder="ej: mialiaspadel" className="form-input" />
-            </Field>
-          )}
-
-          <div>
-            <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Confirmación de pareja</p>
-            <div className="flex flex-col gap-2">
-              {PAIR_OPTS.map(opt => (
-                <button key={opt.value} type="button" onClick={() => setPairConfirmation(opt.value)}
-                  className="text-left rounded-xl border-2 p-3 transition-all"
-                  style={pairConfirmation === opt.value
-                    ? { borderColor: "#0B8457", background: "#F0FAF5" }
-                    : { borderColor: "#CFE7DC", background: "#FFFFFF" }}>
-                  <p className="text-xs font-black" style={{ color: pairConfirmation === opt.value ? "#0B8457" : "#173A2E" }}>
-                    {opt.label}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: "#5F7D72" }}>{opt.description}</p>
-                </button>
+        <Card title="SELECCIONE CATEGORÍAS">
+          {(creationMode === "single" || isEdit) ? (
+            <CategoryForm config={singleCat} onChange={p => setSingleCat(prev => ({ ...prev, ...p }))} />
+          ) : (
+            <div className="flex flex-col gap-4">
+              {multiConfigs.map((cat, i) => (
+                <div key={i} className="rounded-xl border p-4" style={{ background: "#F7FBF8", borderColor: "#DCE9E1" }}>
+                  <p className="text-xs font-black uppercase text-center mb-1" style={{ color: "#086847" }}>TORNEO {i + 1}</p>
+                  {name.trim() && (
+                    <p className="text-xs font-bold text-center mb-3" style={{ color: "#173A2E" }}>
+                      {[name.trim().toUpperCase(), buildComposition(cat).compositionLabel].filter(Boolean).join(" ")}
+                    </p>
+                  )}
+                  <CategoryForm config={cat} onChange={p => setMultiConfigs(prev => prev.map((c, j) => j === i ? { ...c, ...p } : c))} />
+                </div>
               ))}
             </div>
-          </div>
-        </SectionCard>
+          )}
+        </Card>
+
+        {/* 7 · Costo y modalidad */}
+        <Card title="DEFINIR COSTO Y MODALIDAD">
+          <p className="text-sm font-bold text-center mb-2" style={{ color: "#173A2E" }}>¿CUÁNDO SE CONFIRMA LA INSCRIPCIÓN?</p>
+          <RadioList
+            options={[
+              { value: "both_paid", label: "PAGO DE AMBOS JUGADORES",       description: "La pareja se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)" },
+              { value: "one_paid",  label: "PAGO DE UNO DE LOS 2 JUGADORES", description: "La pareja se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)" },
+              { value: "manual",    label: "CONFIRMACIÓN MANUAL",            description: "El organizador confirma manualmente la inscripción. (FLEXIBLE)" },
+            ]}
+            value={pairConfirmation}
+            onSelect={v => setPairConfirmation(v as ConfirmMode)}
+          />
+          <BlueNote text={
+            pairConfirmation === "both_paid" ? "La pareja se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)"
+            : pairConfirmation === "one_paid"  ? "La pareja se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)"
+            : "El organizador confirma manualmente la inscripción. (FLEXIBLE)"
+          } />
+
+          <FLabel label="VALOR DE INSCRIPCIÓN POR JUGADOR">
+            <input
+              value={entryFeeStr}
+              onChange={e => {
+                const raw = e.target.value.replace(/\./g, "");
+                const n   = parseInt(raw) || 0;
+                setEntryFeeStr(n === 0 ? "" : n.toLocaleString("es-AR").replace(/,/g, "."));
+              }}
+              placeholder="0" inputMode="numeric" className="fi text-center"
+            />
+          </FLabel>
+
+          <FLabel label="Alias de transferencia">
+            <input value={paymentAlias} onChange={e => setPaymentAlias(e.target.value)}
+              placeholder="INGRESA TU ALIAS" className="fi text-center" />
+          </FLabel>
+        </Card>
 
         {/* 8 · Duración */}
-        <SectionCard title="Duración del torneo">
+        <Card title="DURACIÓN DEL TORNEO">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Fecha de inicio">
-              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="form-input" />
-            </Field>
-            <Field label="Fecha de fin">
-              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="form-input" />
-            </Field>
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-center leading-4" style={{ color: "#173A2E" }}>EL TORNEO<br />COMIENZA</p>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="fi text-center w-full" />
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-[10px] font-black uppercase tracking-wide text-center leading-4" style={{ color: "#173A2E" }}>EL TORNEO<br />FINALIZA</p>
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="fi text-center w-full" />
+            </div>
           </div>
-        </SectionCard>
+        </Card>
 
         {error && (
           <div className="rounded-xl border px-4 py-3 text-sm font-semibold"
@@ -526,184 +595,201 @@ function TorneoNuevaInner() {
         )}
 
         <div className="flex gap-3 pb-6">
-          <a href="/dashboard/torneos"
-            className="flex-1 py-3 rounded-xl text-center text-sm font-bold border"
+          <a href="/dashboard/torneos" className="flex-1 py-3 rounded-xl text-center text-sm font-bold border"
             style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
             Cancelar
           </a>
           <button type="submit" disabled={saving || uploading}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-60"
+            className="flex-1 py-3 rounded-xl text-sm font-black uppercase text-white disabled:opacity-60"
             style={{ background: "#0B8457" }}>
-            {saving ? "Guardando…" : isEdit ? "Guardar cambios" : creationMode === "multiple" ? `Crear ${quantity} torneos` : "Crear torneo"}
+            {saving ? "GUARDANDO..." : isEdit ? "GUARDAR CAMBIOS" : creationMode === "multiple" ? "CREAR TORNEOS" : "CREAR TORNEO"}
           </button>
         </div>
       </form>
 
-      {/* Modal: complejo temporal */}
+      {/* Modal: lugar temporal */}
       {showTempModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.45)" }}>
-          <div className="w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-6 flex flex-col gap-4"
-            style={{ background: "#FFFFFF" }}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Agregar complejo temporal</h3>
-              <button type="button" onClick={() => { setShowTempModal(false); setTempError(""); }}
-                className="p-1 rounded-full hover:opacity-70">
-                <X size={18} style={{ color: "#5F7D72" }} />
-              </button>
-            </div>
-            <Field label="Nombre *">
+        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="w-full max-w-lg rounded-t-3xl p-6 pb-10 flex flex-col gap-4" style={{ background: "#FFFFFF", maxHeight: "82vh", overflowY: "auto" }}>
+            <h3 className="text-xl font-black text-center" style={{ color: "#173A2E" }}>Agregar lugar temporal</h3>
+            <FLabel label="Nombre del complejo">
               <input value={tempName} onChange={e => setTempName(e.target.value)}
-                placeholder="ej: Padel Club Norte" className="form-input" />
-            </Field>
-            <Field label="Dirección">
+                placeholder="Nombre del complejo" className="fi text-center" />
+            </FLabel>
+            <FLabel label="Canchas blindex">
+              <input value={tempBlindex} onChange={e => setTempBlindex(e.target.value.replace(/\D/g, ""))}
+                placeholder="0" inputMode="numeric" className="fi text-center" />
+            </FLabel>
+            <FLabel label="Canchas de césped">
+              <input value={tempCesped} onChange={e => setTempCesped(e.target.value.replace(/\D/g, ""))}
+                placeholder="0" inputMode="numeric" className="fi text-center" />
+            </FLabel>
+            <FLabel label="Canchas de cemento">
+              <input value={tempCemento} onChange={e => setTempCemento(e.target.value.replace(/\D/g, ""))}
+                placeholder="0" inputMode="numeric" className="fi text-center" />
+            </FLabel>
+            <FLabel label="Dirección">
               <input value={tempAddress} onChange={e => setTempAddress(e.target.value)}
-                placeholder="ej: Av. Corrientes 1234" className="form-input" />
-            </Field>
-            {tempError && (
-              <p className="text-xs font-semibold" style={{ color: "#B24343" }}>{tempError}</p>
-            )}
-            <div className="flex gap-3">
-              <button type="button" onClick={() => { setShowTempModal(false); setTempError(""); }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold border"
-                style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                Cancelar
-              </button>
-              <button type="button" onClick={addTempVenue} disabled={savingTemp}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-60"
-                style={{ background: "#0B8457" }}>
-                {savingTemp ? "Guardando…" : "Agregar"}
-              </button>
-            </div>
+                placeholder="Dirección" className="fi text-center" />
+            </FLabel>
+            {tempError && <p className="text-xs font-semibold text-center" style={{ color: "#B24343" }}>{tempError}</p>}
+            <button type="button" onClick={addTempVenue} disabled={savingTemp}
+              className="w-full py-3 rounded-xl text-sm font-black uppercase text-white disabled:opacity-60"
+              style={{ background: "#0B8457" }}>
+              {savingTemp ? "GUARDANDO..." : "GUARDAR LUGAR"}
+            </button>
           </div>
         </div>
       )}
 
       <style>{`
-        .form-input {
+        .fi {
           width: 100%;
           border: 1.5px solid #CFE7DC;
           border-radius: 12px;
-          padding: 8px 12px;
+          padding: 10px 14px;
           font-size: 14px;
           color: #173A2E;
           background: #FFFFFF;
           outline: none;
           transition: border-color 0.15s;
         }
-        .form-input:focus { border-color: #0B8457; }
+        .fi:focus { border-color: #0B8457; }
+        .fi:disabled { background: #F6FBF8; color: #9AB5AB; }
       `}</style>
     </DashboardLayout>
   );
 }
 
 // ── CategoryForm ──────────────────────────────────────────────────────────────
-function CategoryForm({ config, onChange }: {
-  config: CatConfig;
-  onChange: (patch: Partial<CatConfig>) => void;
-}) {
-  const { categoryMode, branch, sumTarget, fixedCategoryA } = config;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const set = (k: keyof CatConfig, v: any) => onChange({ [k]: v });
+function CategoryForm({ config, onChange }: { config: CatConfig; onChange: (p: Partial<CatConfig>) => void }) {
+  const { categoryMode, branch, sumTarget, fixedCategoryA, fixedCategoryB } = config;
 
-  const sumNum   = parseInt(sumTarget) || 10;
-  const catANum  = CAT_OPTIONS.find(o => o.value === fixedCategoryA)?.num ?? 0;
-  const autoCatB = categoryMode === "sum_fixed" ? CAT_OPTIONS.find(o => o.num === sumNum - catANum) : null;
+  function setCatMode(mode: CategoryMode) {
+    onChange({ categoryMode: mode, sumTarget: mode === "single" ? "" : sumTarget, fixedCategoryB: mode === "sum_fixed" ? fixedCategoryB : "" });
+  }
+  function setSumTarget(v: string)    { onChange({ sumTarget: v, fixedCategoryB: "" }); }
+  function setCatA(v: string)         { onChange({ fixedCategoryA: v, fixedCategoryB: "" }); }
 
-  const validCatA = categoryMode === "sum_fixed"
-    ? CAT_OPTIONS.filter(o => { const b = sumNum - o.num; return b >= 1 && b <= 9 && b !== o.num; })
-    : CAT_OPTIONS;
+  const validCatA = categoryMode === "sum_fixed" ? getValidCatAOptions(sumTarget) : CAT_OPTIONS;
+  const validCatB = categoryMode === "sum_fixed" ? getValidCatBOptions(sumTarget, fixedCategoryA) : [];
 
-  const previewLabel = categoryMode === "single"
-    ? `${fixedCategoryA} ${branch}`
-    : categoryMode === "sum_fixed"
-      ? `${fixedCategoryA}+${autoCatB?.value ?? "?"} ${branch}`
-      : `Suma ${sumTarget} ${branch}`;
+  const modeDesc = categoryMode === "single"   ? "Una categoría fija para toda la pareja."
+    : categoryMode === "sum_fixed" ? "Suma con combinación exacta."
+    : "Suma abierta dentro del objetivo.";
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Rama */}
-      <div>
-        <p className="text-xs font-bold mb-1.5" style={{ color: "#5F7D72" }}>Rama</p>
-        <div className="flex gap-2">
-          {BRANCHES.map(b => (
-            <button key={b} type="button" onClick={() => set("branch", b)}
-              className="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all"
-              style={branch === b
-                ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-              {b}
-            </button>
-          ))}
-        </div>
-      </div>
+      <RadioList
+        options={[
+          { value: "single",    label: "CATEGORÍA ÚNICA", description: "Una categoría fija para toda la pareja." },
+          { value: "sum_fixed", label: "SUMA FIJA",        description: "Suma con combinación exacta." },
+          { value: "sum_open",  label: "SUMA LIBRE",       description: "Suma abierta dentro del objetivo." },
+        ]}
+        value={categoryMode}
+        onSelect={v => setCatMode(v as CategoryMode)}
+      />
+      <BlueNote text={modeDesc} />
 
-      {/* Tipo de categoría */}
-      <div>
-        <p className="text-xs font-bold mb-1.5" style={{ color: "#5F7D72" }}>Tipo de categoría</p>
-        <div className="flex gap-2">
-          {([
-            { v: "single" as CategoryMode,    l: "Cat. fija" },
-            { v: "sum_fixed" as CategoryMode, l: "Suma fija" },
-            { v: "sum_open" as CategoryMode,  l: "Suma abierta" },
-          ]).map(({ v, l }) => (
-            <button key={v} type="button" onClick={() => set("categoryMode", v)}
-              className="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all"
-              style={categoryMode === v
-                ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                : { background: "#F6FBF8", color: "#5F7D72", borderColor: "#CFE7DC" }}>
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
+      <FLabel label="Sexo">
+        <select value={branch} onChange={e => onChange({ branch: e.target.value })} className="fi text-center">
+          <option value="Masculino">Caballeros</option>
+          <option value="Femenino">Damas</option>
+          <option value="Mixto">Mixto</option>
+        </select>
+      </FLabel>
 
-      {/* single: elegir categoría */}
-      {categoryMode === "single" && (
-        <Field label="Categoría">
-          <select value={fixedCategoryA} onChange={e => set("fixedCategoryA", e.target.value)} className="form-input">
-            {CAT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </Field>
-      )}
-
-      {/* sum: elegir suma objetivo */}
-      {(categoryMode === "sum_fixed" || categoryMode === "sum_open") && (
-        <Field label="Suma objetivo">
-          <select value={sumTarget} onChange={e => set("sumTarget", e.target.value)} className="form-input">
+      {categoryMode !== "single" && (
+        <FLabel label="Suma">
+          <select value={sumTarget} onChange={e => setSumTarget(e.target.value)} className="fi text-center">
+            <option value="">Seleccionar suma</option>
             {SUM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </Field>
+        </FLabel>
       )}
 
-      {/* sum_fixed: catA + catB auto */}
+      <FLabel label={categoryMode === "single" ? "Categoría" : "Categoría A"}>
+        <select value={fixedCategoryA} onChange={e => setCatA(e.target.value)} className="fi text-center">
+          <option value="">Seleccionar categoría</option>
+          {validCatA.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </FLabel>
+
       {categoryMode === "sum_fixed" && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Categoría A">
-            <select value={fixedCategoryA} onChange={e => set("fixedCategoryA", e.target.value)} className="form-input">
-              {validCatA.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Categoría B (auto)">
-            <div className="form-input" style={{ background: "#F6FBF8", color: autoCatB ? "#086847" : "#B24343", fontWeight: 700 }}>
-              {autoCatB ? autoCatB.label : "No válido"}
-            </div>
-          </Field>
-        </div>
+        <FLabel label="Categoría B">
+          <select value={fixedCategoryB} onChange={e => onChange({ fixedCategoryB: e.target.value })}
+            className="fi text-center" disabled={!fixedCategoryA || validCatB.length === 0}>
+            <option value="">Seleccionar categoría</option>
+            {validCatB.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </FLabel>
       )}
-
-      <p className="text-xs font-semibold" style={{ color: "#5F7D72" }}>
-        Vista previa: <strong style={{ color: "#086847" }}>{previewLabel}</strong>
-      </p>
     </div>
   );
 }
 
-// ── UI helpers ────────────────────────────────────────────────────────────────
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+// ── Sub-components ────────────────────────────────────────────────────────────
+function RadioList({ options, value, onSelect, withSubtitle = false }: {
+  options: { value: string; label: string; description?: string; subtitle?: string }[];
+  value: string;
+  onSelect: (v: string) => void;
+  withSubtitle?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border p-4 flex flex-col gap-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-      <h2 className="font-black text-sm" style={{ color: "#173A2E", borderBottom: "1px solid #F0F7F4", paddingBottom: 8, marginBottom: 4 }}>
+    <div className="flex flex-col gap-1.5">
+      {options.map(opt => {
+        const active = opt.value === value;
+        return (
+          <button key={opt.value} type="button" onClick={() => onSelect(opt.value)}
+            className={`flex items-${withSubtitle ? "start" : "center"} gap-3 rounded-lg border px-4 py-2.5 text-left transition-all`}
+            style={active ? { background: "#E8F5EE", borderColor: "#A6D8BC" } : { background: "#F4FAF7", borderColor: "#CFE7DC" }}>
+            <span className="mt-0.5 flex-shrink-0 rounded-full border-2 w-4 h-4"
+              style={{ background: active ? "#086847" : "#FFFFFF", borderColor: active ? "#086847" : "#9EB7AA" }} />
+            <span>
+              <span className="block text-xs font-black uppercase tracking-wide"
+                style={{ color: active ? "#086847" : "#173A2E" }}>{opt.label}</span>
+              {opt.subtitle && (
+                <span className="block text-xs font-bold mt-0.5" style={{ color: "#173A2E" }}>{opt.subtitle}</span>
+              )}
+              {withSubtitle && opt.description && (
+                <span className="block text-xs font-semibold mt-0.5" style={{ color: "#5F7D72" }}>{opt.description}</span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BlueNote({ text }: { text: string }) {
+  return <p className="text-xs font-semibold text-center" style={{ color: "#1E88C8" }}>{text}</p>;
+}
+
+function VenueChip({ label, active, onPress, tint }: { label: string; active: boolean; onPress: () => void; tint: "approved" | "temp" }) {
+  const styles = {
+    approved: {
+      active:   { background: "#086847", color: "#FFFFFF", borderColor: "#086847" },
+      inactive: { background: "#EEF6F2", color: "#086847", borderColor: "#CFE7DC" },
+    },
+    temp: {
+      active:   { background: "#6751B6", color: "#FFFFFF", borderColor: "#6751B6" },
+      inactive: { background: "#F4F2FF", color: "#6751B6", borderColor: "#D9D1FF" },
+    },
+  };
+  return (
+    <button type="button" onClick={onPress}
+      className="px-4 py-2 rounded-full border-2 text-xs font-black uppercase transition-all"
+      style={active ? styles[tint].active : styles[tint].inactive}>
+      {label}
+    </button>
+  );
+}
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border p-5 flex flex-col gap-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+      <h2 className="font-black text-base text-center uppercase tracking-wide" style={{ color: "#173A2E" }}>
         {title}
       </h2>
       {children}
@@ -711,10 +797,10 @@ function SectionCard({ title, children }: { title: string; children: React.React
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function FLabel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>{label}</label>
+      <label className="text-xs font-bold text-center" style={{ color: "#5F7D72" }}>{label}</label>
       {children}
     </div>
   );
