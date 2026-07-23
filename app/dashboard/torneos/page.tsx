@@ -44,7 +44,7 @@ type FilterTab = "pendientes" | "publicados" | "activos" | "finalizados" | "canc
 const MAIN_TABS: { id: FilterTab; label: string }[] = [
   { id: "pendientes", label: "Pendientes de publicar" },
   { id: "publicados", label: "Publicados" },
-  { id: "activos",    label: "Activos" },
+  { id: "activos",    label: "Creados" },
 ];
 
 const MENU_TABS: { id: FilterTab; label: string }[] = [
@@ -56,7 +56,7 @@ function matchesTab(status: string, tab: FilterTab): boolean {
   switch (tab) {
     case "pendientes":  return status === "draft";
     case "publicados":  return status === "published";
-    case "activos":     return ["registration_open", "registration_closed", "building", "in_progress"].includes(status);
+    case "activos":     return true;
     case "finalizados": return status === "finished";
     case "cancelados":  return status === "cancelled";
   }
@@ -178,7 +178,7 @@ export default function TorneosPage() {
         >
           <Trophy size={48} className="mx-auto mb-4" style={{ color: "#CFE7DC" }} />
           <p className="font-black text-lg mb-1" style={{ color: "#173A2E" }}>
-            {activeTab === "activos" ? "No hay torneos activos" : `No hay torneos en "${[...MAIN_TABS, ...MENU_TABS].find(t=>t.id===activeTab)?.label}"`}
+            {activeTab === "activos" ? "No hay torneos creados" : `No hay torneos en "${[...MAIN_TABS, ...MENU_TABS].find(t=>t.id===activeTab)?.label}"`}
           </p>
           <p className="text-sm" style={{ color: "#5F7D72" }}>
             {activeTab === "activos" ? "Creá tu primer torneo para empezar." : "Cambiá el filtro para ver otros torneos."}
