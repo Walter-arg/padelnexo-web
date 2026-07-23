@@ -319,9 +319,19 @@ function TorneoNuevaInner() {
     e.preventDefault();
     if (!name.trim()) { setError("Escribí el nombre del torneo."); return; }
     if (!selectedVenues.length) { setError("Seleccioná al menos un lugar de juego."); return; }
-    if (creationMode !== "multiple" && !singleCat.fixedCategoryA) { setError("Seleccioná la categoría."); return; }
-    if (creationMode !== "multiple" && singleCat.categoryMode !== "single" && !singleCat.sumTarget) { setError("Seleccioná la suma objetivo."); return; }
-    if (creationMode !== "multiple" && singleCat.categoryMode === "sum_fixed" && !singleCat.fixedCategoryB) { setError("Seleccioná la Categoría B."); return; }
+    if (creationMode === "multiple") {
+      const qty = Math.max(2, parseInt(quantity) || 2);
+      for (let i = 0; i < qty; i++) {
+        const cat = multiConfigs[i] ?? DEFAULT_CAT;
+        if (!cat.fixedCategoryA) { setError(`Seleccioná la categoría del torneo ${i + 1}.`); return; }
+        if (cat.categoryMode !== "single" && !cat.sumTarget) { setError(`Seleccioná la suma del torneo ${i + 1}.`); return; }
+        if (cat.categoryMode === "sum_fixed" && !cat.fixedCategoryB) { setError(`Seleccioná la Categoría B del torneo ${i + 1}.`); return; }
+      }
+    } else {
+      if (!singleCat.fixedCategoryA) { setError("Seleccioná la categoría."); return; }
+      if (singleCat.categoryMode !== "single" && !singleCat.sumTarget) { setError("Seleccioná la suma objetivo."); return; }
+      if (singleCat.categoryMode === "sum_fixed" && !singleCat.fixedCategoryB) { setError("Seleccioná la Categoría B."); return; }
+    }
     if (!startDate) { setError("Seleccioná la fecha de inicio."); return; }
     if (!endDate)   { setError("Seleccioná la fecha de fin."); return; }
     if (!user) return;
@@ -439,7 +449,7 @@ function TorneoNuevaInner() {
                 <span className="text-sm font-bold" style={{ color: "#173A2E" }}>Cantidad de torneos</span>
                 <input
                   type="text" inputMode="numeric" maxLength={2} value={quantity}
-                  onChange={e => { const v = e.target.value.replace(/\D/g, ""); setQuantity(v || "2"); }}
+                  onChange={e => { const n = parseInt(e.target.value.replace(/\D/g, "")) || 2; setQuantity(String(Math.max(2, n))); }}
                   className="fi text-center font-black text-base" style={{ width: 56 }}
                 />
               </div>
