@@ -370,6 +370,183 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDele
   );
 }
 
+// ── Modal disponibilidad ─────────────────────────────────────────────────────
+const QUICK_SLOTS = [
+  { key: "morning",    label: "Mañana",    sub: "08–12" },
+  { key: "afternoon",  label: "Tarde",     sub: "12–18" },
+  { key: "night",      label: "Noche",     sub: "18–23" },
+  { key: "late_night", label: "Madrugada", sub: "23–02" },
+];
+
+function buildDayOptions(startMs?: number, endMs?: number): { key: string; label: string }[] {
+  if (!startMs || !endMs) return [];
+  const days: { key: string; label: string }[] = [];
+  const cur = new Date(startMs);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(endMs);
+  end.setHours(0, 0, 0, 0);
+  while (cur <= end && days.length < 45) {
+    const key = cur.toISOString().slice(0, 10);
+    const raw = cur.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" });
+    days.push({ key, label: raw.charAt(0).toUpperCase() + raw.slice(1) });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
+  torneoId: string; reg: any; torneo: any; onClose: () => void;
+}) {
+  const [avail, setAvail] = useState<Record<string, { quickSlots: string[]; customSlots: any[] }>>(reg.availability ?? {});
+  const [saving, setSaving] = useState(false);
+  const days = buildDayOptions(torneo?.startDateMillis, torneo?.endDateMillis);
+
+  function toggleSlot(dateKey: string, slot: string) {
+    setAvail(prev => {
+      const day = prev[dateKey] ?? { quickSlots: [], customSlots: [] };
+      const next_slots = day.quickSlots.includes(slot)
+        ? day.quickSlots.filter((s: string) => s !== slot)
+        : [...day.quickSlots, slot];
+      if (next_slots.length === 0 && (day.customSlots ?? []).length === 0) {
+        const { [dateKey]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [dateKey]: { ...day, quickSlots: next_slots } };
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    await updateDoc(doc(db, "tournaments", torneoId, "registrations", reg.id), {
+      availability: avail, updatedAt: serverTimestamp(),
+    });
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>
+      <div className="w-full max-w-lg rounded-t-[22px] shadow-xl flex flex-col" style={{ background: "#FFFFFF", maxHeight: "80vh" }}>
+        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid #CFE7DC" }}>
+          <div>
+            <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Horarios disponibles</h3>
+            <p className="text-xs mt-0.5" style={{ color: "#5F7D72" }}>{reg.player1Name} / {reg.player2Name}</p>
+          </div>
+          <button onClick={onClose}><X size={18} style={{ color: "#5F7D72" }} /></button>
+        </div>
+
+        {days.length === 0 ? (
+          <p className="text-sm text-center py-8 flex-1" style={{ color: "#5F7D72" }}>El torneo no tiene fechas configuradas.</p>
+        ) : (
+          <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-5">
+            {days.map(day => {
+              const activeSlots = avail[day.key]?.quickSlots ?? [];
+              return (
+                <div key={day.key}>
+                  <p className="text-[11px] font-black uppercase mb-2" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>{day.label}</p>
+                  <div className="flex gap-2">
+                    {QUICK_SLOTS.map(slot => {
+                      const active = activeSlots.includes(slot.key);
+                      return (
+                        <button key={slot.key} onClick={() => toggleSlot(day.key, slot.key)}
+                          className="flex-1 flex flex-col items-center py-2 rounded-xl border text-center"
+                          style={active
+                            ? { background: "#0B8457", borderColor: "#086847", color: "#FFFFFF" }
+                            : { background: "#F6FBF8", borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                          <span className="text-[11px] font-black">{slot.label}</span>
+                          <span className="text-[9px] mt-0.5 opacity-70">{slot.sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="px-5 py-3 flex-shrink-0" style={{ borderTop: "1px solid #CFE7DC" }}>
+          <button onClick={handleSave} disabled={saving}
+            className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+            style={{ background: "#0B8457" }}>
+            {saving ? "Guardando…" : "Guardar horarios"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal perfil de jugador ──────────────────────────────────────────────────
+function PlayerProfileModal({ player, regName, onClose }: {
+  player: any; regName: string; onClose: () => void;
+}) {
+  const foto = player?.fotoURL || "";
+  const fullName = [player?.nombre, player?.apellido].filter(Boolean).join(" ") || regName;
+  const MANO: Record<string, string> = { izquierda: "Zurdo", derecha: "Diestro" };
+  const LADO: Record<string, string> = { reves: "Revés", drive: "Drive" };
+
+  const rows = [
+    player?.ciudad && { label: "Ciudad", value: [player.ciudad, player.provincia].filter(Boolean).join(", ") },
+    player?.sexo && { label: "Género", value: player.sexo },
+    player?.manoHabil && { label: "Mano hábil", value: MANO[player.manoHabil] ?? player.manoHabil },
+    player?.ladoJuego && { label: "Lado", value: LADO[player.ladoJuego] ?? player.ladoJuego },
+    player?.mostrarTelefono && player?.telefono && { label: "Teléfono", value: `${player.countryCode ?? "+54"} ${player.telefono}` },
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+      <div className="w-full max-w-sm rounded-[22px] overflow-hidden shadow-xl" style={{ background: "#FFFFFF" }}>
+        <div className="flex flex-col items-center py-6 px-5" style={{ background: "#F0FAF5" }}>
+          {foto ? (
+            <img src={foto} alt="" className="w-20 h-20 rounded-full object-cover mb-3 border-4" style={{ borderColor: "#FFFFFF" }} />
+          ) : (
+            <div className="w-20 h-20 rounded-full overflow-hidden mb-3 border-4" style={{ background: "#DDE8E3", borderColor: "#FFFFFF" }}>
+              <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
+                <circle cx="16" cy="12" r="5.5" fill="#9BB8AE" />
+                <path d="M3 30c0-7.18 5.82-13 13-13s13 5.82 13 13" fill="#9BB8AE" />
+              </svg>
+            </div>
+          )}
+          <h3 className="font-black text-lg leading-tight text-center" style={{ color: "#173A2E" }}>{fullName}</h3>
+          {player?.categoria && (
+            <span className="mt-1.5 text-xs font-bold px-3 py-0.5 rounded-full" style={{ background: "#0B845718", color: "#0B8457" }}>
+              {player.categoria}
+            </span>
+          )}
+        </div>
+
+        {rows.length > 0 && (
+          <div className="px-5 py-4 flex flex-col gap-1">
+            {rows.map(r => (
+              <div key={r.label} className="flex items-center justify-between py-1.5" style={{ borderBottom: "1px solid #F0FAF5" }}>
+                <span className="text-xs font-bold" style={{ color: "#5F7D72" }}>{r.label}</span>
+                <span className="text-xs font-semibold" style={{ color: "#173A2E" }}>{r.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {player?.descripcion && (
+          <div className="px-5 pb-4">
+            <p className="text-xs leading-relaxed rounded-xl p-3" style={{ background: "#F6FBF8", color: "#5F7D72" }}>
+              {player.descripcion}
+            </p>
+          </div>
+        )}
+
+        <div className="px-5 pb-5">
+          <button onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm font-bold border"
+            style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── NewPairDrawer ────────────────────────────────────────────────────────────
 function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
   torneoId: string;
@@ -829,7 +1006,9 @@ export default function TorneoDetailPage() {
   const [newPairOpen, setNewPairOpen]     = useState(false);
   const [regModal, setRegModal]           = useState<{ open: boolean; initial?: any }>({ open: false });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [posterOpen, setPosterOpen]   = useState(false);
+  const [posterOpen, setPosterOpen]       = useState(false);
+  const [availModal, setAvailModal]       = useState<{ reg: any } | null>(null);
+  const [playerProfile, setPlayerProfile] = useState<{ player: any; name: string } | null>(null);
 
   // Gestión
   const [minPairs, setMinPairs]   = useState(2);
@@ -1255,6 +1434,18 @@ export default function TorneoDetailPage() {
           onDelete={regModal.initial?.id ? () => { setRegModal({ open: false }); setDeleteConfirm(regModal.initial!.id); } : undefined}
         />
       )}
+      {availModal && (
+        <AvailabilityModal
+          torneoId={torneoId} reg={availModal.reg} torneo={torneo}
+          onClose={() => setAvailModal(null)}
+        />
+      )}
+      {playerProfile && (
+        <PlayerProfileModal
+          player={playerProfile.player} regName={playerProfile.name}
+          onClose={() => setPlayerProfile(null)}
+        />
+      )}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
           <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "#FFFFFF" }}>
@@ -1523,7 +1714,7 @@ export default function TorneoDetailPage() {
                                   const pd = players.find((p: any) => p.id && p.id === pl.id);
                                   const foto = pd?.fotoURL || pd?.foto || "";
                                   return (
-                                    <div key={pi} className="flex items-center gap-1 rounded-xl border px-1.5 py-1 min-w-0" style={{ flex: "1 1 0", background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                    <button key={pi} onClick={() => { const pd = players.find((p: any) => p.id === pl.id); if (pd) setPlayerProfile({ player: pd, name: pl.name ?? "" }); }} className="flex items-center gap-1 rounded-xl border px-1.5 py-1 min-w-0 text-left" style={{ flex: "1 1 0", background: "#F7FAF8", borderColor: "#CFE7DC" }}>
                                       {foto ? (
                                         <img src={foto} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                                       ) : (
@@ -1535,7 +1726,7 @@ export default function TorneoDetailPage() {
                                         </div>
                                       )}
                                       <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
-                                    </div>
+                                    </button>
                                   );
                                 })}
                               </div>
@@ -1548,14 +1739,15 @@ export default function TorneoDetailPage() {
                                   <span className="text-[10px] font-black uppercase">{statusLine1}</span>
                                   <span className="text-[10px] font-black uppercase">{statusLine2}</span>
                                 </div>
-                                {/* Horarios — 2 líneas */}
-                                <div className="flex flex-col items-center rounded-lg border px-2.5 py-1 text-center leading-snug"
+                                {/* Horarios — 2 líneas, clickeable */}
+                                <button onClick={() => setAvailModal({ reg })}
+                                  className="flex flex-col items-center rounded-lg border px-2.5 py-1 text-center leading-snug cursor-pointer"
                                   style={hasAvailability
                                     ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
                                     : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
                                   <span className="text-[10px] font-black uppercase">HORARIOS</span>
                                   <span className="text-[10px] font-black uppercase">{hasAvailability ? "CARGADOS" : "PENDIENTES"}</span>
-                                </div>
+                                </button>
                                 {/* Editar (incluye eliminar dentro) */}
                                 <button onClick={() => setRegModal({ open: true, initial: reg })}
                                   className="rounded-full border p-2"
