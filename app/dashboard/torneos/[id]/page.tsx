@@ -413,7 +413,7 @@ function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
 
   function addSlot() {
     if (!newDay || !newFrom || !newTo) { setError("Completá todos los campos."); return; }
-    if (newFrom >= newTo) { setError("El horario de inicio debe ser antes del fin."); return; }
+    if (newFrom === newTo) { setError("El horario de inicio y fin no pueden ser iguales."); return; }
     const dayLabel = days.find(d => d.key === newDay)?.label ?? newDay;
     setSlots(prev => [...prev, { dateKey: newDay, dayLabel, from: newFrom, to: newTo }]);
     setAdding(false);
@@ -467,7 +467,7 @@ function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
               style={{ background: "#F0FAF5", borderColor: "#B7DFBF" }}>
               <div>
                 <p className="text-[10px] font-black uppercase" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>{s.dayLabel}</p>
-                <p className="text-sm font-black mt-0.5" style={{ color: "#173A2E" }}>{s.from} → {s.to}</p>
+                <p className="text-sm font-black mt-0.5" style={{ color: "#173A2E" }}>Desde las {s.from} hs hasta las {s.to} hs</p>
               </div>
               <button onClick={() => setSlots(prev => prev.filter((_, j) => j !== i))}
                 className="rounded-full p-1.5" style={{ background: "#FFF1F1" }}>
