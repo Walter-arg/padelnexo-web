@@ -1535,9 +1535,13 @@ export default function TorneoDetailPage() {
                                   style={hasAvailability
                                     ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
                                     : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                                  <span className="text-[10px] font-black uppercase">Disponib.</span>
-                                  <span className="text-[10px] font-semibold">{hasAvailability ? "cargada" : "pendiente"}</span>
+                                  <span className="text-[10px] font-black uppercase">Horarios</span>
+                                  <span className="text-[10px] font-semibold">{hasAvailability ? "cargados" : "pendiente"}</span>
                                 </div>
+                                <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full whitespace-nowrap"
+                                  style={{ color: statusColor, background: statusColor + "18" }}>
+                                  {statusLabel}
+                                </span>
                                 <button onClick={() => setRegModal({ open: true, initial: reg })}
                                   className="rounded-full border p-2"
                                   style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
@@ -1551,27 +1555,25 @@ export default function TorneoDetailPage() {
                               </div>
                             </div>
 
-                            {/* Estado + acciones extra — centrados */}
-                            <div className="flex items-center justify-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-black uppercase px-3 py-0.5 rounded-full"
-                                style={{ color: statusColor, background: statusColor + "18" }}>
-                                {statusLabel}
-                              </span>
-                              {reg.withdrawalStatus === "requested" && (
-                                <button onClick={() => confirmWithdrawal(reg.id)}
-                                  className="text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
-                                  style={{ background: "#C27A1C", borderColor: "#C27A1C" }}>
-                                  Confirmar baja
-                                </button>
-                              )}
-                              {reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed" && (
-                                <button onClick={() => confirmRegistration(reg.id)}
-                                  className="flex items-center gap-1 text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
-                                  style={{ background: "#086847", borderColor: "#086847" }}>
-                                  <CheckCircle size={10} /> Confirmar pareja
-                                </button>
-                              )}
-                            </div>
+                            {/* Acciones extra condicionales */}
+                            {(reg.withdrawalStatus === "requested" || (reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed")) && (
+                              <div className="flex items-center justify-center gap-2 mt-2">
+                                {reg.withdrawalStatus === "requested" && (
+                                  <button onClick={() => confirmWithdrawal(reg.id)}
+                                    className="text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
+                                    style={{ background: "#C27A1C", borderColor: "#C27A1C" }}>
+                                    Confirmar baja
+                                  </button>
+                                )}
+                                {reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed" && (
+                                  <button onClick={() => confirmRegistration(reg.id)}
+                                    className="flex items-center gap-1 text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
+                                    style={{ background: "#086847", borderColor: "#086847" }}>
+                                    <CheckCircle size={10} /> Confirmar pareja
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
