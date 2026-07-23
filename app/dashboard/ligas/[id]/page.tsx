@@ -12,7 +12,7 @@ import {
   X, Save, RefreshCw, Eye, Archive, Shield,
   MapPin, Clock, ChevronLeft, ChevronDown, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
-  MessageSquare, Smartphone, Banknote, Search, Plus, AlertCircle,
+  MessageSquare, Smartphone, Banknote, Search, Plus, AlertCircle, SlidersHorizontal,
 } from "lucide-react";
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
@@ -373,15 +373,30 @@ function FixtureReplacementModal({ match, allPlayers, onClose, onSave }: { match
   const [query, setQuery] = useState("");
   const [pendingKey, setPendingKey] = useState<string|null>(null);
   const [draft, setDraft] = useState<Record<string,any>>({...(match.replacements??{})});
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterCat, setFilterCat] = useState("");
+  const [filterGenero, setFilterGenero] = useState("");
+  const searchRef = useRef<HTMLDivElement|null>(null);
   const matchPlayers = [
     ...((match.teamA?.players??[]).map((p:any)=>({...p,teamKey:"teamA"}))),
     ...((match.teamB?.players??[]).map((p:any)=>({...p,teamKey:"teamB"}))),
   ];
+  const categories = useMemo(()=>[...new Set(allPlayers.map((p:any)=>p.categoria).filter(Boolean))].sort() as string[],[allPlayers]);
+  const generos = useMemo(()=>[...new Set(allPlayers.map((p:any)=>p.genero).filter(Boolean))].sort() as string[],[allPlayers]);
   const filtered = useMemo(()=>{
     const q = query.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
-    if(!q) return allPlayers.slice(0,10);
-    return allPlayers.filter(p=>`${p.nombre??""} ${p.apellido??""}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").includes(q)).slice(0,10);
-  },[query,allPlayers]);
+    let res = allPlayers;
+    if(q) res = res.filter((p:any)=>`${p.nombre??""} ${p.apellido??""}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").includes(q));
+    if(filterCat) res = res.filter((p:any)=>p.categoria===filterCat);
+    if(filterGenero) res = res.filter((p:any)=>p.genero===filterGenero);
+    return res.slice(0,(!q&&!filterCat&&!filterGenero)?10:20);
+  },[query,allPlayers,filterCat,filterGenero]);
+  useEffect(()=>{
+    if(pendingKey&&searchRef.current) {
+      setTimeout(()=>searchRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),60);
+    }
+  },[pendingKey]);
+  const hasActiveFilter = !!filterCat||!!filterGenero;
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-t-[28px] sm:rounded-[22px] pt-5 pb-6 px-5 w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
@@ -407,19 +422,50 @@ function FixtureReplacementModal({ match, allPlayers, onClose, onSave }: { match
               {isAssigned&&<div className="text-[11px] text-[#5F7D72] mb-1">Reemplazante: <span className="font-black text-[#247653]">{entry.replacement.nombre} {entry.replacement.apellido??""}</span></div>}
               <div className="flex gap-1.5">
                 {!entry&&<button onClick={()=>setDraft(d=>({...d,[key]:{requested:true,titular:{id:player.id,nombre:player.nombre,apellido:player.apellido},replacement:null,requestedAtMillis:Date.now()}}))} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#FFF3E3] border border-[#E8C58E] text-[#8A5A2B]">Solicitar</button>}
-                {isPending&&<button onClick={()=>{setPendingKey(key);setQuery("");}} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#DDF6EF] border border-[#89D9C4] text-[#176B5B]">Asignar</button>}
+                {isPending&&<button onClick={()=>{setPendingKey(key);setQuery("");setFilterOpen(false);setFilterCat("");setFilterGenero("");}} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#DDF6EF] border border-[#89D9C4] text-[#176B5B]">Asignar</button>}
                 {entry&&<button onClick={()=>setDraft(d=>{const n={...d};delete n[key];return n;})} className="text-[11px] font-black px-2.5 py-1 rounded-lg bg-[#FFF1F1] border border-[#F2C4C4] text-[#D64545]">Cancelar</button>}
               </div>
             </div>
           );
         })}
         {pendingKey&&(
-          <div className="mt-3">
-            <p className="text-xs font-bold text-[#086847] mb-2">Buscar reemplazante</p>
-            <div className="flex items-center gap-2 bg-[#F7FAF8] border border-[#CFE7DC] rounded-xl px-3 py-2 mb-2">
-              <Search size={13} className="text-[#5F7D72] flex-shrink-0"/>
-              <input value={query} onChange={e=>setQuery(e.target.value)} className="flex-1 text-sm bg-transparent outline-none text-[#173A2E] placeholder-[#5F7D72]" placeholder="Nombre del reemplazante..." autoFocus/>
+          <div ref={searchRef} className="mt-3">
+            <div className="flex items-center gap-2 bg-[#EDF7F2] border border-[#89D9C4] rounded-xl px-3 py-2 mb-2">
+              <span className="text-[11px] font-black text-[#086847]">↓ Seleccioná al reemplazante en la lista de abajo</span>
             </div>
+            <div className="flex items-center gap-2 bg-[#F7FAF8] border border-[#CFE7DC] rounded-xl px-3 py-2 mb-1">
+              <Search size={13} className="text-[#5F7D72] flex-shrink-0"/>
+              <input value={query} onChange={e=>setQuery(e.target.value)} className="flex-1 text-sm bg-transparent outline-none text-[#173A2E] placeholder-[#5F7D72]" placeholder="Buscar por nombre..." autoFocus/>
+              <button onClick={()=>setFilterOpen(f=>!f)} className={`p-1 rounded-lg transition-colors ${hasActiveFilter||filterOpen?"bg-[#0B8457] text-white":"text-[#5F7D72] hover:text-[#0B8457]"}`}>
+                <SlidersHorizontal size={13}/>
+              </button>
+            </div>
+            {filterOpen&&(
+              <div className="bg-[#F7FAF8] border border-[#CFE7DC] rounded-xl px-3 py-2.5 mb-2 flex flex-col gap-2.5">
+                {categories.length>0&&(
+                  <div>
+                    <span className="text-[10px] font-black text-[#5F7D72] uppercase tracking-wide">Categoría</span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <button onClick={()=>setFilterCat("")} className={`text-[10px] px-2.5 py-0.5 rounded-full font-black border transition-colors ${!filterCat?"bg-[#0B8457] text-white border-[#0B8457]":"bg-white text-[#5F7D72] border-[#CFE7DC] hover:border-[#89D9C4]"}`}>Todas</button>
+                      {categories.map(cat=>(
+                        <button key={cat} onClick={()=>setFilterCat(f=>f===cat?"":cat)} className={`text-[10px] px-2.5 py-0.5 rounded-full font-black border transition-colors ${filterCat===cat?"bg-[#0B8457] text-white border-[#0B8457]":"bg-white text-[#5F7D72] border-[#CFE7DC] hover:border-[#89D9C4]"}`}>{cat}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {generos.length>0&&(
+                  <div>
+                    <span className="text-[10px] font-black text-[#5F7D72] uppercase tracking-wide">Género</span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <button onClick={()=>setFilterGenero("")} className={`text-[10px] px-2.5 py-0.5 rounded-full font-black border transition-colors ${!filterGenero?"bg-[#0B8457] text-white border-[#0B8457]":"bg-white text-[#5F7D72] border-[#CFE7DC] hover:border-[#89D9C4]"}`}>Todos</button>
+                      {generos.map(g=>(
+                        <button key={g} onClick={()=>setFilterGenero(f=>f===g?"":g)} className={`text-[10px] px-2.5 py-0.5 rounded-full font-black border transition-colors ${filterGenero===g?"bg-[#0B8457] text-white border-[#0B8457]":"bg-white text-[#5F7D72] border-[#CFE7DC] hover:border-[#89D9C4]"}`}>{g}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex flex-col gap-1 max-h-44 overflow-y-auto">
               {filtered.map((rp:any,i:number)=>(
                 <button key={i} onClick={()=>{
@@ -431,9 +477,13 @@ function FixtureReplacementModal({ match, allPlayers, onClose, onSave }: { match
                     ?<img src={rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL} className="w-6 h-6 rounded-full object-cover flex-shrink-0" alt=""/>
                     :<div className="w-6 h-6 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0 text-[10px] font-black text-[#9CA3AF]">{(rp.nombre??"?")[0]}</div>
                   }
-                  <div><div className="text-sm font-black text-[#173A2E]">{rp.nombre} {rp.apellido??""}</div>{rp.categoria&&<div className="text-[10px] text-[#5F7D72]">{rp.categoria}</div>}</div>
+                  <div>
+                    <div className="text-sm font-black text-[#173A2E]">{rp.nombre} {rp.apellido??""}</div>
+                    {(rp.categoria||rp.genero)&&<div className="text-[10px] text-[#5F7D72]">{[rp.categoria,rp.genero].filter(Boolean).join(" · ")}</div>}
+                  </div>
                 </button>
               ))}
+              {filtered.length===0&&<p className="text-[11px] text-[#5F7D72] text-center py-3">Sin resultados</p>}
             </div>
           </div>
         )}
