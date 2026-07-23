@@ -483,23 +483,23 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
     if (!players.length) return <span className="text-[12px] font-black text-[#173A2E]">{team.label}</span>;
     const isWinner = (teamKey==="teamA"&&aWon)||(teamKey==="teamB"&&bWon);
     return (
-      <div className="flex flex-col gap-0.5">
-        {players.map((p:any,pi:number)=>{
-          const key = fxRepKey(teamKey, p); const entry = (match.replacements??{})[key];
-          const isPend = entry?.requested && !entry?.replacement; const isAsgn = entry?.requested && entry?.replacement;
-          return (
-            <div key={pi} className="flex items-start gap-1">
-              {isWinner&&pi===0?<span className="text-[13px] text-[#36D66B] flex-shrink-0 leading-tight">👍</span>:<span className="w-4 flex-shrink-0"/>}
-              <div className="flex flex-col">
+      <div className="flex items-center gap-1">
+        {isWinner?<span className="text-[13px] text-[#36D66B] flex-shrink-0">👍</span>:<span className="w-4 flex-shrink-0"/>}
+        <div className="flex flex-col gap-0.5">
+          {players.map((p:any,pi:number)=>{
+            const key = fxRepKey(teamKey, p); const entry = (match.replacements??{})[key];
+            const isPend = entry?.requested && !entry?.replacement; const isAsgn = entry?.requested && entry?.replacement;
+            return (
+              <div key={pi} className="flex flex-col">
                 <span className={`text-[12px] font-black leading-snug ${isPend?"text-[#A85B0E]":isAsgn?"text-[#5F7D72] line-through":isWinner?"text-[#176B5B]":"text-[#173A2E]"}`}>
                   {isPend&&<span className="text-[#D47713] mr-0.5">⇄</span>}{isAsgn&&<span className="text-[#247653] mr-0.5">⇄</span>}
                   {p.nombre} {p.apellido??""}
                 </span>
                 {isAsgn&&<span className="text-[10px] font-black text-[#247653] leading-tight">▸ {entry.replacement.nombre} {entry.replacement.apellido??""}</span>}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -513,9 +513,9 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
           </button>
         ) : canEdit ? (
           <button onClick={onResultClick}
-            className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors">
-            <span className="text-[10px] font-black text-[#0B8457] leading-none text-center">Ingresar</span>
-            <span className="text-[10px] font-black text-[#0B8457] leading-none text-center">Resultados</span>
+            className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg bg-[#0B8457] hover:bg-[#086847] transition-colors">
+            <span className="text-[10px] font-black text-white leading-none text-center">Ingresar</span>
+            <span className="text-[10px] font-black text-white leading-none text-center">Resultados</span>
           </button>
         ) : (
           <span className="text-[11px] text-[#CFE7DC] font-black">—</span>
