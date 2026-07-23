@@ -1188,6 +1188,8 @@ export default function TorneoDetailPage() {
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         .print-header { display: none; }
+        .print-reg-table { display: none; }
+        @media print { .print-reg-table { display: table; } }
       `}</style>
 
       {/* ── Print header (oculto en pantalla) ────────────────────────── */}
@@ -1267,19 +1269,29 @@ export default function TorneoDetailPage() {
         <aside className="hidden lg:flex flex-col gap-4 w-72 flex-shrink-0 sticky top-20">
           <div className="rounded-3xl p-6 border" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
 
-            {/* Afiche / cover */}
-            {torneo.coverImage ? (
-              <button
-                onClick={() => setPosterOpen(true)}
-                className="w-full mb-4 rounded-2xl overflow-hidden"
-                style={{ height: 160 }}
-              >
-                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-cover" />
-              </button>
+            {/* Logo organizador */}
+            {torneo.organizerLogoUrl ? (
+              <div className="flex items-center gap-3 mb-4">
+                <img src={torneo.organizerLogoUrl} alt="Logo" className="w-14 h-14 rounded-2xl object-cover flex-shrink-0" style={{ border: "1px solid #D5EADF" }} />
+                {torneo.organizerName && (
+                  <span className="text-xs font-bold leading-tight" style={{ color: "#5F7D72" }}>{torneo.organizerName}</span>
+                )}
+              </div>
             ) : (
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: "#F3FAF6", border: "1px solid #D5EADF" }}>
                 <Trophy size={24} style={{ color: "#0B8457" }} />
               </div>
+            )}
+
+            {/* Afiche / cover */}
+            {torneo.coverImage && (
+              <button
+                onClick={() => setPosterOpen(true)}
+                className="w-full mb-4 rounded-2xl overflow-hidden"
+                style={{ height: 140 }}
+              >
+                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-cover" />
+              </button>
             )}
 
             {/* Nombre */}
@@ -1486,41 +1498,47 @@ export default function TorneoDetailPage() {
                             {/* Fila superior */}
                             <div className="flex items-center justify-between mb-3">
                               <span className="text-sm font-black uppercase" style={{ color: "#173A2E" }}>PAREJA {ri + 1}</span>
-                              <span className="text-[10px] font-black uppercase" style={{ color: statusColor }}>{statusLabel}</span>
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full"
+                                style={{ color: statusColor, background: statusColor + "18" }}>
+                                {statusLabel}
+                              </span>
                             </div>
 
-                            {/* Jugadores */}
-                            <div className="flex flex-col gap-2 mb-3">
+                            {/* Jugadores — lado a lado */}
+                            <div className="grid grid-cols-2 gap-2 mb-3">
                               {[
-                                { id: reg.player1Id, name: reg.player1Name },
-                                { id: reg.player2Id, name: reg.player2Name },
+                                { id: reg.player1Id || reg.player1UserId, name: reg.player1Name },
+                                { id: reg.player2Id || reg.player2UserId, name: reg.player2Name },
                               ].filter(pl => pl.name).map((pl, pi) => {
-                                const pd = players.find((p: any) => p.id === pl.id);
+                                const pd = players.find((p: any) => p.id && p.id === pl.id);
+                                const initials = (pl.name ?? "?")[0].toUpperCase();
                                 return (
-                                  <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2"
+                                  <div key={pi} className="flex flex-col rounded-xl border p-2.5 gap-2"
                                     style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
-                                    {pd?.foto ? (
-                                      <img src={pd.foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                                        style={{ background: "#EFF2F4" }}>
-                                        <Users size={15} style={{ color: "#9CA3AF" }} />
-                                      </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[13px] font-bold truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
-                                      {(pd?.categoria || pd?.ciudad) && (
-                                        <p className="text-[11px] truncate" style={{ color: "#5F7D72" }}>
-                                          {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
-                                        </p>
+                                    <div className="flex items-center gap-2">
+                                      {pd?.foto ? (
+                                        <img src={pd.foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                                      ) : (
+                                        <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black"
+                                          style={{ background: "#E4EFE9", color: "#086847" }}>
+                                          {initials}
+                                        </div>
                                       )}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
+                                        {(pd?.categoria || pd?.ciudad) && (
+                                          <p className="text-[10px] truncate mt-0.5" style={{ color: "#5F7D72" }}>
+                                            {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
+                                          </p>
+                                        )}
+                                      </div>
                                     </div>
                                     {pl.id && (
                                       <a href={`/dashboard/jugadores/${pl.id}`}
-                                        className="flex items-center gap-1 rounded-full border px-2.5 py-1.5 flex-shrink-0"
+                                        className="flex items-center justify-center gap-1 rounded-full border py-1"
                                         style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
-                                        <Users size={11} style={{ color: "#086847" }} />
-                                        <span className="text-[11px] font-black" style={{ color: "#086847" }}>Perfil</span>
+                                        <Users size={10} style={{ color: "#086847" }} />
+                                        <span className="text-[10px] font-black" style={{ color: "#086847" }}>Perfil</span>
                                       </a>
                                     )}
                                   </div>
