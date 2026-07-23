@@ -1499,8 +1499,8 @@ export default function TorneoDetailPage() {
                             <div className="flex items-center gap-2 mb-2">
                               {/* Pareja # */}
                               <div className="flex-shrink-0 flex flex-col items-center leading-none w-11">
-                                <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: "#9BB8AE" }}>PAREJA</span>
-                                <span className="text-xl font-black" style={{ color: "#173A2E" }}>{ri + 1}</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: "#9BB8AE" }}>PAREJA</span>
+                                <span className="text-2xl font-black" style={{ color: "#173A2E" }}>{ri + 1}</span>
                               </div>
 
                               {/* Jugadores lado a lado */}
@@ -1523,37 +1523,37 @@ export default function TorneoDetailPage() {
                                           </svg>
                                         </div>
                                       )}
-                                      <p className="text-[10px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
+                                      <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
                                     </div>
                                   );
                                 })}
                               </div>
 
                               {/* Acciones compactas */}
-                              <div className="flex-shrink-0 flex items-center gap-1.5">
-                                <div className="flex flex-col items-center rounded-lg border px-1.5 py-0.5 text-center leading-tight"
+                              <div className="flex-shrink-0 flex items-center gap-2">
+                                <div className="flex flex-col items-center rounded-lg border px-2.5 py-1 text-center leading-snug"
                                   style={hasAvailability
                                     ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
                                     : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                                  <span className="text-[8px] font-black uppercase">Disponib.</span>
-                                  <span className="text-[8px] font-semibold">{hasAvailability ? "cargada" : "pendiente"}</span>
+                                  <span className="text-[10px] font-black uppercase">Disponib.</span>
+                                  <span className="text-[10px] font-semibold">{hasAvailability ? "cargada" : "pendiente"}</span>
                                 </div>
                                 <button onClick={() => setRegModal({ open: true, initial: reg })}
-                                  className="rounded-full border p-1.5"
+                                  className="rounded-full border p-2"
                                   style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
-                                  <PencilLine size={11} style={{ color: "#086847" }} />
+                                  <PencilLine size={13} style={{ color: "#086847" }} />
                                 </button>
                                 <button onClick={() => setDeleteConfirm(reg.id)}
-                                  className="rounded-full border p-1.5"
+                                  className="rounded-full border p-2"
                                   style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
-                                  <Trash2 size={11} style={{ color: "#B24343" }} />
+                                  <Trash2 size={13} style={{ color: "#B24343" }} />
                                 </button>
                               </div>
                             </div>
 
                             {/* Estado + acciones extra — centrados */}
                             <div className="flex items-center justify-center gap-2 flex-wrap">
-                              <span className="text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full"
+                              <span className="text-[10px] font-black uppercase px-3 py-0.5 rounded-full"
                                 style={{ color: statusColor, background: statusColor + "18" }}>
                                 {statusLabel}
                               </span>
