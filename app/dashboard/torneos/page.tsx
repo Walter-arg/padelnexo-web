@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Trophy, Users, Calendar, MapPin, Tag, Plus, Loader2 } from "lucide-react";
+import { Trophy, Users, Calendar, MapPin, Tag, Plus, Loader2, Menu } from "lucide-react";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; tint: string; border: string; accent: string }> = {
@@ -39,22 +39,26 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-type FilterTab = "activos" | "inscripciones" | "en_juego" | "finalizados" | "cancelados";
-const FILTER_TABS: { id: FilterTab; label: string }[] = [
-  { id: "activos",       label: "Activos" },
-  { id: "inscripciones", label: "Inscripciones" },
-  { id: "en_juego",      label: "En juego" },
-  { id: "finalizados",   label: "Finalizados" },
-  { id: "cancelados",    label: "Cancelados" },
+type FilterTab = "pendientes" | "publicados" | "activos" | "finalizados" | "cancelados";
+
+const MAIN_TABS: { id: FilterTab; label: string }[] = [
+  { id: "pendientes", label: "Pendientes de publicar" },
+  { id: "publicados", label: "Publicados" },
+  { id: "activos",    label: "Activos" },
+];
+
+const MENU_TABS: { id: FilterTab; label: string }[] = [
+  { id: "finalizados", label: "Finalizados" },
+  { id: "cancelados",  label: "Cancelados" },
 ];
 
 function matchesTab(status: string, tab: FilterTab): boolean {
   switch (tab) {
-    case "activos":       return ["draft","published","registration_open","registration_closed","building"].includes(status);
-    case "inscripciones": return status === "registration_open";
-    case "en_juego":      return ["building","in_progress"].includes(status);
-    case "finalizados":   return status === "finished";
-    case "cancelados":    return status === "cancelled";
+    case "pendientes":  return status === "draft";
+    case "publicados":  return status === "published";
+    case "activos":     return ["registration_open", "registration_closed", "building", "in_progress"].includes(status);
+    case "finalizados": return status === "finished";
+    case "cancelados":  return status === "cancelled";
   }
 }
 
@@ -69,6 +73,16 @@ export default function TorneosPage() {
   const [torneos, setTorneos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<FilterTab>("activos");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (u) => {
@@ -90,7 +104,7 @@ export default function TorneosPage() {
       {/* Header + filtros en una sola fila */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div className="flex items-center gap-1">
-          {FILTER_TABS.map((t) => (
+          {MAIN_TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
@@ -104,7 +118,43 @@ export default function TorneosPage() {
               {t.label}
             </button>
           ))}
+
+          {/* Menú hamburguesa: Finalizados / Cancelados */}
+          <div ref={menuRef} className="relative">
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              className="p-1.5 rounded transition-colors ml-1"
+              style={{
+                color: MENU_TABS.some(t => t.id === activeTab) ? "#0B8457" : "#9BB8AE",
+                background: MENU_TABS.some(t => t.id === activeTab) ? "#E8F5EE" : "transparent",
+              }}
+              title="Más filtros"
+            >
+              <Menu size={14} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute left-0 top-full mt-1 rounded-lg shadow-lg border py-1 z-20 min-w-[160px]"
+                style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}
+              >
+                {MENU_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setActiveTab(t.id); setMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-xs font-semibold transition-colors"
+                    style={{
+                      color: activeTab === t.id ? "#0B8457" : "#5F7D72",
+                      background: activeTab === t.id ? "#E8F5EE" : "transparent",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+
         <a
           href="/dashboard/torneos/nueva"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold text-white transition-colors"
@@ -128,7 +178,7 @@ export default function TorneosPage() {
         >
           <Trophy size={48} className="mx-auto mb-4" style={{ color: "#CFE7DC" }} />
           <p className="font-black text-lg mb-1" style={{ color: "#173A2E" }}>
-            {activeTab === "activos" ? "No hay torneos activos" : `No hay torneos en "${FILTER_TABS.find(t=>t.id===activeTab)?.label}"`}
+            {activeTab === "activos" ? "No hay torneos activos" : `No hay torneos en "${[...MAIN_TABS, ...MENU_TABS].find(t=>t.id===activeTab)?.label}"`}
           </p>
           <p className="text-sm" style={{ color: "#5F7D72" }}>
             {activeTab === "activos" ? "Creá tu primer torneo para empezar." : "Cambiá el filtro para ver otros torneos."}
