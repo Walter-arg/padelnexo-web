@@ -17,6 +17,28 @@ const B_PAD = 16;
 const B_HDR = 34;
 const ROUND_COLORS = ["#AEEBFF", "#6FCBFF", "#2E8FE8", "#0B4FB3"];
 
+// ── Data normalization ────────────────────────────────────────────────────────
+function toArray(val: any): any[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === "object") return Object.values(val);
+  return [];
+}
+
+function normalizeBracketRounds(bracketPreview: any): any[][] {
+  if (!bracketPreview) return [];
+  const raw = bracketPreview.rounds ?? bracketPreview;
+  const roundArr = toArray(raw);
+  return roundArr.map((round: any) => {
+    if (Array.isArray(round)) return round;
+    if (round && typeof round === "object") {
+      if (Array.isArray(round.matches)) return round.matches;
+      return Object.values(round);
+    }
+    return [];
+  });
+}
+
 // ── Data helpers ──────────────────────────────────────────────────────────────
 const getSideA = (m: any) => ({
   id: m.pairAId ?? m.sideAId ?? m.sideARef ?? "",
@@ -29,7 +51,7 @@ const getSideB = (m: any) => ({
 const getWinnerId = (m: any): string => m.result?.winnerId ?? m.winnerPairId ?? "";
 const isCompleted = (m: any): boolean => !!getWinnerId(m) || m.result?.walkover === true;
 const getSets = (m: any): { a: number; b: number }[] =>
-  (m.result?.sets ?? m.sets ?? []).map((s: any) => ({ a: s.a ?? s.sideA ?? 0, b: s.b ?? s.sideB ?? 0 }));
+  toArray(m.result?.sets ?? m.sets).map((s: any) => ({ a: s.a ?? s.sideA ?? 0, b: s.b ?? s.sideB ?? 0 }));
 const getScoreText = (m: any): string => {
   const r = m.result;
   if (!r) return "";
@@ -516,9 +538,8 @@ export default function FixtureTab({
   const [configSuperTB, setConfigSuperTB] = useState<number>(currentSuperTB);
   const [savingConfig, setSavingConfig] = useState(false);
 
-  const zones: any[] = fixtureSetup?.zonesPreview ?? [];
-  const bracketRounds: any[][] =
-    fixtureSetup?.bracketPreview?.rounds ?? (Array.isArray(fixtureSetup?.bracketPreview) ? fixtureSetup.bracketPreview : []);
+  const zones: any[] = toArray(fixtureSetup?.zonesPreview);
+  const bracketRounds: any[][] = normalizeBracketRounds(fixtureSetup?.bracketPreview);
 
   const hasZones = zones.length > 0;
   const hasBracket = bracketRounds.length > 0;
@@ -623,8 +644,8 @@ export default function FixtureTab({
           ) : (
             zones.map((zone, zi) => {
               const zoneName = zone.name ?? zone.title ?? `Zona ${zi + 1}`;
-              const pairs: any[] = zone.pairs ?? [];
-              const zMatches: any[] = zone.matches ?? [];
+              const pairs: any[] = toArray(zone.pairs);
+              const zMatches: any[] = toArray(zone.matches);
               const completedCount = zMatches.filter(isCompleted).length;
 
               return (
