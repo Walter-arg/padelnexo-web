@@ -87,8 +87,24 @@ export default function TorneosPage() {
 
   return (
     <DashboardLayout title="Torneos" wide>
-      {/* Header */}
-      <div className="flex justify-end mb-6">
+      {/* Header + filtros en una sola fila */}
+      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+        <div className="flex items-center gap-1">
+          {FILTER_TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className="px-3 py-1 text-xs font-semibold rounded transition-colors"
+              style={
+                activeTab === t.id
+                  ? { color: "#0B8457", background: "#E8F5EE" }
+                  : { color: "#9BB8AE", background: "transparent" }
+              }
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <a
           href="/dashboard/torneos/nueva"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold text-white transition-colors"
@@ -98,24 +114,6 @@ export default function TorneosPage() {
         >
           <Plus size={15} /> Nuevo torneo
         </a>
-      </div>
-
-      {/* Tabs de filtro */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {FILTER_TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className="px-4 py-1.5 rounded-full text-sm font-bold border transition-all"
-            style={
-              activeTab === t.id
-                ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                : { background: "transparent", color: "#5F7D72", borderColor: "#CFE7DC" }
-            }
-          >
-            {t.label}
-          </button>
-        ))}
       </div>
 
       {/* Contenido */}
