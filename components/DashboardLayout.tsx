@@ -25,10 +25,12 @@ export default function DashboardLayout({
   children,
   title,
   subtitle,
+  wide,
 }: {
   children: React.ReactNode;
   title: string;
   subtitle?: string;
+  wide?: boolean;
 }) {
   const router   = useRouter();
   const pathname = usePathname();
@@ -232,7 +234,7 @@ export default function DashboardLayout({
               {subtitle && <div className="text-sm text-gray-500 mt-0.5">{subtitle}</div>}
             </div>
           )}
-          <main className="max-w-5xl mx-auto px-4 md:px-6 py-6">
+          <main className={wide ? "max-w-7xl mx-auto px-3 md:px-5 py-6" : "max-w-5xl mx-auto px-4 md:px-6 py-6"}>
             {children}
           </main>
         </div>

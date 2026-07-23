@@ -1386,7 +1386,7 @@ export default function LigaDetailPage() {
   const activeModule = modules.find(m => m.id === tab)!;
 
   return (
-    <DashboardLayout title="">
+    <DashboardLayout title="" wide>
 
       {/* Volver */}
       <a href="/dashboard/ligas" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-pn-navy transition-colors mb-5">
