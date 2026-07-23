@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -20,6 +20,20 @@ const STATUS_LABELS: Record<string, string> = {
 
 // ── Página ──────────────────────────────────────────────────────────────────
 export default function TorneoNuevaPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout title="Torneos">
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin" style={{ color: "#086847" }} />
+        </div>
+      </DashboardLayout>
+    }>
+      <TorneoNuevaInner />
+    </Suspense>
+  );
+}
+
+function TorneoNuevaInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const editId       = searchParams.get("edit");
