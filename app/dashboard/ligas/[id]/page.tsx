@@ -1233,7 +1233,11 @@ export default function LigaDetailPage() {
 
   async function fxSendReplacementNotifications(match: any, prevReplacements: any, newReplacements: any, roundTitle: string) {
     const ligaNombre = liga?.nombre ?? "la liga";
-    const contexto = `${ligaNombre} – ${roundTitle}`;
+    const hora = match.timeSlot ? ` a las ${match.timeSlot}` : "";
+    const dia = DAY_LABELS[liga?.scheduleConfig?.dayKey ?? ""] ?? "";
+    const whenLine = dia ? `${roundTitle} — ${dia}${hora}` : `${roundTitle}${hora}`;
+    const complejoNombre = liga?.complejo?.nombre && liga.complejo.nombre !== "Complejo sin definir"
+      ? liga.complejo.nombre : "";
     await Promise.allSettled(
       Object.entries(newReplacements).map(async ([key, entry]: [string, any]) => {
         if (!entry?.replacement) return;
@@ -1247,12 +1251,26 @@ export default function LigaDetailPage() {
         const replacementLinkedId = entry.replacement.linkedUserId ?? "";
         const replacementNombre = `${entry.replacement.nombre ?? ""} ${entry.replacement.apellido ?? ""}`.trim();
         if (titularLinkedId) {
-          await sendSystemMsg(db, titularLinkedId, titularNombre,
-            `Fuiste reemplazado/a en ${contexto}. ${replacementNombre} jugará en tu lugar.`);
+          const lines = [
+            `Hola! El organizador de ${ligaNombre} registró un reemplazo para tu lugar en un partido.`,
+            ``,
+            `📅 ${whenLine}`,
+            complejoNombre ? `🏟️ ${complejoNombre}` : "",
+            ``,
+            `${replacementNombre} jugará en tu lugar. ¡Gracias por tu comprensión!`,
+          ].filter(l => l !== undefined && !(l === "" && !complejoNombre)).join("\n");
+          await sendSystemMsg(db, titularLinkedId, titularNombre, lines);
         }
         if (replacementLinkedId) {
-          await sendSystemMsg(db, replacementLinkedId, replacementNombre,
-            `Vas a jugar de reemplazante en ${contexto}. Reemplazás a ${titularNombre}.`);
+          const lines = [
+            `¡Hola! Quedaste confirmado/a como reemplazante en ${ligaNombre}.`,
+            ``,
+            `📅 ${whenLine}`,
+            complejoNombre ? `🏟️ ${complejoNombre}` : "",
+            ``,
+            `Reemplazás a ${titularNombre}. ¡Mucha suerte!`,
+          ].filter(l => l !== undefined && !(l === "" && !complejoNombre)).join("\n");
+          await sendSystemMsg(db, replacementLinkedId, replacementNombre, lines);
         }
       })
     );
