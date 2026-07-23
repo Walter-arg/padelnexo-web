@@ -844,7 +844,7 @@ export default function TorneoDetailPage() {
 
   // Cargar directorio de jugadores una sola vez
   useEffect(() => {
-    getDocs(collection(db, "players"))
+    getDocs(collection(db, "users"))
       .then(snap => setPlayers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
       .catch(() => {});
   }, []);
@@ -1511,36 +1511,27 @@ export default function TorneoDetailPage() {
                                 { id: reg.player2Id || reg.player2UserId, name: reg.player2Name },
                               ].filter(pl => pl.name).map((pl, pi) => {
                                 const pd = players.find((p: any) => p.id && p.id === pl.id);
+                                const foto = pd?.fotoURL || pd?.foto || "";
                                 const initials = (pl.name ?? "?")[0].toUpperCase();
                                 return (
-                                  <div key={pi} className="flex flex-col rounded-xl border p-2.5 gap-2"
+                                  <div key={pi} className="flex items-center gap-2 rounded-xl border px-2.5 py-2"
                                     style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
-                                    <div className="flex items-center gap-2">
-                                      {pd?.foto ? (
-                                        <img src={pd.foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                                      ) : (
-                                        <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black"
-                                          style={{ background: "#E4EFE9", color: "#086847" }}>
-                                          {initials}
-                                        </div>
-                                      )}
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
-                                        {(pd?.categoria || pd?.ciudad) && (
-                                          <p className="text-[10px] truncate mt-0.5" style={{ color: "#5F7D72" }}>
-                                            {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
-                                          </p>
-                                        )}
+                                    {foto ? (
+                                      <img src={foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black"
+                                        style={{ background: "#E4EFE9", color: "#086847" }}>
+                                        {initials}
                                       </div>
-                                    </div>
-                                    {pl.id && (
-                                      <a href={`/dashboard/jugadores/${pl.id}`}
-                                        className="flex items-center justify-center gap-1 rounded-full border py-1"
-                                        style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
-                                        <Users size={10} style={{ color: "#086847" }} />
-                                        <span className="text-[10px] font-black" style={{ color: "#086847" }}>Perfil</span>
-                                      </a>
                                     )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
+                                      {(pd?.categoria || pd?.ciudad) && (
+                                        <p className="text-[10px] truncate mt-0.5" style={{ color: "#5F7D72" }}>
+                                          {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
+                                        </p>
+                                      )}
+                                    </div>
                                   </div>
                                 );
                               })}
