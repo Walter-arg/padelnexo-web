@@ -209,6 +209,25 @@ const FX_STATUS: Record<RoundStatus, { dot: string; text: string; label: string;
 function fxRepKey(teamKey: string, player: any): string {
   return player?.id ? `${teamKey}:${player.id}` : `${teamKey}:guest-0-${player?.nombre ?? ""}-${player?.apellido ?? ""}`;
 }
+const SYSTEM_UID = "padelnexo-system";
+const SYSTEM_NAME = "PadelNexo";
+async function sendSystemMsg(db: any, recipientId: string, recipientName: string, text: string) {
+  if (!recipientId) return;
+  const convId = [SYSTEM_UID, recipientId].sort().join("__");
+  const convRef = doc(db, "conversations", convId);
+  const msgsRef = collection(db, "conversations", convId, "messages");
+  await setDoc(convRef, {
+    participants: [SYSTEM_UID, recipientId].sort(),
+    participantNames: { [SYSTEM_UID]: SYSTEM_NAME, [recipientId]: recipientName || "Jugador" },
+    unreadBy: [recipientId], lastMessageText: text, lastMessageSenderId: SYSTEM_UID,
+    lastMessagePriority: "important", updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
+  }, { merge: true });
+  await addDoc(msgsRef, { text, senderId: SYSTEM_UID, recipientId, priority: "important", createdAt: serverTimestamp() });
+  await updateDoc(convRef, {
+    updatedAt: serverTimestamp(), [`unreadCountBy.${recipientId}`]: increment(1),
+    unreadBy: [recipientId], lastMessageText: text, lastMessageSenderId: SYSTEM_UID, lastMessagePriority: "important",
+  });
+}
 function fxRepDotColor(match: any): string | null {
   const entries = Object.values(match.replacements ?? {});
   if (!entries.length) return null;
@@ -1210,6 +1229,33 @@ export default function LigaDetailPage() {
 
   function fxUpdateRound(roundId:string, updater:(r:any)=>any) {
     setFixtureDraft((prev:any)=>({...prev, rounds:prev.rounds.map((r:any)=>r.id!==roundId?r:updater(r))}));
+  }
+
+  async function fxSendReplacementNotifications(match: any, prevReplacements: any, newReplacements: any, roundTitle: string) {
+    const ligaNombre = liga?.nombre ?? "la liga";
+    const contexto = `${ligaNombre} – ${roundTitle}`;
+    await Promise.allSettled(
+      Object.entries(newReplacements).map(async ([key, entry]: [string, any]) => {
+        if (!entry?.replacement) return;
+        const wasAlreadyAssigned = !!(prevReplacements?.[key]?.replacement);
+        if (wasAlreadyAssigned) return;
+        const teamKey = key.split(":")[0];
+        const teamPlayers: any[] = match[teamKey]?.players ?? [];
+        const titularPlayer = teamPlayers.find((p:any) => fxRepKey(teamKey, p) === key);
+        const titularLinkedId = titularPlayer?.linkedUserId ?? "";
+        const titularNombre = `${entry.titular?.nombre ?? titularPlayer?.nombre ?? ""} ${entry.titular?.apellido ?? titularPlayer?.apellido ?? ""}`.trim();
+        const replacementLinkedId = entry.replacement.linkedUserId ?? "";
+        const replacementNombre = `${entry.replacement.nombre ?? ""} ${entry.replacement.apellido ?? ""}`.trim();
+        if (titularLinkedId) {
+          await sendSystemMsg(db, titularLinkedId, titularNombre,
+            `Fuiste reemplazado/a en ${contexto}. ${replacementNombre} jugará en tu lugar.`);
+        }
+        if (replacementLinkedId) {
+          await sendSystemMsg(db, replacementLinkedId, replacementNombre,
+            `Vas a jugar de reemplazante en ${contexto}. Reemplazás a ${titularNombre}.`);
+        }
+      })
+    );
   }
 
   async function fxHandleGenerate(fixture: any) {
@@ -2530,7 +2576,15 @@ export default function LigaDetailPage() {
       )}
       {fxActionsMatch && fxActionsTarget && (
         <FixtureReplacementModal match={fxActionsMatch} allPlayers={registeredPlayers} onClose={()=>setFxActionsTarget(null)}
-          onSave={replacements=>{ fxUpdateMatch(fxActionsTarget.roundId, fxActionsTarget.matchId, m=>({...m,replacements})); setFxActionsTarget(null); showToast("Reemplazos guardados. Presioná GUARDAR CAMBIOS."); }}
+          onSave={async (replacements)=>{
+            const prevReplacements = fxActionsMatch.replacements ?? {};
+            const round = fixtureDraft?.rounds?.find((r:any)=>r.id===fxActionsTarget.roundId);
+            const roundTitle = round?.title ?? `Fecha ${round?.number ?? ""}`;
+            fxUpdateMatch(fxActionsTarget.roundId, fxActionsTarget.matchId, m=>({...m,replacements}));
+            setFxActionsTarget(null);
+            showToast("Reemplazos guardados. Presioná GUARDAR CAMBIOS.");
+            await fxSendReplacementNotifications(fxActionsMatch, prevReplacements, replacements, roundTitle);
+          }}
         />
       )}
       {fxSuspRound && fxSuspTarget && (
