@@ -56,7 +56,7 @@ function matchesTab(status: string, tab: FilterTab): boolean {
   switch (tab) {
     case "pendientes":  return status === "draft";
     case "publicados":  return status === "published";
-    case "activos":     return true;
+    case "activos":     return !["finished", "cancelled"].includes(status);
     case "finalizados": return status === "finished";
     case "cancelados":  return status === "cancelled";
   }
