@@ -12,7 +12,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import {
   ChevronLeft, Users, Grid3X3, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, XCircle, PencilLine, Trash2,
-  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield,
+  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -646,6 +646,28 @@ export default function TorneoDetailPage() {
                 </span>
               </>
             )}
+            {(() => {
+              const venue = torneo.venues?.[0];
+              const name    = venue?.name ?? torneo.complejo?.nombre ?? "";
+              const address = venue?.address ?? torneo.complejo?.direccion ?? "";
+              const query   = encodeURIComponent(address || name);
+              if (!name && !address) return null;
+              return (
+                <>
+                  <span style={{ color: "#086847" }}>·</span>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${query}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-bold underline underline-offset-2 transition-opacity hover:opacity-70"
+                    style={{ color: "#086847" }}
+                  >
+                    <MapPin size={12} />
+                    {name || address}
+                  </a>
+                </>
+              );
+            })()}
           </div>
         </div>
       </div>
