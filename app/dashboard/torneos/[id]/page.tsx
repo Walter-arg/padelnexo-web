@@ -265,12 +265,13 @@ function MatchResultModal({ match, onClose, onSave }: {
 }
 
 // ── Modal inscripción ───────────────────────────────────────────────────────
-function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved }: {
+function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDelete }: {
   torneoId: string;
   grupos: any[];
   initial?: any;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
 }) {
   const [p1Name, setP1Name] = useState(initial?.player1Name ?? "");
   const [p2Name, setP2Name] = useState(initial?.player2Name ?? "");
@@ -345,15 +346,24 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved }: {
           )}
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-            Cancelar
-          </button>
-          <button onClick={handleSave} disabled={saving || !p1Name.trim()}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-            style={{ background: "#0B8457" }}>
-            {saving ? "Guardando…" : "Guardar"}
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+              Cancelar
+            </button>
+            <button onClick={handleSave} disabled={saving || !p1Name.trim()}
+              className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+              style={{ background: "#0B8457" }}>
+              {saving ? "Guardando…" : "Guardar"}
+            </button>
+          </div>
+          {initial?.id && onDelete && (
+            <button onClick={onDelete}
+              className="w-full py-2 rounded-xl text-sm font-bold border"
+              style={{ borderColor: "#F1C8C8", color: "#B24343", background: "#FFF1F1" }}>
+              Eliminar pareja
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1242,6 +1252,7 @@ export default function TorneoDetailPage() {
           torneoId={torneoId} grupos={grupos} initial={regModal.initial}
           onClose={() => setRegModal({ open: false })}
           onSaved={() => { setRegModal({ open: false }); showToast("Inscripción guardada."); }}
+          onDelete={regModal.initial?.id ? () => { setRegModal({ open: false }); setDeleteConfirm(regModal.initial!.id); } : undefined}
         />
       )}
       {deleteConfirm && (
@@ -1484,12 +1495,12 @@ export default function TorneoDetailPage() {
                   ) : (
                     <div data-print-hide className="flex flex-col gap-3">
                       {registrations.map((reg, ri) => {
-                        // Badge de estado (4 estados)
-                        let statusLabel: string, statusColor: string;
-                        if (reg.withdrawalStatus === "confirmed")       { statusLabel = "BAJA CONFIRMADA";        statusColor = "#576773"; }
-                        else if (reg.withdrawalStatus === "requested")  { statusLabel = "BAJA SOLICITADA";        statusColor = "#B66A16"; }
-                        else if (reg.status === "confirmed")            { statusLabel = "CONFIRMADA";             statusColor = "#1D7A34"; }
-                        else                                            { statusLabel = "PENDIENTE DE CONFIRMAR"; statusColor = "#B24343"; }
+                        // Badge de estado (4 estados) — 2 líneas
+                        let statusLine1: string, statusLine2: string, statusColor: string;
+                        if (reg.withdrawalStatus === "confirmed")       { statusLine1 = "BAJA";      statusLine2 = "CONFIRMADA"; statusColor = "#576773"; }
+                        else if (reg.withdrawalStatus === "requested")  { statusLine1 = "BAJA";      statusLine2 = "SOLICITADA"; statusColor = "#B66A16"; }
+                        else if (reg.status === "confirmed")            { statusLine1 = "PAREJA";    statusLine2 = "CONFIRMADA"; statusColor = "#1D7A34"; }
+                        else                                            { statusLine1 = "PENDIENTE"; statusLine2 = "CONFIRMAR";  statusColor = "#B24343"; }
 
                         const hasAvailability = Object.keys(reg.availability || {}).length > 0;
 
@@ -1512,7 +1523,7 @@ export default function TorneoDetailPage() {
                                   const pd = players.find((p: any) => p.id && p.id === pl.id);
                                   const foto = pd?.fotoURL || pd?.foto || "";
                                   return (
-                                    <div key={pi} className="flex items-center gap-1 rounded-xl border px-1.5 py-1 min-w-0" style={{ flex: "0 1 38%", background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                    <div key={pi} className="flex items-center gap-1 rounded-xl border px-1.5 py-1 min-w-0" style={{ flex: "1 1 0", background: "#F7FAF8", borderColor: "#CFE7DC" }}>
                                       {foto ? (
                                         <img src={foto} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                                       ) : (
@@ -1529,28 +1540,27 @@ export default function TorneoDetailPage() {
                                 })}
                               </div>
 
-                              {/* Acciones compactas */}
+                              {/* Estado + Horarios + Editar */}
                               <div className="flex-shrink-0 flex items-center gap-2">
+                                {/* Estado — 2 líneas */}
+                                <div className="flex flex-col items-center rounded-lg border px-2.5 py-1 text-center leading-snug"
+                                  style={{ color: statusColor, background: statusColor + "18", borderColor: statusColor + "40" }}>
+                                  <span className="text-[10px] font-black uppercase">{statusLine1}</span>
+                                  <span className="text-[10px] font-black uppercase">{statusLine2}</span>
+                                </div>
+                                {/* Horarios — 2 líneas */}
                                 <div className="flex flex-col items-center rounded-lg border px-2.5 py-1 text-center leading-snug"
                                   style={hasAvailability
                                     ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
                                     : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                                  <span className="text-[10px] font-black uppercase">Horarios</span>
-                                  <span className="text-[10px] font-semibold">{hasAvailability ? "cargados" : "pendiente"}</span>
+                                  <span className="text-[10px] font-black uppercase">HORARIOS</span>
+                                  <span className="text-[10px] font-black uppercase">{hasAvailability ? "CARGADOS" : "PENDIENTES"}</span>
                                 </div>
-                                <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full whitespace-nowrap"
-                                  style={{ color: statusColor, background: statusColor + "18" }}>
-                                  {statusLabel}
-                                </span>
+                                {/* Editar (incluye eliminar dentro) */}
                                 <button onClick={() => setRegModal({ open: true, initial: reg })}
                                   className="rounded-full border p-2"
                                   style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
                                   <PencilLine size={13} style={{ color: "#086847" }} />
-                                </button>
-                                <button onClick={() => setDeleteConfirm(reg.id)}
-                                  className="rounded-full border p-2"
-                                  style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
-                                  <Trash2 size={13} style={{ color: "#B24343" }} />
                                 </button>
                               </div>
                             </div>
