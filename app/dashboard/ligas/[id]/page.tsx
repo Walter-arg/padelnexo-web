@@ -504,7 +504,7 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
     );
   }
   return (
-    <div className="grid items-center px-3 py-2 min-h-[68px] border-b-2 border-[#BCD8D4] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr"}}>
+    <div className="grid items-center px-3 py-2 min-h-[68px] border-b-2 border-[#BCD8D4] last:border-0" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.8fr"}}>
       <div className="flex items-center justify-center pr-1">
         {hasRes ? (
           <button onClick={canEdit ? onResultClick : undefined}
@@ -513,19 +513,18 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
           </button>
         ) : canEdit ? (
           <button onClick={onResultClick}
-            className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors">
-            <Plus size={12} className="text-[#0B8457]" />
-            <span className="text-[8px] font-black text-[#0B8457] leading-none">Cargar</span>
-            <span className="text-[8px] font-black text-[#0B8457] leading-none">resultado</span>
+            className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg border border-dashed border-[#0B8457] bg-[#EDF7F2] hover:bg-[#DDF6EF] hover:border-[#086847] transition-colors">
+            <span className="text-[10px] font-black text-[#0B8457] leading-none text-center">Ingresar</span>
+            <span className="text-[10px] font-black text-[#0B8457] leading-none text-center">Resultados</span>
           </button>
         ) : (
           <span className="text-[11px] text-[#CFE7DC] font-black">—</span>
         )}
       </div>
-      <div className="flex flex-col gap-1.5 px-2">
-        {renderTeam(match.teamA,"teamA")}
-        <div className="text-[9px] font-black text-[#9FCFC3] leading-none tracking-widest">VS</div>
-        {renderTeam(match.teamB,"teamB")}
+      <div className="flex items-center justify-center gap-2 px-2">
+        <div className="flex-1">{renderTeam(match.teamA,"teamA")}</div>
+        <div className="text-[9px] font-black text-[#9FCFC3] leading-none tracking-widest shrink-0">VS</div>
+        <div className="flex-1">{renderTeam(match.teamB,"teamB")}</div>
       </div>
       <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{dayLabel??""}</span></div>
       <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??""}</span></div>
@@ -551,8 +550,8 @@ function FxRoundBlock({ round, canEdit, dayLabel, onResultClick, onActionsClick,
         </div>
       </div>
       {round.matches?.length>0&&(
-        <div className="grid items-center px-3 py-1.5 bg-[#DCEFEB] border-b border-[#BCD8D4]" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.4fr",minHeight:32}}>
-          {["RESULTADOS","PAREJAS","DIA","HORA",""].map((col,i)=><div key={i} className="text-[10px] font-black text-[#285E59] text-center">{col}</div>)}
+        <div className="grid items-center px-3 py-1.5 bg-[#DCEFEB] border-b border-[#BCD8D4]" style={{gridTemplateColumns:"1fr 3fr 0.7fr 0.7fr 0.8fr",minHeight:32}}>
+          {["RESULTADOS","PAREJAS","DIA","HORA","REEMPLAZOS"].map((col,i)=><div key={i} className="text-[10px] font-black text-[#285E59] text-center">{col}</div>)}
         </div>
       )}
       <div className="bg-white">
