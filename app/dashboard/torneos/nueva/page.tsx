@@ -377,7 +377,7 @@ function TorneoNuevaInner() {
         <ChevronLeft size={15} /> Volver a torneos
       </a>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-3xl">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-3xl mx-auto">
 
         {/* 1 · Afiche */}
         <Card title="SUBIR AFICHE O FLYER">
