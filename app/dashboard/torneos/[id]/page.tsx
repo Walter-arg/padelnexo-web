@@ -9,6 +9,7 @@ import {
 import { auth, db } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
+import FixtureTab from "./FixtureTab";
 import {
   ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
@@ -1853,133 +1854,11 @@ export default function TorneoDetailPage() {
                   FIXTURE (Zonas + Bracket)
               ═══════════════════════════════════════════════════════ */}
               {tab === "fixture" && (
-                <div>
-                  {!hasGrupos && !hasBracket && (
-                    <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El fixture todavía no fue generado.</p>
-                  )}
-
-                  {/* Zonas */}
-                  {hasGrupos && (
-                    <div className={hasBracket ? "mb-8" : ""}>
-                      {hasBracket && (
-                        <p className="text-xs font-black uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.8px" }}>ZONAS DE GRUPOS</p>
-                      )}
-                      <div className="flex flex-col gap-4">
-                        {grupos.map((g) => {
-                          const gMatches = matches.filter(m => m.groupId === g.id);
-                          return (
-                            <div key={g.id} className="rounded-[22px] overflow-hidden border" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                              <div className="px-5 py-3 font-black text-base border-b" style={{ color: "#173A2E", background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                                Zona {g.name ?? g.nombre}
-                              </div>
-                              <div className="px-5 py-4">
-                                <p className="text-xs font-bold uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Partidos</p>
-                                {gMatches.length === 0 ? (
-                                  <p className="text-xs italic" style={{ color: "#5F7D72" }}>Sin partidos todavía.</p>
-                                ) : (
-                                  <div className="flex flex-col gap-2">
-                                    {gMatches.map(m => {
-                                      const completed = m.status === "completed";
-                                      const aWon = completed && m.winnerPairId === (m.sideARef ?? "");
-                                      const bWon = completed && m.winnerPairId === (m.sideBRef ?? "");
-                                      return (
-                                        <div key={m.id} className="flex items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "#F0F7F4" }}>
-                                          <span className="flex-1 text-right text-sm font-semibold truncate" style={{ color: aWon ? "#0B8457" : "#173A2E", fontWeight: aWon ? 800 : 500 }}>
-                                            {m.sideALabel ?? "TBD"}
-                                          </span>
-                                          {completed ? (
-                                            <span className="text-xs font-black px-2 py-1 rounded-lg text-white min-w-[52px] text-center" style={{ background: "#173A2E" }}>
-                                              {m.scoreText || (m.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ")) || "•"}
-                                            </span>
-                                          ) : (
-                                            <span className="text-xs font-black px-2 py-1 rounded-lg min-w-[52px] text-center" style={{ background: "#F0F7F4", color: "#5F7D72" }}>vs</span>
-                                          )}
-                                          <span className="flex-1 text-sm font-semibold truncate" style={{ color: bWon ? "#0B8457" : "#173A2E", fontWeight: bWon ? 800 : 500 }}>
-                                            {m.sideBLabel ?? "TBD"}
-                                          </span>
-                                          <button
-                                            onClick={() => setMatchModal(m)}
-                                            className="text-[11px] font-bold px-2.5 py-1 rounded-full border flex-shrink-0 transition-colors"
-                                            style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
-                                          >
-                                            {completed ? "Editar" : "Resultado"}
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                              {(g.standings ?? []).length > 0 && (
-                                <div className="px-5 pb-4">
-                                  <p className="text-xs font-bold uppercase mb-2" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Posiciones</p>
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-xs" style={{ minWidth: 340 }}>
-                                      <thead>
-                                        <tr className="text-xs" style={{ borderBottom: "2px solid #CFE7DC", color: "#5F7D72" }}>
-                                          <th className="py-2 text-left w-6">#</th>
-                                          <th className="py-2 text-left">Pareja</th>
-                                          <th className="py-2 text-center w-10" style={{ color: "#086847" }}>Pts</th>
-                                          <th className="py-2 text-center w-10">PJ</th>
-                                          <th className="py-2 text-center w-10">PG</th>
-                                          <th className="py-2 text-center w-10">PP</th>
-                                          <th className="py-2 text-center w-10">SF</th>
-                                          <th className="py-2 text-center w-10">SC</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {g.standings.map((s: any, si: number) => (
-                                          <tr key={s.pairId ?? si} style={{ borderBottom: "1px solid #F0F7F4", background: si === 0 ? "rgba(11,132,87,0.05)" : undefined }}>
-                                            <td className="py-2 font-black" style={{ color: "#5F7D72" }}>{si + 1}</td>
-                                            <td className="py-2 font-semibold truncate max-w-[120px]" style={{ color: si === 0 ? "#0B8457" : "#173A2E" }}>
-                                              {si === 0 && <Shield size={10} className="inline mr-1" style={{ color: "#0B8457" }} />}
-                                              {s.pairLabel}
-                                              {s.qualified && (
-                                                <span className="ml-1.5 text-[9px] font-black rounded-full px-1.5 py-0.5" style={{ background: "#CFF4D8", color: "#0F5F36" }}>
-                                                  Clasifica
-                                                </span>
-                                              )}
-                                            </td>
-                                            <td className="py-2 text-center font-black" style={{ color: "#086847" }}>{s.points ?? 0}</td>
-                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.played ?? 0}</td>
-                                            <td className="py-2 text-center font-semibold" style={{ color: "#0B8457" }}>{s.won ?? 0}</td>
-                                            <td className="py-2 text-center" style={{ color: "#E87070" }}>{s.lost ?? 0}</td>
-                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsWon ?? 0}</td>
-                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsLost ?? 0}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Bracket */}
-                  {hasBracket && (
-                    <div>
-                      {hasGrupos && <div className="border-t mb-6" style={{ borderColor: "#F0F7F4" }} />}
-                      {hasGrupos && (
-                        <p className="text-xs font-black uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.8px" }}>BRACKET ELIMINATORIO</p>
-                      )}
-                      {bracketRounds.length === 0 ? (
-                        <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El bracket todavía no fue generado.</p>
-                      ) : (
-                        <BracketBoard
-                          rounds={bracketRounds}
-                          onMatchClick={(m) => setMatchModal(m)}
-                          printScale={bracketScale}
-                          onPrint={handlePrintBracket}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
+                <FixtureTab
+                  torneoId={torneoId}
+                  fixtureSetup={torneo?.fixtureSetup}
+                  showToast={showToast}
+                />
               )}
 
               {/* ═══════════════════════════════════════════════════════
