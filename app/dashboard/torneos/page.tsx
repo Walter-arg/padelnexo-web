@@ -147,7 +147,7 @@ export default function TorneosPage() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((t) => {
             const titleColor = getTitleColor(t.name ?? t.nombre ?? "");
             const confirmedCount = t.confirmedRegistrationsCount ?? t.registrationsCount ?? (t.players?.length ?? t.inscripciones?.length ?? 0);
