@@ -637,30 +637,55 @@ function FxRoundBlock({ round, canEdit, dayLabel, onResultClick, onActionsClick,
 // ── Tabla de posiciones ────────────────────────────────────────────────────
 function buildStandings(liga: any) {
   const sc = liga.scoringSettings ?? {};
-  const pointsWin  = sc.pointsWin  ?? 3;
-  const pointsLoss = sc.pointsLoss ?? 1;
+  const pointsWin    = sc.pointsWin  ?? 3;
+  const pointsLoss   = sc.pointsLoss ?? 1;
   const penaltyPts   = sc.replacementPenalty ?? 1;
   const penaltyQuota = sc.replacementQuota   ?? 0;
+  const isInd = liga.teamType === "individual";
 
   const table: Record<string, any> = {};
   const init = (id: string, nombre: string) => {
     if (!table[id]) table[id] = { id, nombre, pj:0, pg:0, pp:0, sf:0, sc2:0, gf:0, gc:0, pts:0, pen:0, reps:0 };
   };
+  const addResult = (id: string, won: boolean, sf: number, sc2: number, gf: number, gc: number, isWO: boolean) => {
+    table[id].pj++;
+    if (isWO) {
+      if (won) { table[id].pg++; table[id].pts += sc.pointsWalkoverWin ?? pointsWin; }
+      else { table[id].pp++; }
+    } else {
+      if (won) { table[id].pg++; table[id].pts += pointsWin; }
+      else { table[id].pp++; table[id].pts += pointsLoss; }
+      table[id].sf += sf; table[id].sc2 += sc2; table[id].gf += gf; table[id].gc += gc;
+    }
+  };
+
   (liga.fixture?.rounds ?? []).forEach((round: any) => {
     (round.matches ?? []).forEach((m: any) => {
+      // Remplazos
       Object.keys(m.replacements ?? {}).forEach(k => {
-        const tid = k.startsWith("teamA") ? m.teamA?.id : m.teamB?.id;
-        if (tid) {
-          if (!table[tid]) init(tid, m.teamA?.label ?? m.teamB?.label ?? tid);
-          table[tid].reps = (table[tid].reps ?? 0) + 1;
+        const teamKey = k.startsWith("teamA") ? "teamA" : "teamB";
+        if (isInd) {
+          const playerId = k.split(":")[1];
+          if (playerId) {
+            if (!table[playerId]) {
+              const player = (m[teamKey]?.players ?? []).find((p:any) => p.id === playerId);
+              init(playerId, player ? `${player.nombre ?? ""} ${player.apellido ?? ""}`.trim() : playerId);
+            }
+            table[playerId].reps++;
+          }
+        } else {
+          const tid = m[teamKey]?.id;
+          if (tid) {
+            if (!table[tid]) init(tid, m[teamKey]?.label ?? tid);
+            table[tid].reps++;
+          }
         }
       });
+
       const res = m.result;
       if (!res?.winner || res.winner === "") return;
-      const aId = m.teamA?.id ?? m.pair1Id ?? "A";
-      const bId = m.teamB?.id ?? m.pair2Id ?? "B";
-      init(aId, m.teamA?.label ?? m.pair1Name ?? "A");
-      init(bId, m.teamB?.label ?? m.pair2Name ?? "B");
+
+      // Sets / games
       let asets=0, bsets=0, ag=0, bg=0;
       (res.sets ?? []).forEach((s: any) => {
         const o = parseInt(s.own??"0"), r2 = parseInt(s.rival??"0");
@@ -673,25 +698,39 @@ function buildStandings(liga: any) {
           if(!isNaN(p1)&&!isNaN(p2)){ ag+=p1; bg+=p2; if(p1>p2)asets++; else bsets++; }
         });
       }
-      if (res.reason==="walkover"||res.winner==="walkover") {
-        const wp = sc.pointsWalkoverWin ?? pointsWin;
-        if(res.winner==="teamA"){ table[aId].pg++; table[aId].pts+=wp; table[bId].pp++; }
-        else { table[bId].pg++; table[bId].pts+=wp; table[aId].pp++; }
+      const isWO = res.reason==="walkover" || res.winner==="walkover";
+      const aWon = res.winner === "teamA";
+
+      if (isInd) {
+        // Liga individual: acumular por jugador (ID de Firebase, estable entre fechas)
+        const allSlots = [
+          ...(m.teamA?.players ?? []).map((p:any) => ({ p, won: aWon  })),
+          ...(m.teamB?.players ?? []).map((p:any) => ({ p, won: !aWon })),
+        ];
+        allSlots.forEach(({ p, won }) => {
+          if (!p?.id) return;
+          init(p.id, `${p.nombre ?? ""} ${p.apellido ?? ""}`.trim() || "Jugador");
+          addResult(p.id, won, won ? asets : bsets, won ? bsets : asets, won ? ag : bg, won ? bg : ag, isWO);
+        });
       } else {
-        if(res.winner==="teamA"){ table[aId].pg++; table[aId].pts+=pointsWin; table[bId].pp++; table[bId].pts+=pointsLoss; }
-        else { table[bId].pg++; table[bId].pts+=pointsWin; table[aId].pp++; table[aId].pts+=pointsLoss; }
+        // Liga por parejas: acumular por equipo (pair-team-N, estable)
+        const aId = m.teamA?.id ?? "A";
+        const bId = m.teamB?.id ?? "B";
+        init(aId, m.teamA?.label ?? "A");
+        init(bId, m.teamB?.label ?? "B");
+        addResult(aId,  aWon, asets, bsets, ag, bg, isWO);
+        addResult(bId, !aWon, bsets, asets, bg, ag, isWO);
       }
-      table[aId].pj++; table[aId].sf+=asets; table[aId].sc2+=bsets; table[aId].gf+=ag; table[aId].gc+=bg;
-      table[bId].pj++; table[bId].sf+=bsets; table[bId].sc2+=asets; table[bId].gf+=bg; table[bId].gc+=ag;
     });
   });
+
   Object.values(table).forEach((row: any) => {
-    const uses = row.reps ?? 0;
-    if (uses > penaltyQuota) {
-      row.pen = (uses - penaltyQuota) * penaltyPts;
+    if (row.reps > penaltyQuota) {
+      row.pen = (row.reps - penaltyQuota) * penaltyPts;
       row.pts = Math.max(0, row.pts - row.pen);
     }
   });
+
   return Object.values(table).sort((a: any, b: any) =>
     b.pts - a.pts ||
     (b.sf - b.sc2) - (a.sf - a.sc2) ||
@@ -2009,7 +2048,7 @@ export default function LigaDetailPage() {
                     : <>
                         {isIndividual
                           ? ["drive","reves"].map(lado=>{
-                              const rows=standings.filter(r=>players.find((p:any)=>(p.teamA?.id===r.id||p.id===r.id)&&p.ladoJuego===lado));
+                              const rows=standings.filter(r=>players.find((p:any)=>p.id===r.id&&p.ladoJuego===lado));
                               if(rows.length===0) return null;
                               return (
                                 <div key={lado} className="rounded-[22px] overflow-hidden mb-4" style={{border:"1px solid #CFE7DC", background:"#fff"}}>
