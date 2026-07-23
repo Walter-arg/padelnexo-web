@@ -371,13 +371,6 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDele
 }
 
 // ── Modal disponibilidad ─────────────────────────────────────────────────────
-const QUICK_SLOTS = [
-  { key: "morning",    label: "Mañana",    sub: "08–12" },
-  { key: "afternoon",  label: "Tarde",     sub: "12–18" },
-  { key: "night",      label: "Noche",     sub: "18–23" },
-  { key: "late_night", label: "Madrugada", sub: "23–02" },
-];
-
 function buildDayOptions(startMs?: number, endMs?: number): { key: string; label: string }[] {
   if (!startMs || !endMs) return [];
   const days: { key: string; label: string }[] = [];
@@ -394,29 +387,48 @@ function buildDayOptions(startMs?: number, endMs?: number): { key: string; label
   return days;
 }
 
+type AvailSlot = { dateKey: string; dayLabel: string; from: string; to: string };
+
 function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
   torneoId: string; reg: any; torneo: any; onClose: () => void;
 }) {
-  const [avail, setAvail] = useState<Record<string, { quickSlots: string[]; customSlots: any[] }>>(reg.availability ?? {});
-  const [saving, setSaving] = useState(false);
   const days = buildDayOptions(torneo?.startDateMillis, torneo?.endDateMillis);
 
-  function toggleSlot(dateKey: string, slot: string) {
-    setAvail(prev => {
-      const day = prev[dateKey] ?? { quickSlots: [], customSlots: [] };
-      const next_slots = day.quickSlots.includes(slot)
-        ? day.quickSlots.filter((s: string) => s !== slot)
-        : [...day.quickSlots, slot];
-      if (next_slots.length === 0 && (day.customSlots ?? []).length === 0) {
-        const { [dateKey]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [dateKey]: { ...day, quickSlots: next_slots } };
-    });
+  // Flatten existing availability (customSlots) into a list
+  const initSlots: AvailSlot[] = [];
+  for (const [dateKey, dayData] of Object.entries(reg.availability ?? {})) {
+    const dayLabel = days.find(d => d.key === dateKey)?.label ?? dateKey;
+    for (const cs of (dayData as any).customSlots ?? []) {
+      initSlots.push({ dateKey, dayLabel, from: cs.from, to: cs.to });
+    }
+  }
+
+  const [slots, setSlots]   = useState<AvailSlot[]>(initSlots);
+  const [adding, setAdding] = useState(false);
+  const [newDay, setNewDay] = useState(days[0]?.key ?? "");
+  const [newFrom, setNewFrom] = useState("08:00");
+  const [newTo, setNewTo]   = useState("10:00");
+  const [error, setError]   = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function addSlot() {
+    if (!newDay || !newFrom || !newTo) { setError("Completá todos los campos."); return; }
+    if (newFrom >= newTo) { setError("El horario de inicio debe ser antes del fin."); return; }
+    const dayLabel = days.find(d => d.key === newDay)?.label ?? newDay;
+    setSlots(prev => [...prev, { dateKey: newDay, dayLabel, from: newFrom, to: newTo }]);
+    setAdding(false);
+    setError("");
+    setNewFrom("08:00");
+    setNewTo("10:00");
   }
 
   async function handleSave() {
     setSaving(true);
+    const avail: Record<string, { quickSlots: string[]; customSlots: { from: string; to: string }[] }> = {};
+    for (const s of slots) {
+      if (!avail[s.dateKey]) avail[s.dateKey] = { quickSlots: [], customSlots: [] };
+      avail[s.dateKey].customSlots.push({ from: s.from, to: s.to });
+    }
     await updateDoc(doc(db, "tournaments", torneoId, "registrations", reg.id), {
       availability: avail, updatedAt: serverTimestamp(),
     });
@@ -424,9 +436,13 @@ function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
     onClose();
   }
 
+  const inputStyle = { borderColor: "#CFE7DC", color: "#173A2E" };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>
       <div className="w-full max-w-lg rounded-t-[22px] shadow-xl flex flex-col" style={{ background: "#FFFFFF", maxHeight: "80vh" }}>
+
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid #CFE7DC" }}>
           <div>
             <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Horarios disponibles</h3>
@@ -435,36 +451,85 @@ function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
           <button onClick={onClose}><X size={18} style={{ color: "#5F7D72" }} /></button>
         </div>
 
-        {days.length === 0 ? (
-          <p className="text-sm text-center py-8 flex-1" style={{ color: "#5F7D72" }}>El torneo no tiene fechas configuradas.</p>
-        ) : (
-          <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-5">
-            {days.map(day => {
-              const activeSlots = avail[day.key]?.quickSlots ?? [];
-              return (
-                <div key={day.key}>
-                  <p className="text-[11px] font-black uppercase mb-2" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>{day.label}</p>
-                  <div className="flex gap-2">
-                    {QUICK_SLOTS.map(slot => {
-                      const active = activeSlots.includes(slot.key);
-                      return (
-                        <button key={slot.key} onClick={() => toggleSlot(day.key, slot.key)}
-                          className="flex-1 flex flex-col items-center py-2 rounded-xl border text-center"
-                          style={active
-                            ? { background: "#0B8457", borderColor: "#086847", color: "#FFFFFF" }
-                            : { background: "#F6FBF8", borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                          <span className="text-[11px] font-black">{slot.label}</span>
-                          <span className="text-[9px] mt-0.5 opacity-70">{slot.sub}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-3">
 
+          {/* Lista de horarios cargados */}
+          {slots.length === 0 && !adding && (
+            <div className="text-center py-6 rounded-2xl" style={{ background: "#F6FBF8" }}>
+              <p className="text-sm font-semibold" style={{ color: "#9BB8AE" }}>Sin horarios cargados</p>
+              <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>Agregá hasta 4 horarios disponibles.</p>
+            </div>
+          )}
+
+          {slots.map((s, i) => (
+            <div key={i} className="flex items-center justify-between rounded-xl border px-4 py-3"
+              style={{ background: "#F0FAF5", borderColor: "#B7DFBF" }}>
+              <div>
+                <p className="text-[10px] font-black uppercase" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>{s.dayLabel}</p>
+                <p className="text-sm font-black mt-0.5" style={{ color: "#173A2E" }}>{s.from} → {s.to}</p>
+              </div>
+              <button onClick={() => setSlots(prev => prev.filter((_, j) => j !== i))}
+                className="rounded-full p-1.5" style={{ background: "#FFF1F1" }}>
+                <X size={12} style={{ color: "#B24343" }} />
+              </button>
+            </div>
+          ))}
+
+          {/* Formulario agregar */}
+          {adding && (
+            <div className="rounded-2xl border p-4 flex flex-col gap-3" style={{ borderColor: "#CFE7DC", background: "#F6FBF8" }}>
+              <div>
+                <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Día</label>
+                {days.length === 0 ? (
+                  <p className="text-xs" style={{ color: "#B24343" }}>El torneo no tiene fechas configuradas.</p>
+                ) : (
+                  <select value={newDay} onChange={e => setNewDay(e.target.value)}
+                    className="w-full border rounded-xl px-3 py-2 text-sm bg-white" style={inputStyle}>
+                    {days.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+                  </select>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Desde</label>
+                  <input type="time" value={newFrom} onChange={e => setNewFrom(e.target.value)}
+                    className="w-full border rounded-xl px-3 py-2 text-sm bg-white" style={inputStyle} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Hasta</label>
+                  <input type="time" value={newTo} onChange={e => setNewTo(e.target.value)}
+                    className="w-full border rounded-xl px-3 py-2 text-sm bg-white" style={inputStyle} />
+                </div>
+              </div>
+              {error && <p className="text-xs font-semibold" style={{ color: "#B24343" }}>{error}</p>}
+              <div className="flex gap-2">
+                <button onClick={() => { setAdding(false); setError(""); }}
+                  className="flex-1 py-2 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                  Cancelar
+                </button>
+                <button onClick={addSlot}
+                  className="flex-1 py-2 rounded-xl text-sm font-bold text-white" style={{ background: "#0B8457" }}>
+                  Agregar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Botón agregar horario */}
+          {!adding && slots.length < 4 && (
+            <button onClick={() => setAdding(true)}
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border text-sm font-bold"
+              style={{ borderColor: "#CFE7DC", color: "#0B8457", background: "#F6FBF8", borderStyle: "dashed" }}>
+              <Plus size={14} /> Agregar horario
+            </button>
+          )}
+          {!adding && slots.length >= 4 && (
+            <p className="text-xs text-center font-semibold" style={{ color: "#9BB8AE" }}>Máximo de 4 horarios alcanzado.</p>
+          )}
+        </div>
+
+        {/* Footer */}
         <div className="px-5 py-3 flex-shrink-0" style={{ borderTop: "1px solid #CFE7DC" }}>
           <button onClick={handleSave} disabled={saving}
             className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
