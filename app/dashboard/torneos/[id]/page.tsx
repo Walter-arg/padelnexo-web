@@ -12,7 +12,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import {
   ChevronLeft, Users, Grid3X3, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, XCircle, PencilLine, Trash2,
-  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin,
+  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -426,13 +426,28 @@ function BracketMatchCard({ match, color, style, onResultClick }: {
   );
 }
 
-function BracketBoard({ rounds, onMatchClick }: { rounds: any[][], onMatchClick: (m: any) => void }) {
+function BracketBoard({ rounds, onMatchClick, printScale, onPrint }: {
+  rounds: any[][]; onMatchClick: (m: any) => void; printScale?: number; onPrint?: (bw: number) => void;
+}) {
   if (!rounds.length) return null;
   const { pos, bw, bh, lines } = buildBracketLayout(rounds);
+  const scale = printScale ?? 1;
 
   return (
-    <div className="-mx-4 sm:mx-0" style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
-      <div style={{ position: "relative", width: bw, height: bh, minWidth: bw }}>
+    <div>
+      {onPrint && (
+        <div data-print-hide className="flex justify-end mb-3">
+          <button
+            onClick={() => onPrint(bw)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
+            style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
+          >
+            <Printer size={14} /> Imprimir bracket
+          </button>
+        </div>
+      )}
+      <div className="print-bracket-wrap -mx-4 sm:mx-0" style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
+      <div style={{ position: "relative", width: bw * scale, height: bh * scale, minWidth: bw * scale }}><div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: bw, height: bh, position: "relative" }}>
         <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }} width={bw} height={bh}>
           {lines.map((l, i) => (
             <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#B6CBD9" strokeWidth={2} strokeLinecap="round" />
@@ -461,7 +476,7 @@ function BracketBoard({ rounds, onMatchClick }: { rounds: any[][], onMatchClick:
             </div>
           );
         })}
-      </div>
+      </div></div></div>
     </div>
   );
 }
@@ -479,6 +494,7 @@ export default function TorneoDetailPage() {
   const [loading, setLoading]             = useState(true);
   const [tab, setTab]                     = useState<Tab>("inscripciones");
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
+  const [bracketScale, setBracketScale]   = useState(1);
 
   // Modales
   const [matchModal, setMatchModal]   = useState<any | null>(null);
@@ -671,6 +687,19 @@ export default function TorneoDetailPage() {
     showToast("Resultado final guardado.");
   }
 
+  function handlePrintBracket(boardWidth: number) {
+    const scale = Math.min(1, 700 / boardWidth);
+    setBracketScale(scale);
+    setTimeout(() => {
+      window.print();
+      window.onafterprint = () => setBracketScale(1);
+    }, 80);
+  }
+
+  function handlePrintList() {
+    window.print();
+  }
+
   // ── Renders ─────────────────────────────────────────────────────────────
   if (loading) return (
     <DashboardLayout title="Torneos" wide>
@@ -714,8 +743,46 @@ export default function TorneoDetailPage() {
 
   const confirmedRegs = registrations.filter(r => r.status === "confirmed");
 
+  const torneoName    = torneo.name ?? torneo.nombre ?? "Torneo";
+  const printVenue    = torneo.venues?.[0]?.name ?? torneo.complejo?.nombre ?? "";
+  const printCategory = torneo.compositionLabel ?? torneo.categoria ?? "";
+  const printDate     = [formatDate(torneo.startDateMillis), formatDate(torneo.endDateMillis)].filter(Boolean).join(" — ");
+
   return (
-    <DashboardLayout title={torneo.name ?? torneo.nombre ?? "Torneo"} wide>
+    <DashboardLayout title={torneoName} wide>
+      {/* ── Print styles ─────────────────────────────────────────────── */}
+      <style>{`
+        @media print {
+          nav, aside, [data-print-hide] { display: none !important; }
+          body { margin: 0; background: white; }
+          .print-header { display: block !important; }
+          .print-bracket-wrap {
+            overflow: visible !important;
+            transform-origin: top left;
+          }
+          .print-reg-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          .print-reg-table th, .print-reg-table td {
+            border: 1px solid #ccc; padding: 6px 10px; font-size: 11px; text-align: left;
+          }
+          .print-reg-table th { background: #f0f0f0; font-weight: 900; }
+          .print-reg-table tr:nth-child(even) td { background: #fafafa; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        .print-header { display: none; }
+      `}</style>
+
+      {/* ── Print header (oculto en pantalla) ────────────────────────── */}
+      <div className="print-header" style={{ borderBottom: "2px solid #173A2E", paddingBottom: 10, marginBottom: 16 }}>
+        <p style={{ fontSize: 10, fontWeight: 900, color: "#5F7D72", textTransform: "uppercase", letterSpacing: "1px", margin: 0 }}>TORNEO · PADELNEXO</p>
+        <h1 style={{ fontSize: 24, fontWeight: 900, color: "#173A2E", margin: "4px 0 6px", fontFamily: "Georgia, serif" }}>{torneoName}</h1>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#5F7D72" }}>
+          {printCategory && <span>🏅 {printCategory}</span>}
+          {printDate     && <span>📅 {printDate}</span>}
+          {printVenue    && <span>📍 {printVenue}</span>}
+          <span style={{ marginLeft: "auto" }}>Impreso: {new Date().toLocaleDateString("es-AR")}</span>
+        </div>
+      </div>
+
       {/* Toast */}
       {toast && (
         <div
@@ -840,7 +907,7 @@ export default function TorneoDetailPage() {
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
+      <div data-print-hide className="flex gap-1 mb-6 overflow-x-auto pb-1">
         {TABS.map(t => (
           <button
             key={t.id}
@@ -875,19 +942,54 @@ export default function TorneoDetailPage() {
                 </span>
               )}
             </h2>
-            <button
-              onClick={() => setRegModal({ open: true })}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold text-white"
-              style={{ background: "#0B8457" }}
-            >
-              <Plus size={14} /> Inscribir pareja
-            </button>
+            <div className="flex items-center gap-2">
+              {registrations.length > 0 && (
+                <button
+                  data-print-hide
+                  onClick={handlePrintList}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
+                  style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+              )}
+              <button
+                data-print-hide
+                onClick={() => setRegModal({ open: true })}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold text-white"
+                style={{ background: "#0B8457" }}
+              >
+                <Plus size={14} /> Inscribir pareja
+              </button>
+            </div>
           </div>
+
+          {/* Tabla para impresión (solo visible al imprimir) */}
+          {registrations.length > 0 && (
+            <table className="print-reg-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Jugador 1</th><th>Jugador 2</th><th>Estado</th><th>Zona</th>
+                </tr>
+              </thead>
+              <tbody>
+                {registrations.map((reg, ri) => (
+                  <tr key={reg.id}>
+                    <td>{ri + 1}</td>
+                    <td>{reg.player1Name ?? "—"}</td>
+                    <td>{reg.player2Name ?? "—"}</td>
+                    <td>{REG_STATUS_META[reg.status]?.label ?? reg.status}</td>
+                    <td>{grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           {registrations.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscripciones todavía.</p>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div data-print-hide className="flex flex-col gap-3">
               {registrations.map((reg, ri) => {
                 const regMeta = REG_STATUS_META[reg.status ?? "pending"];
                 return (
@@ -1096,7 +1198,12 @@ export default function TorneoDetailPage() {
           {bracketRounds.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El bracket todavía no fue generado.</p>
           ) : (
-            <BracketBoard rounds={bracketRounds} onMatchClick={(m) => setMatchModal(m)} />
+            <BracketBoard
+              rounds={bracketRounds}
+              onMatchClick={(m) => setMatchModal(m)}
+              printScale={bracketScale}
+              onPrint={handlePrintBracket}
+            />
           )}
         </div>
       )}
