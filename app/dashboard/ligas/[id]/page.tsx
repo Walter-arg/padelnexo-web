@@ -1442,12 +1442,12 @@ export default function LigaDetailPage() {
   const modules = [
     {
       id: "jugadores" as Tab,
-      label: "Jugadores",
+      label: "Participantes",
       icon: Contact,
       color: "bg-blue-500",
       lightBg: "bg-blue-50",
       lightText: "text-blue-600",
-      badge: players.length > 0 ? `${players.length} inscriptos` : "Sin jugadores",
+      badge: players.length > 0 ? `${players.length} participantes` : "Sin participantes",
     },
     {
       id: "fixture" as Tab,
@@ -1529,7 +1529,7 @@ export default function LigaDetailPage() {
                 <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0">
                   <Users size={15} className="text-gray-400"/>
                 </div>
-                <span><span className="font-bold text-pn-navy">{players.length}</span> jugadores</span>
+                <span><span className="font-bold text-pn-navy">{players.length}</span> participantes</span>
               </div>
 
               {liga.scheduleConfig?.dayKey && (
@@ -1671,7 +1671,7 @@ export default function LigaDetailPage() {
                     {liga.teamType==="pair" ? (
                       <>
                         <div className="text-sm font-bold text-[#5F7D72]">
-                          Parejas completas cargadas {completePairsCount}/{minimumPlayersCount}
+                          Participantes cargados {completePairsCount}/{minimumPlayersCount}
                         </div>
                         <div className={`text-xs font-bold ${missingPlayersCount===0?"text-[#086847]":"text-[#8A5700]"}`}>
                           {missingPlayersCount===0 ? "✓ Mínimo completo" : `Faltan ${missingPlayersCount} jugadores para llegar a ${pairPlayersTargetCount}.`}
@@ -1680,11 +1680,11 @@ export default function LigaDetailPage() {
                     ) : (
                       <>
                         <div className="text-sm font-bold text-[#5F7D72]">
-                          Jugadores cargados {players.length}/{minimumPlayersCount}
+                          Participantes cargados {players.length}/{minimumPlayersCount}
                           <span className="ml-3 font-semibold text-xs">Drive {driveCount}/{sideTargetCount} · Reves {revesCount}/{sideTargetCount}</span>
                         </div>
                         <div className={`text-xs font-bold ${players.length>=minimumPlayersCount?"text-[#086847]":"text-[#8A5700]"}`}>
-                          {players.length>=minimumPlayersCount ? "✓ Mínimo completo" : `Faltan ${minimumPlayersCount-players.length} jugadores.`}
+                          {players.length>=minimumPlayersCount ? "✓ Mínimo completo" : `Faltan ${minimumPlayersCount-players.length} participantes.`}
                         </div>
                       </>
                     )}
@@ -1714,11 +1714,16 @@ export default function LigaDetailPage() {
                     </div>
                   )}
 
-                  {/* Header de sección + botón crear */}
+                  {/* ── SECCIÓN 1: Participantes de la liga ── */}
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-black text-[#173A2E]">
-                      {liga.teamType==="pair" ? "Parejas de la liga" : "Jugadores de la liga"}
-                    </span>
+                    <div>
+                      <span className="text-sm font-black text-[#173A2E]">
+                        {liga.teamType==="pair" ? "Parejas de la liga" : "Participantes de la liga"}
+                      </span>
+                      <span className="ml-2 text-[11px] font-black text-[#086847] bg-[#EDF7F2] px-2 py-0.5 rounded-full">
+                        {players.length} {liga.teamType==="pair" ? "en parejas" : "cargados"}
+                      </span>
+                    </div>
                     <button
                       onClick={()=>setGuestModalOpen(true)}
                       disabled={savingPlayers}
@@ -1728,69 +1733,11 @@ export default function LigaDetailPage() {
                     </button>
                   </div>
 
-                  {/* Búsqueda de jugadores registrados */}
-                  <div>
-                    <div className="relative mb-2">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5F7D72]" />
-                      <input
-                        type="text"
-                        placeholder="Buscar jugadores de la plataforma..."
-                        value={playerQuery}
-                        onChange={e=>setPlayerQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2.5 rounded-[18px] border border-[#CFE7DC] text-sm text-[#173A2E] bg-white focus:outline-none focus:border-[#1FAB89] placeholder:text-[#5F7D72]"
-                      />
-                    </div>
-
-                    {!playersLoaded ? (
-                      <div className="text-xs text-center text-[#5F7D72] py-2">Cargando jugadores...</div>
-                    ) : (
-                      <>
-                        <div className="text-[11px] font-black text-[#5F7D72] uppercase tracking-wider text-center mb-2">
-                          Jugadores registrados en la app
-                        </div>
-                        {filteredRegisteredPlayers.length===0 && playerQuery && (
-                          <div className="bg-[#F7FBF9] border border-[#CFE7DC] rounded-[18px] p-3 text-center text-xs text-[#5F7D72] font-semibold mb-2">
-                            Sin resultados para &ldquo;{playerQuery}&rdquo;
-                          </div>
-                        )}
-                        <div className="flex flex-col gap-1.5 mb-2">
-                          {filteredRegisteredPlayers.map((rp:any)=>{
-                            const alreadyAdded=players.some((p:any)=>p.linkedUserId===rp.id);
-                            const isReplaceMode=!!replacementTargetId;
-                            return (
-                              <div key={rp.id} className="bg-white border border-[#CFE7DC] rounded-[14px] flex items-center justify-between px-3 py-2 gap-2">
-                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                  {(rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL)
-                                    ? <img src={rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
-                                    : <div className="w-7 h-7 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0"><UserIcon size={13} className="text-[#9CA3AF]"/></div>
-                                  }
-                                  <div className="min-w-0">
-                                    <div className="text-[13px] font-black text-[#173A2E] truncate">{rp.nombre} {rp.apellido??""}</div>
-                                    <div className="text-[11px] text-[#5F7D72] font-semibold">{rp.categoria}{rp.ciudad?` · ${rp.ciudad}`:""}</div>
-                                  </div>
-                                </div>
-                                <button
-                                  disabled={alreadyAdded||savingPlayers}
-                                  onClick={()=>handleAddRegisteredPlayer(rp)}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-white flex-shrink-0 transition-colors ${alreadyAdded?"bg-[#A9C9BC] cursor-default":isReplaceMode?"bg-[#086847] hover:bg-[#0B8457]":"bg-[#0B8457] hover:bg-[#086847]"}`}
-                                >
-                                  {alreadyAdded ? "Agregado" : isReplaceMode ? <><ArrowLeftRight size={11}/> Reemplazar</> : <><Plus size={11}/> Agregar</>}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="h-px bg-[#CFE7DC]" />
-
-                  {/* Lista principal de jugadores */}
+                  {/* Lista principal de participantes de la liga */}
                   {players.length===0 && (
                     <div className="bg-white border border-[#CFE7DC] rounded-[20px] p-6 text-center">
-                      <div className="font-black text-[#173A2E] text-base mb-1">Sin jugadores</div>
-                      <div className="text-[#5F7D72] text-sm">Sumá jugadores desde la búsqueda o creá nombres manuales para esta liga.</div>
+                      <div className="font-black text-[#173A2E] text-base mb-1">Sin participantes</div>
+                      <div className="text-[#5F7D72] text-sm">Buscá jugadores registrados en la plataforma (abajo) o creá jugadores manuales para esta liga.</div>
                     </div>
                   )}
 
@@ -1870,6 +1817,65 @@ export default function LigaDetailPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* ── SECCIÓN 2: Agregar desde la plataforma ── */}
+                  <div className="rounded-2xl border border-[#CFE7DC] bg-[#F7FAF9] px-4 py-3 flex flex-col gap-2.5 mt-1">
+                    <div>
+                      <div className="text-sm font-black text-[#173A2E]">Agregar desde la plataforma</div>
+                      <div className="text-[11px] text-[#5F7D72] mt-0.5">Jugadores ya registrados en la app de PadelNexo. Buscalos por nombre y agregalos a esta liga.</div>
+                    </div>
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5F7D72]" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por nombre..."
+                        value={playerQuery}
+                        onChange={e=>setPlayerQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 rounded-[18px] border border-[#CFE7DC] text-sm text-[#173A2E] bg-white focus:outline-none focus:border-[#1FAB89] placeholder:text-[#5F7D72]"
+                      />
+                    </div>
+                    {!playersLoaded ? (
+                      <div className="text-xs text-center text-[#5F7D72] py-1">Cargando...</div>
+                    ) : (
+                      <>
+                        {filteredRegisteredPlayers.length===0 && !playerQuery && (
+                          <div className="text-xs text-[#5F7D72] py-1">Escribí un nombre para buscar.</div>
+                        )}
+                        {filteredRegisteredPlayers.length===0 && playerQuery && (
+                          <div className="bg-white border border-[#CFE7DC] rounded-[14px] p-3 text-center text-xs text-[#5F7D72] font-semibold">
+                            Sin resultados para &ldquo;{playerQuery}&rdquo;
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-1.5">
+                          {filteredRegisteredPlayers.map((rp:any)=>{
+                            const alreadyAdded=players.some((p:any)=>p.linkedUserId===rp.id);
+                            const isReplaceMode=!!replacementTargetId;
+                            return (
+                              <div key={rp.id} className="bg-white border border-[#CFE7DC] rounded-[14px] flex items-center justify-between px-3 py-2 gap-2">
+                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                  {(rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL)
+                                    ? <img src={rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="" />
+                                    : <div className="w-7 h-7 rounded-full bg-[#E5E7EB] flex items-center justify-center flex-shrink-0"><UserIcon size={13} className="text-[#9CA3AF]"/></div>
+                                  }
+                                  <div className="min-w-0">
+                                    <div className="text-[13px] font-black text-[#173A2E] truncate">{rp.nombre} {rp.apellido??""}</div>
+                                    <div className="text-[11px] text-[#5F7D72] font-semibold">{rp.categoria}{rp.ciudad?` · ${rp.ciudad}`:""}</div>
+                                  </div>
+                                </div>
+                                <button
+                                  disabled={alreadyAdded||savingPlayers}
+                                  onClick={()=>handleAddRegisteredPlayer(rp)}
+                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-white flex-shrink-0 transition-colors ${alreadyAdded?"bg-[#A9C9BC] cursor-default":isReplaceMode?"bg-[#086847] hover:bg-[#0B8457]":"bg-[#0B8457] hover:bg-[#086847]"}`}
+                                >
+                                  {alreadyAdded ? "Ya en la liga" : isReplaceMode ? <><ArrowLeftRight size={11}/> Reemplazar</> : <><Plus size={11}/> Agregar</>}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
 
                 </div>
               )}
