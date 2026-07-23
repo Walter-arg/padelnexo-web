@@ -1246,8 +1246,17 @@ export default function LigaDetailPage() {
         const teamKey = key.split(":")[0];
         const teamPlayers: any[] = match[teamKey]?.players ?? [];
         const titularPlayer = teamPlayers.find((p:any) => fxRepKey(teamKey, p) === key);
-        const titularLinkedId = titularPlayer?.linkedUserId ?? "";
+        // Fallback: buscar linkedUserId en liga.players si el fixture no lo tiene
+        const titularLinkedIdFromFixture = titularPlayer?.linkedUserId ?? "";
+        const titularLinkedIdFromLiga = !titularLinkedIdFromFixture
+          ? (liga?.players ?? []).find((p:any) =>
+              p.id === (titularPlayer?.id ?? entry.titular?.id) ||
+              (p.nombre === (titularPlayer?.nombre ?? entry.titular?.nombre) && p.apellido === (titularPlayer?.apellido ?? entry.titular?.apellido))
+            )?.linkedUserId ?? ""
+          : "";
+        const titularLinkedId = titularLinkedIdFromFixture || titularLinkedIdFromLiga;
         const titularNombre = `${entry.titular?.nombre ?? titularPlayer?.nombre ?? ""} ${entry.titular?.apellido ?? titularPlayer?.apellido ?? ""}`.trim();
+        console.log("[Remplazo] Titular:", titularNombre, "| linkedUserId:", titularLinkedId, "| desde fixture:", titularLinkedIdFromFixture, "| desde liga:", titularLinkedIdFromLiga);
         const replacementLinkedId = entry.replacement.linkedUserId ?? "";
         const replacementNombre = `${entry.replacement.nombre ?? ""} ${entry.replacement.apellido ?? ""}`.trim();
         if (titularLinkedId) {
