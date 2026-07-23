@@ -3,14 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  doc, collection, onSnapshot, updateDoc, addDoc, getDoc,
+  doc, collection, onSnapshot, updateDoc, addDoc, getDoc, getDocs, deleteDoc,
   serverTimestamp, query, orderBy,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  ChevronLeft, Users, GitBranch, CreditCard, Settings,
+  ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
 } from "lucide-react";
@@ -360,6 +360,323 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved }: {
   );
 }
 
+// ── NewPairDrawer ────────────────────────────────────────────────────────────
+function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
+  torneoId: string;
+  players: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [pendingPairs, setPendingPairs] = useState<{ player1: any; player2: any }[]>([]);
+  const [selectedPlayer1, setSelectedPlayer1] = useState<any>(null);
+  const [activePairSlot, setActivePairSlot] = useState<"player1" | "player2">("player1");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const [pickerCatFilter, setPickerCatFilter] = useState("");
+  const [pickerSexFilter, setPickerSexFilter] = useState("");
+  const [guestOpen, setGuestOpen] = useState(false);
+  const [guestTarget, setGuestTarget] = useState<"player1" | "player2">("player1");
+  const [guestName, setGuestName] = useState("");
+  const [guestLastName, setGuestLastName] = useState("");
+  const [guestCategoria, setGuestCategoria] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const occupiedIds = new Set(pendingPairs.flatMap(p => [p.player1.id, p.player2.id]).filter(Boolean));
+
+  const categories = Array.from(new Set(players.map((p: any) => p.categoria).filter(Boolean))).sort() as string[];
+
+  const pickerResults = players
+    .filter((p: any) => !occupiedIds.has(p.id))
+    .filter((p: any) => activePairSlot === "player2" ? p.id !== selectedPlayer1?.id : true)
+    .filter((p: any) => !pickerCatFilter || (p.categoria || "") === pickerCatFilter)
+    .filter((p: any) => !pickerSexFilter || (p.sexo || "").toLowerCase() === pickerSexFilter.toLowerCase())
+    .filter((p: any) => {
+      if (!pickerQuery) return true;
+      const hay = [p.nombre, p.apellido, p.categoria, p.ciudad].join(" ").toLowerCase();
+      return hay.includes(pickerQuery.toLowerCase());
+    })
+    .slice(0, 25);
+
+  function getDisplayName(p: any) {
+    return [p.nombre || p.name || "", p.apellido || ""].filter(Boolean).join(" ").trim() || "Jugador";
+  }
+
+  function buildPayload(p: any) {
+    return {
+      id: p.isGuest ? "" : (p.id || ""),
+      name: getDisplayName(p),
+      categoria: p.categoria || "",
+      ciudad: p.ciudad || "",
+      foto: p.foto || "",
+      isGuest: !!p.isGuest,
+    };
+  }
+
+  function openPicker(slot: "player1" | "player2") {
+    setActivePairSlot(slot);
+    setPickerQuery("");
+    setPickerCatFilter("");
+    setPickerSexFilter("");
+    setPickerOpen(true);
+  }
+
+  function handleSelectPlayer(player: any) {
+    if (activePairSlot === "player1") {
+      setSelectedPlayer1(buildPayload(player));
+      setActivePairSlot("player2");
+      setPickerQuery("");
+    } else {
+      if (selectedPlayer1) {
+        setPendingPairs(prev => [...prev, { player1: selectedPlayer1, player2: buildPayload(player) }]);
+        setSelectedPlayer1(null);
+        setActivePairSlot("player1");
+        setPickerOpen(false);
+      }
+    }
+  }
+
+  function handleCreateGuest() {
+    if (!guestName.trim()) return;
+    const guestPlayer = {
+      id: `guest-${Date.now()}`,
+      name: [guestName.trim(), guestLastName.trim()].filter(Boolean).join(" "),
+      categoria: guestCategoria,
+      ciudad: "",
+      foto: "",
+      isGuest: true,
+    };
+    setGuestOpen(false);
+    setGuestName(""); setGuestLastName(""); setGuestCategoria("");
+    if (guestTarget === "player1") {
+      setSelectedPlayer1(guestPlayer);
+      openPicker("player2");
+    } else if (selectedPlayer1) {
+      setPendingPairs(prev => [...prev, { player1: selectedPlayer1, player2: guestPlayer }]);
+      setSelectedPlayer1(null);
+      setActivePairSlot("player1");
+      setPickerOpen(false);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!pendingPairs.length) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      for (const pair of pendingPairs) {
+        await addDoc(collection(db, "tournaments", torneoId, "registrations"), {
+          player1Id: pair.player1.id,
+          player1Name: pair.player1.name,
+          player1UserId: pair.player1.id,
+          player2Id: pair.player2.id,
+          player2Name: pair.player2.name,
+          player2UserId: pair.player2.id,
+          pairLabel: `${pair.player1.name} / ${pair.player2.name}`,
+          status: "confirmed",
+          organizerConfirmed: true,
+          withdrawalStatus: "none",
+          payments: [],
+          availability: {},
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message || "No pudimos cargar las inscripciones.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}>
+      <div className="w-full sm:max-w-lg rounded-t-[28px] sm:rounded-[28px] flex flex-col overflow-hidden" style={{ background: "#FFFFFF", maxHeight: "92vh" }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: "#CFE7DC" }}>
+          <div>
+            <h3 className="font-black text-lg" style={{ color: "#173A2E" }}>Inscribir pareja</h3>
+            <p className="text-xs" style={{ color: "#5F7D72" }}>Seleccioná los jugadores para cada pareja</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full" style={{ background: "#F6FBF8" }}>
+            <X size={18} style={{ color: "#5F7D72" }} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-6 py-4 flex flex-col gap-3">
+          {/* Parejas confirmadas */}
+          {pendingPairs.map((pair, i) => (
+            <div key={i} className="rounded-2xl p-3 border" style={{ background: "#F0FAF5", borderColor: "#B7DFBF" }}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle size={13} style={{ color: "#1D7A34" }} />
+                  <span className="text-xs font-black" style={{ color: "#1D7A34" }}>Pareja {i + 1}</span>
+                </div>
+                <button onClick={() => setPendingPairs(prev => prev.filter((_, j) => j !== i))} className="p-1 rounded-full" style={{ background: "#FFF1F1" }}>
+                  <Trash2 size={11} style={{ color: "#B24343" }} />
+                </button>
+              </div>
+              <p className="text-xs font-bold" style={{ color: "#173A2E" }}>J1 · {pair.player1.name}</p>
+              <p className="text-xs font-bold" style={{ color: "#173A2E" }}>J2 · {pair.player2.name}</p>
+            </div>
+          ))}
+
+          {/* Pareja en curso (J1 elegido, esperando J2) */}
+          {selectedPlayer1 && !pickerOpen && !guestOpen && (
+            <div className="rounded-2xl p-3 border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+              <p className="text-[10px] font-black uppercase mb-2" style={{ color: "#086847" }}>Pareja {pendingPairs.length + 1} — en curso</p>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-[11px]" style={{ color: "#5F7D72" }}>Jugador 1 seleccionado:</p>
+                  <p className="text-sm font-bold" style={{ color: "#173A2E" }}>{selectedPlayer1.name}</p>
+                </div>
+                <button onClick={() => { setSelectedPlayer1(null); setActivePairSlot("player1"); }} className="text-[11px] font-bold" style={{ color: "#B24343" }}>Quitar</button>
+              </div>
+              <button onClick={() => openPicker("player2")}
+                className="w-full py-2 rounded-xl text-xs font-black uppercase text-white"
+                style={{ background: "#086847" }}>
+                + Seleccionar Jugador 2
+              </button>
+            </div>
+          )}
+
+          {/* Botón agregar pareja */}
+          {!selectedPlayer1 && (
+            <button onClick={() => openPicker("player1")}
+              className="w-full py-5 rounded-2xl border-2 border-dashed flex items-center justify-center gap-2 font-black text-sm uppercase"
+              style={{ borderColor: "#C9E5D8", color: "#0B8457", background: "#F6FBF8" }}>
+              <Users size={18} />
+              {pendingPairs.length > 0 ? "Agregar otra pareja" : "Seleccionar pareja"}
+            </button>
+          )}
+
+          {error && <p className="text-xs font-bold text-center" style={{ color: "#B24343" }}>{error}</p>}
+        </div>
+
+        {/* Footer submit */}
+        <div className="px-6 pb-6 pt-3 border-t" style={{ borderColor: "#CFE7DC" }}>
+          <button onClick={handleSubmit} disabled={submitting || !pendingPairs.length}
+            className="w-full py-4 rounded-2xl font-black text-sm uppercase text-white disabled:opacity-40 transition-opacity"
+            style={{ background: "#086847", minHeight: 52 }}>
+            {submitting ? "Cargando..." : pendingPairs.length > 1 ? `Cargar ${pendingPairs.length} parejas` : "Cargar pareja"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Player Picker (nested) ────────────────────────── */}
+      {pickerOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ background: "rgba(0,0,0,0.4)" }}>
+          <div className="w-full max-w-lg rounded-t-[28px] flex flex-col overflow-hidden" style={{ background: "#FFFFFF", maxHeight: "88vh" }}>
+            <div className="px-6 pt-5 pb-3 border-b" style={{ borderColor: "#CFE7DC" }}>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-[10px] font-black uppercase" style={{ color: "#086847", letterSpacing: "0.8px" }}>PAREJA {pendingPairs.length + 1}</p>
+                  <h4 className="font-black text-base" style={{ color: "#173A2E" }}>
+                    {activePairSlot === "player1" ? "Seleccioná el Jugador 1" : "Seleccioná el Jugador 2"}
+                  </h4>
+                </div>
+                <button onClick={() => setPickerOpen(false)}><X size={18} style={{ color: "#5F7D72" }} /></button>
+              </div>
+              <div className="flex gap-1.5 mb-3">
+                <div className="w-2 h-2 rounded-full" style={{ background: "#0B8457" }} />
+                <div className="w-2 h-2 rounded-full" style={{ background: activePairSlot === "player2" ? "#0B8457" : "#CFE7DC" }} />
+              </div>
+              {activePairSlot === "player2" && selectedPlayer1 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-2" style={{ background: "#EEF9F1", border: "1px solid #B7DFBF" }}>
+                  <CheckCircle size={12} style={{ color: "#1D7A34" }} />
+                  <span className="text-xs font-bold" style={{ color: "#1D7A34" }}>{selectedPlayer1.name} · J1 ✓</span>
+                </div>
+              )}
+              <input value={pickerQuery} onChange={e => setPickerQuery(e.target.value)}
+                placeholder="Buscar jugador..." autoFocus
+                className="w-full border rounded-xl px-3 py-2 text-sm mb-2"
+                style={{ borderColor: "#CFE7DC", color: "#173A2E" }} />
+              {categories.length > 0 && (
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {categories.slice(0, 10).map(cat => (
+                    <button key={cat} onClick={() => setPickerCatFilter(v => v === cat ? "" : cat)}
+                      className="px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap flex-shrink-0"
+                      style={pickerCatFilter === cat
+                        ? { background: "#0B8457", color: "#FFFFFF" }
+                        : { background: "#F6FBF8", color: "#5F7D72", border: "1px solid #CFE7DC" }}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <button onClick={() => { setPickerOpen(false); setGuestTarget(activePairSlot); setGuestOpen(true); }}
+                className="w-full px-6 py-3 text-left text-sm font-bold border-b"
+                style={{ color: "#0B8457", borderColor: "#F0F7F4", background: "#FAFFFE" }}>
+                + Crear jugador no registrado
+              </button>
+              {pickerResults.length === 0 ? (
+                <p className="text-sm text-center py-8" style={{ color: "#9AB5AB" }}>No encontramos jugadores con ese filtro.</p>
+              ) : pickerResults.map((player: any) => (
+                <button key={player.id} onClick={() => handleSelectPlayer(player)}
+                  className="w-full flex items-center gap-3 px-6 py-3 border-b text-left hover:opacity-80"
+                  style={{ borderColor: "#F0F7F4" }}>
+                  {player.foto ? (
+                    <img src={player.foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#EFF2F4" }}>
+                      <Users size={15} style={{ color: "#9CA3AF" }} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold truncate" style={{ color: "#173A2E" }}>
+                      {[player.nombre, player.apellido].filter(Boolean).join(" ")}
+                    </p>
+                    <p className="text-xs truncate" style={{ color: "#5F7D72" }}>
+                      {[player.categoria, player.ciudad].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <ChevronRight size={15} style={{ color: "#CFE7DC", flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t" style={{ borderColor: "#CFE7DC" }}>
+              <button onClick={() => setPickerOpen(false)}
+                className="w-full py-3 rounded-2xl text-sm font-bold border"
+                style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                {pendingPairs.length > 0 ? "Finalizar" : "Cancelar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Guest player modal ────────────────────────────── */}
+      {guestOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="w-full max-w-sm rounded-[24px] p-6" style={{ background: "#FFFFFF" }}>
+            <h4 className="font-black text-base mb-1" style={{ color: "#173A2E" }}>Jugador no registrado</h4>
+            <p className="text-xs mb-4" style={{ color: "#5F7D72" }}>Solo quedará cargado dentro de esta inscripción.</p>
+            <div className="flex flex-col gap-3 mb-4">
+              <input value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Nombre *"
+                className="border rounded-xl px-3 py-2.5 text-sm" style={{ borderColor: "#CFE7DC" }} />
+              <input value={guestLastName} onChange={e => setGuestLastName(e.target.value)} placeholder="Apellido"
+                className="border rounded-xl px-3 py-2.5 text-sm" style={{ borderColor: "#CFE7DC" }} />
+              <input value={guestCategoria} onChange={e => setGuestCategoria(e.target.value)} placeholder="Categoría"
+                className="border rounded-xl px-3 py-2.5 text-sm" style={{ borderColor: "#CFE7DC" }} />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setGuestOpen(false); setPickerOpen(true); }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold border"
+                style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>Cancelar</button>
+              <button onClick={handleCreateGuest} disabled={!guestName.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+                style={{ background: "#086847" }}>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bracket components ───────────────────────────────────────────────────────
 function BracketTeamRow({ label, isBye, isWinner, isLoser }: {
   label?: string; isBye?: boolean; isWinner?: boolean; isLoser?: boolean;
@@ -491,14 +808,16 @@ export default function TorneoDetailPage() {
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [grupos, setGrupos]               = useState<any[]>([]);
   const [matches, setMatches]             = useState<any[]>([]);
+  const [players, setPlayers]             = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
   const [tab, setTab]                     = useState<Tab>("inscripciones");
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
   const [bracketScale, setBracketScale]   = useState(1);
 
   // Modales
-  const [matchModal, setMatchModal]   = useState<any | null>(null);
-  const [regModal, setRegModal]       = useState<{ open: boolean; initial?: any }>({ open: false });
+  const [matchModal, setMatchModal]       = useState<any | null>(null);
+  const [newPairOpen, setNewPairOpen]     = useState(false);
+  const [regModal, setRegModal]           = useState<{ open: boolean; initial?: any }>({ open: false });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [posterOpen, setPosterOpen]   = useState(false);
 
@@ -521,6 +840,13 @@ export default function TorneoDetailPage() {
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // Cargar directorio de jugadores una sola vez
+  useEffect(() => {
+    getDocs(collection(db, "players"))
+      .then(snap => setPlayers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {});
   }, []);
 
   // ── Firestore listeners ─────────────────────────────────────────────────
@@ -645,11 +971,9 @@ export default function TorneoDetailPage() {
 
   // ── Eliminar inscripción ────────────────────────────────────────────────
   async function deleteRegistration(regId: string) {
-    await updateDoc(doc(db, "tournaments", torneoId, "registrations", regId), {
-      status: "rejected", updatedAt: serverTimestamp(),
-    });
+    await deleteDoc(doc(db, "tournaments", torneoId, "registrations", regId));
     setDeleteConfirm(null);
-    showToast("Inscripción eliminada.");
+    showToast("Pareja eliminada.");
   }
 
   // ── Confirmar baja ──────────────────────────────────────────────────────
@@ -904,6 +1228,13 @@ export default function TorneoDetailPage() {
           onSave={(r) => handleSaveMatchResult(matchModal, r)}
         />
       )}
+      {newPairOpen && (
+        <NewPairDrawer
+          torneoId={torneoId} players={players}
+          onClose={() => setNewPairOpen(false)}
+          onSaved={() => { setNewPairOpen(false); showToast("Pareja inscripta exitosamente."); }}
+        />
+      )}
       {regModal.open && (
         <RegistrationModal
           torneoId={torneoId} grupos={grupos} initial={regModal.initial}
@@ -914,8 +1245,8 @@ export default function TorneoDetailPage() {
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
           <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "#FFFFFF" }}>
-            <h3 className="font-black mb-2" style={{ color: "#173A2E" }}>¿Eliminar inscripción?</h3>
-            <p className="text-sm mb-4" style={{ color: "#5F7D72" }}>La pareja quedará marcada como rechazada.</p>
+            <h3 className="font-black mb-2" style={{ color: "#173A2E" }}>Eliminar pareja</h3>
+            <p className="text-sm mb-4" style={{ color: "#5F7D72" }}>Esta acción quitará la pareja de las inscripciones del torneo.</p>
             <div className="flex gap-2">
               <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>Cancelar</button>
               <button onClick={() => deleteRegistration(deleteConfirm)} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: "#B24343" }}>Eliminar</button>
@@ -1092,45 +1423,31 @@ export default function TorneoDetailPage() {
               ═══════════════════════════════════════════════════════ */}
               {tab === "inscripciones" && (
                 <div>
-                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                    <h3 className="text-base font-black" style={{ color: "#173A2E" }}>
-                      Parejas inscriptas
-                      {registrations.length > 0 && (
-                        <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F0F7F4", color: "#5F7D72" }}>
-                          {registrations.length}
-                        </span>
-                      )}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {registrations.length > 0 && (
-                        <button
-                          data-print-hide
-                          onClick={handlePrintList}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
-                          style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
-                        >
-                          <Printer size={14} /> Imprimir
-                        </button>
-                      )}
-                      <button
-                        data-print-hide
-                        onClick={() => setRegModal({ open: true })}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold text-white"
-                        style={{ background: "#0B8457" }}
-                      >
-                        <Plus size={14} /> Inscribir pareja
+                  {/* Botón principal */}
+                  <button data-print-hide onClick={() => setNewPairOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl font-black uppercase text-white mb-4 transition-opacity hover:opacity-90"
+                    style={{ background: "#086847", minHeight: 52, fontSize: 14, letterSpacing: "0.5px" }}>
+                    <Users size={18} /> Inscribir nueva pareja
+                  </button>
+
+                  {/* Imprimir + conteo */}
+                  {registrations.length > 0 && (
+                    <div className="flex items-center justify-between mb-4" data-print-hide>
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "#F0F7F4", color: "#5F7D72" }}>
+                        {registrations.length} pareja{registrations.length !== 1 ? "s" : ""}
+                      </span>
+                      <button onClick={handlePrintList}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border hover:opacity-70"
+                        style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                        <Printer size={13} /> Imprimir
                       </button>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Tabla para impresión */}
+                  {/* Tabla impresión */}
                   {registrations.length > 0 && (
                     <table className="print-reg-table">
-                      <thead>
-                        <tr>
-                          <th>#</th><th>Jugador 1</th><th>Jugador 2</th><th>Estado</th><th>Zona</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>#</th><th>Jugador 1</th><th>Jugador 2</th><th>Estado</th><th>Zona</th></tr></thead>
                       <tbody>
                         {registrations.map((reg, ri) => (
                           <tr key={reg.id}>
@@ -1145,74 +1462,91 @@ export default function TorneoDetailPage() {
                     </table>
                   )}
 
+                  {/* Estado vacío */}
                   {registrations.length === 0 ? (
-                    <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscripciones todavía.</p>
+                    <div data-print-hide className="rounded-2xl border p-8 text-center" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                      <Users size={40} className="mx-auto mb-3" style={{ color: "#CFE7DC" }} />
+                      <p className="font-black text-lg mb-1" style={{ color: "#173A2E" }}>Todavía no hay parejas inscriptas</p>
+                      <p className="text-sm" style={{ color: "#5F7D72" }}>Cuando lleguen solicitudes o parejas confirmadas, las vas a ver acá.</p>
+                    </div>
                   ) : (
                     <div data-print-hide className="flex flex-col gap-3">
                       {registrations.map((reg, ri) => {
-                        const regMeta = REG_STATUS_META[reg.status ?? "pending"];
+                        // Badge de estado (4 estados)
+                        let statusLabel: string, statusColor: string;
+                        if (reg.withdrawalStatus === "confirmed")       { statusLabel = "BAJA CONFIRMADA";        statusColor = "#576773"; }
+                        else if (reg.withdrawalStatus === "requested")  { statusLabel = "BAJA SOLICITADA";        statusColor = "#B66A16"; }
+                        else if (reg.status === "confirmed")            { statusLabel = "CONFIRMADA";             statusColor = "#1D7A34"; }
+                        else                                            { statusLabel = "PENDIENTE DE CONFIRMAR"; statusColor = "#B24343"; }
+
+                        const hasAvailability = Object.keys(reg.availability || {}).length > 0;
+
                         return (
                           <div key={reg.id} className="rounded-[18px] border p-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-black uppercase" style={{ color: "#5F7D72" }}>PAREJA {ri + 1}</span>
-                                <span className="inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
-                                  style={{ background: regMeta.tint, borderColor: regMeta.border, color: regMeta.accent }}>
-                                  {regMeta.label}
-                                </span>
-                                {reg.groupId && grupos.find(g => g.id === reg.groupId) && (
-                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                                    Zona {grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button onClick={() => setRegModal({ open: true, initial: reg })}
-                                  className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
-                                  style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
-                                  <PencilLine size={13} style={{ color: "#086847" }} />
-                                </button>
-                                <button onClick={() => setDeleteConfirm(reg.id)}
-                                  className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
-                                  style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
-                                  <Trash2 size={13} style={{ color: "#B24343" }} />
-                                </button>
-                              </div>
+                            {/* Fila superior */}
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-sm font-black uppercase" style={{ color: "#173A2E" }}>PAREJA {ri + 1}</span>
+                              <span className="text-[10px] font-black uppercase" style={{ color: statusColor }}>{statusLabel}</span>
                             </div>
 
-                            <div className="flex flex-col gap-1.5 mb-2">
+                            {/* Jugadores */}
+                            <div className="flex flex-col gap-2 mb-3">
                               {[
-                                { name: reg.player1Name, label: "Jugador 1" },
-                                { name: reg.player2Name, label: "Jugador 2" },
-                              ].map((pl, pi) => (
-                                <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2"
-                                  style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
-                                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0"
-                                    style={{ background: "#EFF2F4", color: "#5F7D72" }}>
-                                    {pl.name ? pl.name[0].toUpperCase() : "?"}
+                                { id: reg.player1Id, name: reg.player1Name },
+                                { id: reg.player2Id, name: reg.player2Name },
+                              ].filter(pl => pl.name).map((pl, pi) => {
+                                const pd = players.find((p: any) => p.id === pl.id);
+                                return (
+                                  <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2"
+                                    style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                    {pd?.foto ? (
+                                      <img src={pd.foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                                        style={{ background: "#EFF2F4" }}>
+                                        <Users size={15} style={{ color: "#9CA3AF" }} />
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-[13px] font-bold truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
+                                      {(pd?.categoria || pd?.ciudad) && (
+                                        <p className="text-[11px] truncate" style={{ color: "#5F7D72" }}>
+                                          {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {pl.id && (
+                                      <a href={`/dashboard/jugadores/${pl.id}`}
+                                        className="flex items-center gap-1 rounded-full border px-2.5 py-1.5 flex-shrink-0"
+                                        style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
+                                        <Users size={11} style={{ color: "#086847" }} />
+                                        <span className="text-[11px] font-black" style={{ color: "#086847" }}>Perfil</span>
+                                      </a>
+                                    )}
                                   </div>
-                                  <div>
-                                    <p className="text-[13px] font-bold" style={{ color: "#173A2E" }}>
-                                      {pl.name ?? <span style={{ color: "#9CA3AF", fontStyle: "italic" }}>Sin asignar</span>}
-                                    </p>
-                                    <p className="text-[11px]" style={{ color: "#5F7D72" }}>{pl.label}</p>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
 
+                            {/* Fila de acciones */}
                             <div className="flex items-center gap-2 flex-wrap">
-                              {reg.availability ? (
-                                <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                                  style={{ background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }}>
-                                  <CheckCircle size={12} /> Disponibilidad OK
-                                </span>
-                              ) : (
-                                <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                                  style={{ background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                                  <Clock size={12} /> Disponibilidad pendiente
-                                </span>
-                              )}
+                              <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
+                                style={hasAvailability
+                                  ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
+                                  : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
+                                {hasAvailability ? <CheckCircle size={11} /> : <Clock size={11} />}
+                                {hasAvailability ? "Disponibilidad cargada" : "Disponibilidad pendiente"}
+                              </span>
+                              <button onClick={() => setRegModal({ open: true, initial: reg })}
+                                className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
+                                style={{ background: "#EDF7F2", borderColor: "#C9E5D8", color: "#086847" }}>
+                                <PencilLine size={11} /> Editar
+                              </button>
+                              <button onClick={() => setDeleteConfirm(reg.id)}
+                                className="rounded-full border p-1.5"
+                                style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
+                                <Trash2 size={12} style={{ color: "#B24343" }} />
+                              </button>
                               {reg.withdrawalStatus === "requested" && (
                                 <button onClick={() => confirmWithdrawal(reg.id)}
                                   className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
@@ -1220,11 +1554,11 @@ export default function TorneoDetailPage() {
                                   Confirmar baja
                                 </button>
                               )}
-                              {reg.status !== "confirmed" && reg.withdrawalStatus !== "confirmed" && (
+                              {reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed" && (
                                 <button onClick={() => confirmRegistration(reg.id)}
                                   className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
                                   style={{ background: "#086847", borderColor: "#086847" }}>
-                                  <CheckCircle size={12} /> Confirmar pareja
+                                  <CheckCircle size={11} /> Confirmar pareja
                                 </button>
                               )}
                             </div>
