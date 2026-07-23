@@ -1500,7 +1500,7 @@ export default function TorneoDetailPage() {
                         if (reg.withdrawalStatus === "confirmed")       { statusLine1 = "BAJA";      statusLine2 = "CONFIRMADA"; statusColor = "#576773"; }
                         else if (reg.withdrawalStatus === "requested")  { statusLine1 = "BAJA";      statusLine2 = "SOLICITADA"; statusColor = "#B66A16"; }
                         else if (reg.status === "confirmed")            { statusLine1 = "PAREJA";    statusLine2 = "CONFIRMADA"; statusColor = "#1D7A34"; }
-                        else                                            { statusLine1 = "PENDIENTE"; statusLine2 = "CONFIRMAR";  statusColor = "#B24343"; }
+                        else                                            { statusLine1 = "PENDIENTE"; statusLine2 = "A CONFIRMAR"; statusColor = "#B24343"; }
 
                         const hasAvailability = Object.keys(reg.availability || {}).length > 0;
 
