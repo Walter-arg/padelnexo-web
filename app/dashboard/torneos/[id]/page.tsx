@@ -42,6 +42,67 @@ const PAY_STATUS_META: Record<string, { label: string; tint: string; border: str
 };
 
 const BRACKET_ROUND_COLORS = ["#AEEBFF", "#6FCBFF", "#2E8FE8", "#0B4FB3"];
+
+// ── Bracket layout ───────────────────────────────────────────────────────────
+const B_W = 240, B_H = 120, B_COL = 264, B_GAP = 8, B_HDR = 34, B_PAD = 16;
+
+function bracketRoundColor(ri: number, total: number): string {
+  if (total <= 1) return BRACKET_ROUND_COLORS[3];
+  const idx = Math.round((ri / (total - 1)) * (BRACKET_ROUND_COLORS.length - 1));
+  return BRACKET_ROUND_COLORS[Math.min(idx, BRACKET_ROUND_COLORS.length - 1)];
+}
+function bracketRoundLabel(n: number) {
+  if (n === 1) return "Final";
+  if (n === 2) return "Semifinales";
+  if (n === 4) return "Cuartos";
+  if (n === 8) return "Octavos";
+  if (n === 16) return "16avos";
+  return `Ronda (${n})`;
+}
+function hexAlpha(hex: string, a: number) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function buildBracketLayout(rounds: any[][]) {
+  const pos: { x: number; y: number }[][] = [];
+  for (let ri = 0; ri < rounds.length; ri++) {
+    pos[ri] = [];
+    const x = B_PAD + ri * B_COL;
+    if (ri === 0) {
+      rounds[ri].forEach((_, mi) => { pos[ri][mi] = { x, y: B_PAD + B_HDR + B_GAP + mi * (B_H + B_GAP) }; });
+    } else {
+      rounds[ri].forEach((_, mi) => {
+        const sA = pos[ri - 1]?.[mi * 2], sB = pos[ri - 1]?.[mi * 2 + 1];
+        const y = sA && sB ? (sA.y + sB.y + B_H) / 2 - B_H / 2 : sA ? sA.y : B_PAD + B_HDR + B_GAP;
+        pos[ri][mi] = { x, y };
+      });
+    }
+  }
+  const bw = B_PAD * 2 + rounds.length * B_COL - (B_COL - B_W);
+  const maxY = pos.flat().reduce((m, p) => Math.max(m, p.y), 0);
+  const bh = maxY + B_H + B_PAD;
+  const lines: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  for (let ri = 1; ri < rounds.length; ri++) {
+    rounds[ri].forEach((_, mi) => {
+      const cur = pos[ri][mi], sA = pos[ri - 1]?.[mi * 2], sB = pos[ri - 1]?.[mi * 2 + 1];
+      const midX = cur.x - (B_COL - B_W) / 2, curCY = cur.y + B_H / 2;
+      if (sA && sB) {
+        const aCY = sA.y + B_H / 2, bCY = sB.y + B_H / 2;
+        lines.push({ x1: sA.x + B_W, y1: aCY,   x2: midX,  y2: aCY   });
+        lines.push({ x1: sB.x + B_W, y1: bCY,   x2: midX,  y2: bCY   });
+        lines.push({ x1: midX,        y1: aCY,   x2: midX,  y2: bCY   });
+        lines.push({ x1: midX,        y1: curCY, x2: cur.x, y2: curCY });
+      } else if (sA) {
+        const aCY = sA.y + B_H / 2;
+        lines.push({ x1: sA.x + B_W, y1: aCY, x2: cur.x, y2: aCY });
+        if (Math.abs(aCY - curCY) > 1) lines.push({ x1: cur.x, y1: aCY, x2: cur.x, y2: curCY });
+      }
+    });
+  }
+  return { pos, bw, bh, lines };
+}
 const TITLE_COLORS = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
 function getTitleColor(seed: string): string {
   let h = 0;
@@ -299,6 +360,112 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved }: {
   );
 }
 
+// ── Bracket components ───────────────────────────────────────────────────────
+function BracketTeamRow({ label, isBye, isWinner, isLoser }: {
+  label?: string; isBye?: boolean; isWinner?: boolean; isLoser?: boolean;
+}) {
+  return (
+    <div style={{
+      height: 42, display: "flex", alignItems: "center", padding: "0 8px", gap: 6,
+      background: isWinner ? "#E8F6F6" : "#FFFFFF",
+      borderLeft: `3px solid ${isWinner ? "#1F6F78" : "transparent"}`,
+      opacity: isLoser ? 0.45 : 1, flexShrink: 0,
+    }}>
+      {isBye ? (
+        <span style={{ fontSize: 13, fontWeight: 900, color: "#086847", textTransform: "uppercase", width: "100%", textAlign: "center" }}>BYE</span>
+      ) : label ? (
+        <>
+          <div style={{ width: 22, height: 22, borderRadius: 11, background: isWinner ? "#C8E8E6" : "#EFF2F4", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ fontSize: 9, fontWeight: 900, color: isWinner ? "#1F6F78" : "#5F7D72" }}>{label[0].toUpperCase()}</span>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 900, color: isWinner ? "#086847" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{label}</span>
+          {isWinner && <span style={{ fontSize: 8, fontWeight: 900, color: "#FFFFFF", background: "#0B8457", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>✓</span>}
+        </>
+      ) : (
+        <span style={{ fontSize: 10, fontStyle: "italic", color: "#9AB5AB", paddingLeft: 2 }}>Por definir</span>
+      )}
+    </div>
+  );
+}
+
+function BracketMatchCard({ match, color, style, onResultClick }: {
+  match: any; color: string; style: React.CSSProperties; onResultClick: () => void;
+}) {
+  const done   = match.status === "completed";
+  const aWon   = done && match.winnerPairId && match.winnerPairId === match.sideARef;
+  const bWon   = done && match.winnerPairId && match.winnerPairId === match.sideBRef;
+  const aIsBye = match.sideAType === "bye";
+  const bIsBye = match.sideBType === "bye";
+  const canEnter = match.sideAType === "pair" && match.sideBType === "pair";
+  const hasBoth  = (match.sideALabel || aIsBye) && (match.sideBLabel || bIsBye);
+  const score    = done ? (match.scoreText || match.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ") || "•") : null;
+
+  return (
+    <div style={{ ...style, width: B_W, height: B_H, borderRadius: 12, border: `1.5px solid ${hexAlpha(color, 0.38)}`, background: hexAlpha(color, 0.12), overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      <BracketTeamRow label={match.sideALabel} isBye={aIsBye} isWinner={!!aWon} isLoser={!!bWon} />
+      <div style={{ height: 1, background: "#CFE7DC", flexShrink: 0 }} />
+      <BracketTeamRow label={match.sideBLabel} isBye={bIsBye} isWinner={!!bWon} isLoser={!!aWon} />
+      <div style={{ height: 1, background: "#CFE7DC", flexShrink: 0 }} />
+      <div style={{ flex: 1, background: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px", gap: 6 }}>
+        {done ? (
+          <>
+            <span style={{ fontSize: 11, fontWeight: 900, color: "#173A2E" }}>{score}</span>
+            <button onClick={onResultClick} style={{ fontSize: 10, fontWeight: 700, color: "#086847", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Editar</button>
+          </>
+        ) : canEnter ? (
+          <button onClick={onResultClick} style={{ fontSize: 10, fontWeight: 900, color: "#244A66", background: "#EEF4FA", border: "1px solid #B8CCE0", borderRadius: 20, padding: "3px 10px", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.3px" }}>
+            Cargar resultado
+          </button>
+        ) : (
+          <span style={{ fontSize: 10, color: "#9AB5AB", fontStyle: "italic" }}>
+            {hasBoth ? "Esperando resultado" : "Esperando clasificados"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BracketBoard({ rounds, onMatchClick }: { rounds: any[][], onMatchClick: (m: any) => void }) {
+  if (!rounds.length) return null;
+  const { pos, bw, bh, lines } = buildBracketLayout(rounds);
+
+  return (
+    <div className="-mx-4 sm:mx-0" style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
+      <div style={{ position: "relative", width: bw, height: bh, minWidth: bw }}>
+        <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }} width={bw} height={bh}>
+          {lines.map((l, i) => (
+            <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#B6CBD9" strokeWidth={2} strokeLinecap="round" />
+          ))}
+        </svg>
+
+        {rounds.map((roundMatches, ri) => {
+          const color  = bracketRoundColor(ri, rounds.length);
+          const isDark = color === "#2E8FE8" || color === "#0B4FB3";
+          const label  = bracketRoundLabel(roundMatches.length);
+          const p0     = pos[ri][0];
+          return (
+            <div key={ri}>
+              <div style={{ position: "absolute", left: p0.x, top: B_PAD, width: B_W, height: B_HDR, background: color, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ color: isDark ? "#FFFFFF" : "#173A2E", fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.5px" }}>{label}</span>
+              </div>
+              {roundMatches.map((match, mi) => (
+                <BracketMatchCard
+                  key={match.id}
+                  match={match}
+                  color={color}
+                  style={{ position: "absolute", left: pos[ri][mi].x, top: pos[ri][mi].y }}
+                  onResultClick={() => onMatchClick(match)}
+                />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Página principal ────────────────────────────────────────────────────────
 export default function TorneoDetailPage() {
   const router = useRouter();
@@ -543,7 +710,7 @@ export default function TorneoDetailPage() {
   }
   const bracketRounds = Object.entries(bracketByRound)
     .sort(([a], [b]) => Number(a) - Number(b))
-    .map(([, ms]) => ms);
+    .map(([, ms]) => [...ms].sort((a: any, b: any) => (a.matchOrder ?? 0) - (b.matchOrder ?? 0)));
 
   const confirmedRegs = registrations.filter(r => r.status === "confirmed");
 
@@ -925,60 +1092,11 @@ export default function TorneoDetailPage() {
           TAB: BRACKET
       ═══════════════════════════════════════════════════════════════════ */}
       {tab === "bracket" && (
-        <div className="flex flex-col gap-4">
+        <div>
           {bracketRounds.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El bracket todavía no fue generado.</p>
           ) : (
-            bracketRounds.map((roundMatches, ri) => {
-              const bgColor = BRACKET_ROUND_COLORS[Math.min(ri, BRACKET_ROUND_COLORS.length - 1)];
-              const isDark = ri >= 2;
-              const stageLabel = roundMatches[0]?.stage;
-              const roundLabel = stageLabel === "final" ? "Final"
-                : stageLabel === "semifinal" ? "Semifinales"
-                : stageLabel === "quarterfinal" ? "Cuartos de final"
-                : `Ronda ${ri + 1}`;
-              return (
-                <div key={ri} className="rounded-[22px] overflow-hidden border" style={{ borderColor: "#CFE7DC" }}>
-                  <div className="px-5 py-3 font-black text-sm" style={{ background: bgColor, color: isDark ? "#FFFFFF" : "#173A2E" }}>
-                    {roundLabel}
-                  </div>
-                  <div style={{ background: "#FFFFFF" }}>
-                    {roundMatches.map((m) => {
-                      const completed = m.status === "completed";
-                      const aWon = completed && m.winnerPairId && m.winnerPairId === (m.sideARef ?? "");
-                      const bWon = completed && m.winnerPairId && m.winnerPairId === (m.sideBRef ?? "");
-                      const canEnter = m.sideAType === "pair" && m.sideBType === "pair";
-                      return (
-                        <div key={m.id} className="flex items-center gap-2 px-4 py-3 border-b last:border-0" style={{ borderColor: "#F0F7F4" }}>
-                          <span className="flex-1 text-right text-sm truncate" style={{ color: aWon ? "#0B8457" : m.sideAType === "bye" ? "#CFE7DC" : "#173A2E", fontWeight: aWon ? 800 : 500 }}>
-                            {m.sideALabel ?? (m.sideAType === "bye" ? "BYE" : "Por definir")}
-                          </span>
-                          {completed ? (
-                            <span className="text-xs font-black px-2 py-1 rounded-lg text-white min-w-[52px] text-center" style={{ background: "#173A2E" }}>
-                              {m.scoreText || (m.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ")) || "•"}
-                            </span>
-                          ) : (
-                            <span className="text-xs font-black px-2 py-1 rounded-lg min-w-[52px] text-center" style={{ background: "#F0F7F4", color: "#5F7D72" }}>vs</span>
-                          )}
-                          <span className="flex-1 text-sm truncate" style={{ color: bWon ? "#0B8457" : m.sideBType === "bye" ? "#CFE7DC" : "#173A2E", fontWeight: bWon ? 800 : 500 }}>
-                            {m.sideBLabel ?? (m.sideBType === "bye" ? "BYE" : "Por definir")}
-                          </span>
-                          {canEnter && (
-                            <button
-                              onClick={() => setMatchModal(m)}
-                              className="text-[11px] font-bold px-2.5 py-1 rounded-full border flex-shrink-0 transition-colors"
-                              style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
-                            >
-                              {completed ? "Editar" : "Resultado"}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })
+            <BracketBoard rounds={bracketRounds} onMatchClick={(m) => setMatchModal(m)} />
           )}
         </div>
       )}
