@@ -172,9 +172,9 @@ export default function TorneosPage() {
                 </div>
 
                 {/* Nombre */}
-                <p className="text-[11px] font-black uppercase mb-0.5" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
+                <p className="text-[11px] font-black uppercase mb-0.5 text-center" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
                 <h2
-                  className="font-bold leading-tight mb-3"
+                  className="font-bold leading-tight mb-3 text-center"
                   style={{ fontFamily: "Georgia, serif", fontSize: 18, color: titleColor }}
                 >
                   {t.name ?? t.nombre ?? "Sin nombre"}
@@ -209,16 +209,18 @@ export default function TorneosPage() {
                       <span className="text-xs" style={{ color: "#5F7D72" }}>{venue}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1.5">
-                    <Users size={13} style={{ color: maxPairs > 0 && confirmedCount >= maxPairs ? "#D64545" : "#5F7D72", flexShrink: 0 }} />
-                    <span
-                      className="text-xs font-semibold"
-                      style={{ color: maxPairs > 0 && confirmedCount >= maxPairs ? "#D64545" : maxPairs > 0 && confirmedCount >= maxPairs - 2 ? "#D97706" : "#5F7D72" }}
-                    >
-                      {confirmedCount}{maxPairs > 0 ? ` / ${maxPairs}` : ""} inscriptos
-                      {maxPairs > 0 && confirmedCount >= maxPairs ? " · Sin cupos" : maxPairs > 0 && confirmedCount >= maxPairs - 2 ? " · Últimos cupos" : ""}
-                    </span>
-                  </div>
+                  {t.showOccupancyCard && maxPairs > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Users size={13} style={{ color: confirmedCount >= maxPairs ? "#D64545" : "#5F7D72", flexShrink: 0 }} />
+                      <span
+                        className="text-xs font-semibold"
+                        style={{ color: confirmedCount >= maxPairs ? "#D64545" : confirmedCount >= maxPairs - 2 ? "#D97706" : "#5F7D72" }}
+                      >
+                        {confirmedCount} / {maxPairs} inscriptos
+                        {confirmedCount >= maxPairs ? " · Sin cupos" : confirmedCount >= maxPairs - 2 ? " · Últimos cupos" : ""}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </a>
             );
