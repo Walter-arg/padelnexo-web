@@ -1495,46 +1495,48 @@ export default function TorneoDetailPage() {
 
                         return (
                           <div key={reg.id} className="rounded-[18px] border p-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                            {/* Fila superior */}
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-black uppercase" style={{ color: "#173A2E" }}>PAREJA {ri + 1}</span>
-                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full"
-                                style={{ color: statusColor, background: statusColor + "18" }}>
-                                {statusLabel}
-                              </span>
-                            </div>
+                            {/* Fila principal: número | jugadores | estado */}
+                            <div className="flex items-center gap-3 mb-2.5">
+                              {/* Pareja # */}
+                              <div className="flex-shrink-0 flex flex-col items-center leading-none w-12">
+                                <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: "#9BB8AE" }}>PAREJA</span>
+                                <span className="text-xl font-black" style={{ color: "#173A2E" }}>{ri + 1}</span>
+                              </div>
 
-                            {/* Jugadores — lado a lado */}
-                            <div className="grid grid-cols-2 gap-2 mb-3">
-                              {[
-                                { id: reg.player1Id || reg.player1UserId, name: reg.player1Name },
-                                { id: reg.player2Id || reg.player2UserId, name: reg.player2Name },
-                              ].filter(pl => pl.name).map((pl, pi) => {
-                                const pd = players.find((p: any) => p.id && p.id === pl.id);
-                                const foto = pd?.fotoURL || pd?.foto || "";
-                                const initials = (pl.name ?? "?")[0].toUpperCase();
-                                return (
-                                  <div key={pi} className="flex items-center gap-2 rounded-xl border px-2.5 py-2"
-                                    style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
-                                    {foto ? (
-                                      <img src={foto} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black"
-                                        style={{ background: "#E4EFE9", color: "#086847" }}>
-                                        {initials}
-                                      </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[12px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
-                                      {(pd?.categoria || pd?.ciudad) && (
-                                        <p className="text-[10px] truncate mt-0.5" style={{ color: "#5F7D72" }}>
-                                          {[pd.categoria, pd.ciudad].filter(Boolean).join(" · ")}
-                                        </p>
+                              {/* Jugadores lado a lado */}
+                              <div className="flex gap-2 flex-1 min-w-0">
+                                {[
+                                  { id: reg.player1Id || reg.player1UserId, name: reg.player1Name },
+                                  { id: reg.player2Id || reg.player2UserId, name: reg.player2Name },
+                                ].filter(pl => pl.name).map((pl, pi) => {
+                                  const pd = players.find((p: any) => p.id && p.id === pl.id);
+                                  const foto = pd?.fotoURL || pd?.foto || "";
+                                  return (
+                                    <div key={pi} className="flex items-center gap-1.5 rounded-xl border px-2 py-1.5 flex-1 min-w-0"
+                                      style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                      {foto ? (
+                                        <img src={foto} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                                      ) : (
+                                        <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden" style={{ background: "#DDE8E3" }}>
+                                          <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
+                                            <circle cx="16" cy="12" r="5.5" fill="#9BB8AE" />
+                                            <path d="M3 30c0-7.18 5.82-13 13-13s13 5.82 13 13" fill="#9BB8AE" />
+                                          </svg>
+                                        </div>
                                       )}
+                                      <p className="text-[11px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
                                     </div>
-                                  </div>
-                                );
-                              })}
+                                  );
+                                })}
+                              </div>
+
+                              {/* Estado */}
+                              <div className="flex-shrink-0">
+                                <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full whitespace-nowrap"
+                                  style={{ color: statusColor, background: statusColor + "18" }}>
+                                  {statusLabel}
+                                </span>
+                              </div>
                             </div>
 
                             {/* Fila de acciones */}
