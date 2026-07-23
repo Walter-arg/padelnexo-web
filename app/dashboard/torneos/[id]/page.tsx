@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  doc, collection, onSnapshot, updateDoc, addDoc,
+  doc, collection, onSnapshot, updateDoc, addDoc, getDoc,
   serverTimestamp, query, orderBy,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -12,7 +12,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import {
   ChevronLeft, Users, Grid3X3, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, XCircle, PencilLine, Trash2,
-  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer,
+  Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -510,6 +510,14 @@ export default function TorneoDetailPage() {
   const [runnerUpId, setRunnerUpId] = useState("");
   const [savingAction, setSavingAction] = useState(false);
 
+  // Notificaciones
+  const [notifTitle,    setNotifTitle]    = useState("");
+  const [notifBody,     setNotifBody]     = useState("");
+  const [notifAudience, setNotifAudience] = useState<"all" | "confirmed" | "pending_payment">("confirmed");
+  const [notifConfirm,  setNotifConfirm]  = useState(false);
+  const [sendingNotif,  setSendingNotif]  = useState(false);
+  const [notifHistory,  setNotifHistory]  = useState<any[]>([]);
+
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3000);
@@ -548,7 +556,12 @@ export default function TorneoDetailPage() {
         (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       );
 
-      return () => { unsubTorneo(); unsubRegs(); unsubGroups(); unsubMatches(); };
+      const unsubNotifs = onSnapshot(
+        query(collection(db, "tournaments", torneoId, "notifications"), orderBy("sentAt", "desc")),
+        (snap) => setNotifHistory(snap.docs.slice(0, 5).map(d => ({ id: d.id, ...d.data() })))
+      );
+
+      return () => { unsubTorneo(); unsubRegs(); unsubGroups(); unsubMatches(); unsubNotifs(); };
     });
     return unsubAuth;
   }, [torneoId, router]);
@@ -685,6 +698,56 @@ export default function TorneoDetailPage() {
     await updateDoc(doc(db, "tournaments", torneoId), { championPairId: championId, runnerUpPairId: runnerUpId, updatedAt: serverTimestamp() });
     setSavingAction(false);
     showToast("Resultado final guardado.");
+  }
+
+  async function handleSendNotification() {
+    if (!notifTitle.trim() || !notifBody.trim()) return;
+    setSendingNotif(true);
+    try {
+      const targets = registrations.filter(reg => {
+        if (notifAudience === "confirmed")       return reg.status === "confirmed";
+        if (notifAudience === "pending_payment") return reg.payments?.some((p: any) => p.status !== "approved");
+        return true;
+      });
+      const uids = [...new Set(
+        targets.flatMap((r: any) => [r.player1UserId, r.player2UserId].filter(Boolean))
+      )] as string[];
+
+      let tokens: string[] = [];
+      if (uids.length > 0) {
+        const tokenDocs = await Promise.all(uids.map(uid => getDoc(doc(db, "users", uid))));
+        tokens = tokenDocs.map(d => d.data()?.expoPushToken).filter(Boolean) as string[];
+      }
+
+      if (tokens.length > 0) {
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(tokens.map(to => ({
+            to, sound: "default",
+            title: notifTitle.trim(),
+            body:  notifBody.trim(),
+            data:  { type: "tournament_organizer_message", tournamentId: torneoId },
+            channelId: "default",
+          }))),
+        });
+      }
+
+      await addDoc(collection(db, "tournaments", torneoId, "notifications"), {
+        title: notifTitle.trim(), body: notifBody.trim(),
+        audience: notifAudience, recipientCount: tokens.length,
+        sentAt: serverTimestamp(),
+      });
+
+      setNotifTitle(""); setNotifBody(""); setNotifConfirm(false);
+      showToast(tokens.length > 0
+        ? `Notificación enviada a ${tokens.length} dispositivo${tokens.length !== 1 ? "s" : ""}.`
+        : "Guardado. No se encontraron tokens activos (la app requiere EAS Build)."
+      );
+    } catch {
+      showToast("Error al enviar la notificación.", false);
+    }
+    setSendingNotif(false);
   }
 
   function handlePrintBracket(boardWidth: number) {
@@ -1449,6 +1512,142 @@ export default function TorneoDetailPage() {
                 style={{ background: "#0B8457" }}>
                 {savingAction ? "Guardando…" : "Guardar resultado"}
               </button>
+            </div>
+          )}
+
+          {/* Notificaciones push */}
+          <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Bell size={15} style={{ color: "#0B8457" }} />
+              <p className="font-black text-sm" style={{ color: "#173A2E" }}>Enviar notificación</p>
+            </div>
+
+            {/* Audiencia */}
+            <div className="flex flex-col gap-1.5 mb-3">
+              {([
+                { val: "confirmed",       label: "Solo confirmados" },
+                { val: "all",             label: "Todos los inscriptos" },
+                { val: "pending_payment", label: "Solo con pago pendiente" },
+              ] as const).map(opt => (
+                <label key={opt.val} className="flex items-center gap-2 cursor-pointer">
+                  <div
+                    onClick={() => setNotifAudience(opt.val)}
+                    className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 cursor-pointer"
+                    style={{ borderColor: notifAudience === opt.val ? "#0B8457" : "#CFE7DC", background: notifAudience === opt.val ? "#0B8457" : "transparent" }}
+                  >
+                    {notifAudience === opt.val && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <span className="text-sm" style={{ color: "#173A2E" }}>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* Título */}
+            <div className="mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Título</label>
+                <span className="text-[10px]" style={{ color: notifTitle.length > 45 ? "#B24343" : "#9AB5AB" }}>{notifTitle.length}/50</span>
+              </div>
+              <input
+                value={notifTitle}
+                onChange={e => setNotifTitle(e.target.value.slice(0, 50))}
+                placeholder="ej: ¡Arranca el torneo!"
+                className="w-full border rounded-xl px-3 py-2 text-sm"
+                style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+              />
+            </div>
+
+            {/* Cuerpo */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Mensaje</label>
+                <span className="text-[10px]" style={{ color: notifBody.length > 130 ? "#B24343" : "#9AB5AB" }}>{notifBody.length}/150</span>
+              </div>
+              <textarea
+                value={notifBody}
+                onChange={e => setNotifBody(e.target.value.slice(0, 150))}
+                placeholder="ej: Los partidos empiezan mañana a las 9hs. ¡Buena suerte!"
+                rows={3}
+                className="w-full border rounded-xl px-3 py-2 text-sm resize-none"
+                style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+              />
+            </div>
+
+            <button
+              onClick={() => setNotifConfirm(true)}
+              disabled={!notifTitle.trim() || !notifBody.trim() || sendingNotif}
+              className="w-full py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50"
+              style={{ background: "#0B8457" }}
+            >
+              <Send size={13} /> Enviar notificación
+            </button>
+
+            {/* Aviso tokens */}
+            <p className="text-[10px] mt-2 text-center" style={{ color: "#9AB5AB" }}>
+              Solo llega a jugadores inscriptos desde la app con EAS Build activo.
+            </p>
+
+            {/* Historial */}
+            {notifHistory.length > 0 && (
+              <div className="mt-4 pt-3 border-t" style={{ borderColor: "#F0F7F4" }}>
+                <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Últimas enviadas</p>
+                <div className="flex flex-col gap-1.5">
+                  {notifHistory.map(n => (
+                    <div key={n.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "#F0F7F4", background: "#F6FBF8" }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold truncate" style={{ color: "#173A2E" }}>{n.title}</span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: "#9AB5AB" }}>
+                          {n.sentAt?.toDate ? n.sentAt.toDate().toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : ""}
+                        </span>
+                      </div>
+                      <p className="text-[11px] truncate" style={{ color: "#5F7D72" }}>{n.body}</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: "#9AB5AB" }}>
+                        {n.recipientCount} dispositivo{n.recipientCount !== 1 ? "s" : ""} · {
+                          n.audience === "confirmed" ? "Confirmados" :
+                          n.audience === "pending_payment" ? "Pago pendiente" : "Todos"
+                        }
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Modal confirmación de envío */}
+          {notifConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+              <div className="w-full max-w-sm rounded-2xl p-6 shadow-xl" style={{ background: "#FFFFFF" }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Bell size={16} style={{ color: "#0B8457" }} />
+                  <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Confirmar envío</h3>
+                </div>
+                <div className="rounded-xl border p-3 mb-4" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                  <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Título</p>
+                  <p className="text-sm font-bold mb-2" style={{ color: "#173A2E" }}>{notifTitle}</p>
+                  <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Mensaje</p>
+                  <p className="text-sm" style={{ color: "#173A2E" }}>{notifBody}</p>
+                  <p className="text-xs mt-2" style={{ color: "#9AB5AB" }}>
+                    Destinatarios: <strong style={{ color: "#086847" }}>
+                      {notifAudience === "confirmed" ? "Solo confirmados" :
+                       notifAudience === "pending_payment" ? "Solo con pago pendiente" : "Todos los inscriptos"}
+                    </strong>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setNotifConfirm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSendNotification}
+                    disabled={sendingNotif}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    style={{ background: "#0B8457" }}
+                  >
+                    {sendingNotif ? <><Loader2 size={13} className="animate-spin" /> Enviando…</> : <><Send size={13} /> Confirmar</>}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
