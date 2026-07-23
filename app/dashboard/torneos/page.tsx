@@ -88,8 +88,7 @@ export default function TorneosPage() {
   return (
     <DashboardLayout title="Torneos" wide>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <h1 className="text-2xl font-black" style={{ color: "#173A2E" }}>Torneos</h1>
+      <div className="flex justify-end mb-6">
         <a
           href="/dashboard/torneos/nueva"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold text-white transition-colors"
