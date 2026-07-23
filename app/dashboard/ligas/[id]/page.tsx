@@ -644,19 +644,17 @@ function buildStandings(liga: any) {
 
   const table: Record<string, any> = {};
   const init = (id: string, nombre: string) => {
-    if (!table[id]) table[id] = { id, nombre, pj:0, pg:0, pp:0, sf:0, sc2:0, gf:0, gc:0, pts:0, pen:0 };
+    if (!table[id]) table[id] = { id, nombre, pj:0, pg:0, pp:0, sf:0, sc2:0, gf:0, gc:0, pts:0, pen:0, reps:0 };
   };
-  const repUses: Record<string, number> = {};
-  (liga.fixture?.rounds ?? []).forEach((r: any) =>
-    (r.matches ?? []).forEach((m: any) =>
-      Object.keys(m.replacements ?? {}).forEach(k => {
-        const tid = k.startsWith("teamA") ? m.teamA?.id : m.teamB?.id;
-        if (tid) repUses[tid] = (repUses[tid] ?? 0) + 1;
-      })
-    )
-  );
   (liga.fixture?.rounds ?? []).forEach((round: any) => {
     (round.matches ?? []).forEach((m: any) => {
+      Object.keys(m.replacements ?? {}).forEach(k => {
+        const tid = k.startsWith("teamA") ? m.teamA?.id : m.teamB?.id;
+        if (tid) {
+          if (!table[tid]) init(tid, m.teamA?.label ?? m.teamB?.label ?? tid);
+          table[tid].reps = (table[tid].reps ?? 0) + 1;
+        }
+      });
       const res = m.result;
       if (!res?.winner || res.winner === "") return;
       const aId = m.teamA?.id ?? m.pair1Id ?? "A";
@@ -687,49 +685,80 @@ function buildStandings(liga: any) {
       table[bId].pj++; table[bId].sf+=bsets; table[bId].sc2+=asets; table[bId].gf+=bg; table[bId].gc+=ag;
     });
   });
-  Object.entries(repUses).forEach(([tid, uses]) => {
-    if(uses>penaltyQuota && table[tid]){
-      table[tid].pen = (uses-penaltyQuota)*penaltyPts;
-      table[tid].pts = Math.max(0, table[tid].pts - table[tid].pen);
+  Object.values(table).forEach((row: any) => {
+    const uses = row.reps ?? 0;
+    if (uses > penaltyQuota) {
+      row.pen = (uses - penaltyQuota) * penaltyPts;
+      row.pts = Math.max(0, row.pts - row.pen);
     }
   });
-  return Object.values(table).sort((a,b)=>b.pts-a.pts||(b.sf-b.sc2)-(a.sf-a.sc2)||(b.gf-b.gc)-(a.gf-a.gc));
+  return Object.values(table).sort((a: any, b: any) =>
+    b.pts - a.pts ||
+    (b.sf - b.sc2) - (a.sf - a.sc2) ||
+    b.sf - a.sf ||
+    (b.gf - b.gc) - (a.gf - a.gc) ||
+    (a.nombre ?? "").localeCompare(b.nombre ?? "")
+  );
 }
 
 function StandingsTable({rows}: {rows:any[]}) {
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-gray-100 text-xs font-bold text-pn-green uppercase">
-          <th className="px-5 py-2 text-left w-6">#</th>
-          <th className="px-2 py-2 text-left">Nombre</th>
-          <th className="px-2 py-2 text-center">Pts</th>
-          <th className="px-2 py-2 text-center">R</th>
-          <th className="px-2 py-2 text-center">PJ</th>
-          <th className="px-2 py-2 text-center">PG</th>
-          <th className="px-2 py-2 text-center">PP</th>
-          <th className="px-2 py-2 text-center hidden sm:table-cell">SF</th>
-          <th className="px-2 py-2 text-center hidden sm:table-cell">SC</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-50">
-        {rows.map((r,i)=>(
-          <tr key={i} className={i===0?"bg-pn-mint/30":""}>
-            <td className="px-5 py-2.5 text-xs font-black text-gray-400">{i+1}</td>
-            <td className="px-2 py-2.5 font-semibold text-pn-navy text-sm">
-              {i===0&&<Shield size={11} className="inline mr-1 text-pn-green"/>}{r.nombre}
-            </td>
-            <td className="px-2 py-2.5 text-center font-black text-pn-green">{r.pts}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-gray-400">{r.pen>0?`-${r.pen}`:"-"}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-gray-400">{r.pj}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-pn-green font-semibold">{r.pg}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-red-400">{r.pp}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-gray-400 hidden sm:table-cell">{r.sf}</td>
-            <td className="px-2 py-2.5 text-center text-xs text-gray-400 hidden sm:table-cell">{r.sc2}</td>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm" style={{minWidth: 540}}>
+        <thead>
+          <tr className="text-xs font-bold uppercase" style={{borderBottom:"2px solid #CFE7DC", color:"#5F7D72"}}>
+            <th className="pl-5 pr-3 py-3 text-left w-8">#</th>
+            <th className="px-2 py-3 text-left">Nombre</th>
+            <th className="px-2 py-3 text-center w-12" style={{color:"#086847"}}>Pts</th>
+            <th className="px-2 py-3 text-center w-10">R</th>
+            <th className="px-2 py-3 text-center w-10">PJ</th>
+            <th className="px-2 py-3 text-center w-10">PG</th>
+            <th className="px-2 py-3 text-center w-10">PP</th>
+            <th className="px-2 py-3 text-center w-10">SF</th>
+            <th className="px-2 py-3 text-center w-10">SC</th>
+            <th className="px-2 py-3 text-center w-12">DIF</th>
+            <th className="pr-5 pl-2 py-3 text-center w-12">DG</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r,i)=>{
+            const dif = (r.sf??0) - (r.sc2??0);
+            const dg  = (r.gf??0) - (r.gc??0);
+            const isFirst = i === 0;
+            return (
+              <tr
+                key={r.id ?? i}
+                style={{
+                  borderBottom: "1px solid #F0F7F4",
+                  background: isFirst ? "rgba(11,132,87,0.06)" : undefined,
+                }}
+              >
+                <td className="pl-5 pr-3 py-3 text-xs font-black" style={{color:"#5F7D72"}}>{i+1}</td>
+                <td className="px-2 py-3 font-semibold text-sm" style={{color: isFirst ? "#0B8457" : "#173A2E"}}>
+                  {isFirst && <Shield size={11} className="inline mr-1.5" style={{color:"#0B8457"}}/>}
+                  {r.nombre}
+                </td>
+                <td className="px-2 py-3 text-center font-black text-base" style={{color:"#086847"}}>{r.pts}</td>
+                <td className="px-2 py-3 text-center text-xs font-semibold" style={{color: (r.reps??0)>0 ? "#D97706" : "#5F7D72"}}>
+                  {r.reps ?? 0}
+                </td>
+                <td className="px-2 py-3 text-center text-xs" style={{color:"#5F7D72"}}>{r.pj}</td>
+                <td className="px-2 py-3 text-center text-xs font-semibold" style={{color:"#0B8457"}}>{r.pg}</td>
+                <td className="px-2 py-3 text-center text-xs" style={{color:"#E87070"}}>{r.pp}</td>
+                <td className="px-2 py-3 text-center text-xs" style={{color:"#5F7D72"}}>{r.sf}</td>
+                <td className="px-2 py-3 text-center text-xs" style={{color:"#5F7D72"}}>{r.sc2}</td>
+                <td className="px-2 py-3 text-center text-xs font-semibold" style={{color: dif>0?"#0B8457":dif<0?"#E87070":"#5F7D72"}}>
+                  {dif>0?`+${dif}`:dif}
+                </td>
+                <td className="pr-5 pl-2 py-3 text-center text-xs font-semibold" style={{color: dg>0?"#0B8457":dg<0?"#E87070":"#5F7D72"}}>
+                  {dg>0?`+${dg}`:dg}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1256,7 +1285,6 @@ export default function LigaDetailPage() {
           : "";
         const titularLinkedId = titularLinkedIdFromFixture || titularLinkedIdFromLiga;
         const titularNombre = `${entry.titular?.nombre ?? titularPlayer?.nombre ?? ""} ${entry.titular?.apellido ?? titularPlayer?.apellido ?? ""}`.trim();
-        console.log("[Remplazo] Titular:", titularNombre, "| linkedUserId:", titularLinkedId, "| desde fixture:", titularLinkedIdFromFixture, "| desde liga:", titularLinkedIdFromLiga);
         const replacementLinkedId = entry.replacement.linkedUserId ?? "";
         const replacementNombre = `${entry.replacement.nombre ?? ""} ${entry.replacement.apellido ?? ""}`.trim();
         if (titularLinkedId) {
@@ -1977,27 +2005,39 @@ export default function LigaDetailPage() {
               {tab==="posiciones" && (
                 <div>
                   {standings.length===0
-                    ? <p className="text-center text-gray-400 py-12">Todavía no hay resultados.</p>
+                    ? <p className="text-center py-12" style={{color:"#5F7D72"}}>Todavía no hay resultados cargados.</p>
                     : <>
                         {isIndividual
                           ? ["drive","reves"].map(lado=>{
                               const rows=standings.filter(r=>players.find((p:any)=>(p.teamA?.id===r.id||p.id===r.id)&&p.ladoJuego===lado));
                               if(rows.length===0) return null;
                               return (
-                                <div key={lado} className="rounded-2xl overflow-hidden border border-gray-100 mb-4">
-                                  <div className="px-5 py-3 font-black text-pn-navy capitalize bg-gray-50">{lado==="drive"?"Drive":"Reves"}</div>
+                                <div key={lado} className="rounded-[22px] overflow-hidden mb-4" style={{border:"1px solid #CFE7DC", background:"#fff"}}>
+                                  <div className="px-5 py-3 font-black" style={{color:"#173A2E", background:"#F6FBF8", borderBottom:"1px solid #CFE7DC", fontSize:15}}>
+                                    {lado==="drive"?"Drive":"Revés"}
+                                  </div>
                                   <StandingsTable rows={rows}/>
                                 </div>
                               );
                             })
-                          : <div className="rounded-2xl overflow-hidden border border-gray-100">
+                          : <div className="rounded-[22px] overflow-hidden" style={{border:"1px solid #CFE7DC", background:"#fff"}}>
                               <StandingsTable rows={standings}/>
                             </div>
                         }
-                        <div className="flex gap-3 mt-3 text-xs text-gray-400 flex-wrap">
-                          {[["Pts","Puntos"],["R","Reemplazos"],["PJ","Jugados"],["PG","Ganados"]].map(([k,v])=>(
-                            <span key={k}><b>{k}</b>: {v}</span>
-                          ))}
+                        <div className="mt-4 rounded-2xl px-5 py-4" style={{background:"#F6FBF8", border:"1px solid #CFE7DC"}}>
+                          <p className="text-xs font-bold mb-2" style={{color:"#173A2E"}}>Referencias</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5">
+                            {[
+                              ["Pts","Puntos"],["R","Reemplazos usados"],["PJ","Partidos jugados"],
+                              ["PG","Partidos ganados"],["PP","Partidos perdidos"],
+                              ["SF","Sets a favor"],["SC","Sets en contra"],
+                              ["DIF","Diferencia de sets"],["DG","Diferencia de games"],
+                            ].map(([k,v])=>(
+                              <span key={k} className="text-xs" style={{color:"#5F7D72"}}>
+                                <span className="font-bold" style={{color:"#173A2E"}}>{k}</span>: {v}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </>
                   }
