@@ -1266,7 +1266,7 @@ export default function LigaDetailPage() {
             `📅 ${whenLine}`,
             complejoNombre ? `🏟️ ${complejoNombre}` : "",
             ``,
-            `${replacementNombre} jugará en tu lugar. ¡Gracias por tu comprensión!`,
+            `${replacementNombre} jugará en tu lugar. ¡Nos vemos en la próxima fecha! 🎾`,
           ].filter(l => l !== undefined && !(l === "" && !complejoNombre)).join("\n");
           await sendSystemMsg(db, titularLinkedId, titularNombre, lines);
         }
