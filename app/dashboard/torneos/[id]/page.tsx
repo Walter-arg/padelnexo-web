@@ -10,8 +10,8 @@ import { auth, db } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  ChevronLeft, Users, Grid3X3, GitBranch, CreditCard, Settings,
-  Trophy, CheckCircle, Clock, XCircle, PencilLine, Trash2,
+  ChevronLeft, Users, GitBranch, CreditCard, Settings,
+  Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
 } from "lucide-react";
 
@@ -127,7 +127,7 @@ function formatDate(ms?: number) {
   return new Date(ms).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
 }
 
-type Tab = "inscripciones" | "grupos" | "bracket" | "pagos" | "gestion";
+type Tab = "inscripciones" | "fixture" | "pagos" | "gestion";
 
 // ── Modal resultado ─────────────────────────────────────────────────────────
 function MatchResultModal({ match, onClose, onSave }: {
@@ -784,14 +784,46 @@ export default function TorneoDetailPage() {
   const hasBracket = bracketMatches.length > 0;
   const hasGrupos = grupos.length > 0 || groupMatches.length > 0;
 
-  const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
-    { id: "inscripciones", label: "Inscripciones", icon: Users,
-      badge: registrations.length > 0 ? `${registrations.length}` : undefined },
-    ...(hasGrupos  ? [{ id: "grupos"   as Tab, label: "Grupos",   icon: Grid3X3 }] : []),
-    ...(hasBracket ? [{ id: "bracket"  as Tab, label: "Bracket",  icon: GitBranch }] : []),
-    ...(torneo.entryFee > 0 ? [{ id: "pagos" as Tab, label: "Pagos", icon: CreditCard }] : []),
-    { id: "gestion", label: "Gestión", icon: Settings },
+  const modules: { id: Tab; label: string; description: string; icon: any; color: string; lightBg: string; lightText: string }[] = [
+    {
+      id: "inscripciones",
+      label: "Inscripciones",
+      description: registrations.length > 0 ? `${registrations.length} pareja${registrations.length !== 1 ? "s" : ""} anotada${registrations.length !== 1 ? "s" : ""}` : "Sin inscriptos aún",
+      icon: Users,
+      color: "bg-blue-600",
+      lightBg: "bg-blue-50",
+      lightText: "text-blue-700",
+    },
+    {
+      id: "fixture",
+      label: "Fixture",
+      description: hasGrupos && hasBracket ? "Zonas + Bracket" : hasGrupos ? "Zonas de grupos" : hasBracket ? "Bracket eliminatorio" : "Sin fixture generado",
+      icon: GitBranch,
+      color: "bg-emerald-600",
+      lightBg: "bg-emerald-50",
+      lightText: "text-emerald-700",
+    },
+    {
+      id: "pagos",
+      label: "Pagos",
+      description: torneo.entryFee > 0 ? `Cuota $ ${torneo.entryFee}` : "Sin cuota de inscripción",
+      icon: CreditCard,
+      color: "bg-amber-500",
+      lightBg: "bg-amber-50",
+      lightText: "text-amber-700",
+    },
+    {
+      id: "gestion",
+      label: "Gestión",
+      description: "Estado y configuración",
+      icon: Settings,
+      color: "bg-slate-600",
+      lightBg: "bg-slate-50",
+      lightText: "text-slate-700",
+    },
   ];
+
+  const activeModule = modules.find(m => m.id === tab) ?? modules[0];
 
   // Agrupar bracket por ronda
   const bracketByRound: Record<number, any[]> = {};
@@ -892,773 +924,821 @@ export default function TorneoDetailPage() {
         </div>
       )}
 
-      {/* ── Header card ────────────────────────────────────────────────── */}
-      <div className="mb-4">
-        <a href="/dashboard/torneos" className="inline-flex items-center gap-1 text-sm mb-4 transition-colors hover:opacity-70" style={{ color: "#5F7D72" }}>
-          <ChevronLeft size={15} /> Todos los torneos
-        </a>
+      {/* ── Back link ─────────────────────────────────────────────────── */}
+      <a href="/dashboard/torneos" className="inline-flex items-center gap-1 text-sm mb-4 transition-colors hover:opacity-70" style={{ color: "#5F7D72" }}>
+        <ChevronLeft size={15} /> Todos los torneos
+      </a>
 
-        <div className="rounded-[22px] p-4 px-6 border relative" style={{ background: "#FFFFFF", borderColor: "rgba(31,171,137,0.12)" }}>
-          <div className="relative flex items-center justify-center" style={{ minHeight: 56 }}>
-            {/* Logo organizador */}
-            {torneo.organizerLogoUrl ? (
-              <img src={torneo.organizerLogoUrl} alt="Logo" className="absolute left-0 top-0.5 rounded-full border object-cover" style={{ width: 42, height: 42, borderColor: "#D5EADF" }} />
+      {/* ── Two-column layout ──────────────────────────────────────────── */}
+      <div className="flex gap-6 items-start">
+
+        {/* ── LEFT SIDEBAR ───────────────────────────────────────────────── */}
+        <aside className="hidden lg:flex flex-col gap-4 w-72 flex-shrink-0 sticky top-20">
+          <div className="rounded-3xl p-6 border" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+
+            {/* Afiche / cover */}
+            {torneo.coverImage ? (
+              <button
+                onClick={() => setPosterOpen(true)}
+                className="w-full mb-4 rounded-2xl overflow-hidden"
+                style={{ height: 160 }}
+              >
+                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-cover" />
+              </button>
             ) : (
-              <div className="absolute left-0 top-0.5 rounded-full border flex items-center justify-center" style={{ width: 42, height: 42, background: "#F3FAF6", borderColor: "#D5EADF" }}>
-                <Shield size={18} style={{ color: STATUS_META[torneo.status]?.accent ?? "#0B8457" }} />
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: "#F3FAF6", border: "1px solid #D5EADF" }}>
+                <Trophy size={24} style={{ color: "#0B8457" }} />
               </div>
             )}
 
-            {/* Título */}
-            <div className="text-center px-14">
-              <p className="text-[11px] font-black uppercase mb-0.5" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
-              <h1 className="font-bold leading-tight" style={{ fontFamily: "Georgia, serif", fontSize: 22, color: titleColor }}>
-                {torneo.name ?? torneo.nombre}
-              </h1>
-              <div className="mt-1">
+            {/* Nombre */}
+            <p className="text-[10px] font-black uppercase mb-1" style={{ color: "#086847", letterSpacing: "1px" }}>TORNEO</p>
+            <h2 className="font-bold text-xl leading-tight mb-3" style={{ fontFamily: "Georgia, serif", color: titleColor }}>
+              {torneo.name ?? torneo.nombre}
+            </h2>
+
+            {/* Status badge */}
+            <div className="mb-5">
+              <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
+            </div>
+
+            {/* Categoría */}
+            {(torneo.compositionLabel ?? torneo.categoria) && (
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#EEF5FF" }}>
+                  <Shield size={13} style={{ color: "#356CB8" }} />
+                </div>
+                <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>
+                  {torneo.compositionLabel ?? torneo.categoria}
+                </span>
+              </div>
+            )}
+
+            {/* Fechas */}
+            {(torneo.startDateMillis || torneo.endDateMillis) && (
+              <div className="flex items-start gap-2.5 mb-3">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: "#F2F0FF" }}>
+                  <Clock size={13} style={{ color: "#6751B6" }} />
+                </div>
+                <span className="text-sm" style={{ color: "#5F7D72" }}>
+                  {formatDate(torneo.startDateMillis)}{torneo.endDateMillis && formatDate(torneo.endDateMillis) !== formatDate(torneo.startDateMillis) ? ` — ${formatDate(torneo.endDateMillis)}` : ""}
+                </span>
+              </div>
+            )}
+
+            {/* Sede con link a Maps */}
+            {(() => {
+              const venue = torneo.venues?.[0];
+              const vname = venue?.name ?? torneo.complejo?.nombre ?? "";
+              const address = venue?.address ?? torneo.complejo?.direccion ?? "";
+              const q = encodeURIComponent(address || vname);
+              if (!vname && !address) return null;
+              return (
+                <div className="flex items-start gap-2.5 mb-3">
+                  <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: "#EAF6FF" }}>
+                    <MapPin size={13} style={{ color: "#1C76A7" }} />
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${q}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-semibold underline underline-offset-2 hover:opacity-70 transition-opacity"
+                    style={{ color: "#1C76A7" }}
+                  >
+                    {vname || address}
+                  </a>
+                </div>
+              );
+            })()}
+
+            {/* Inscriptos */}
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#F6FBF8" }}>
+                <Users size={13} style={{ color: "#0B8457" }} />
+              </div>
+              <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>
+                {registrations.length} inscripto{registrations.length !== 1 ? "s" : ""}
+                {(torneo.maxPairs ?? 0) > 0 ? ` / ${torneo.maxPairs}` : ""}
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        {/* ── RIGHT CONTENT ──────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0">
+
+          {/* Mobile header (lg:hidden) */}
+          <div className="lg:hidden bg-white rounded-2xl p-4 mb-5 border" style={{ borderColor: "#CFE7DC" }}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#F3FAF6", border: "1px solid #D5EADF" }}>
+                <Trophy size={16} style={{ color: "#0B8457" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-bold text-base truncate leading-tight mb-1" style={{ fontFamily: "Georgia, serif", color: titleColor }}>
+                  {torneo.name ?? torneo.nombre}
+                </h2>
                 <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
               </div>
             </div>
-
-            {/* Afiche */}
-            {torneo.coverImage && (
-              <button onClick={() => setPosterOpen(true)} className="absolute right-0 top-0 rounded-xl border overflow-hidden" style={{ width: 36, height: 46, borderColor: "#D5EADF" }}>
-                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-cover" />
-              </button>
-            )}
           </div>
 
-          {/* Meta row */}
-          <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
-            {(torneo.compositionLabel ?? torneo.categoria) && (
-              <span className="text-xs font-bold" style={{ color: "#086847" }}>
-                🏅 {torneo.compositionLabel ?? torneo.categoria}
-              </span>
-            )}
-            {(torneo.startDateMillis || torneo.endDateMillis) && (
-              <>
-                <span style={{ color: "#086847" }}>·</span>
-                <span className="text-xs font-bold" style={{ color: "#086847" }}>
-                  📅 {formatDate(torneo.startDateMillis)}{torneo.endDateMillis ? ` — ${formatDate(torneo.endDateMillis)}` : ""}
-                </span>
-              </>
-            )}
-            {(() => {
-              const venue = torneo.venues?.[0];
-              const name    = venue?.name ?? torneo.complejo?.nombre ?? "";
-              const address = venue?.address ?? torneo.complejo?.direccion ?? "";
-              const query   = encodeURIComponent(address || name);
-              if (!name && !address) return null;
+          {/* 2×2 Module grid */}
+          <div className="grid grid-cols-2 gap-3 mb-6" data-print-hide>
+            {modules.map(m => {
+              const isActive = tab === m.id;
               return (
-                <>
-                  <span style={{ color: "#086847" }}>·</span>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${query}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-bold underline underline-offset-2 transition-opacity hover:opacity-70"
-                    style={{ color: "#086847" }}
-                  >
-                    <MapPin size={12} />
-                    {name || address}
-                  </a>
-                </>
-              );
-            })()}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Tabs ───────────────────────────────────────────────────────── */}
-      <div data-print-hide className="flex gap-1 mb-6 overflow-x-auto pb-1">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap border transition-all flex-shrink-0"
-            style={tab === t.id
-              ? { background: "#086847", color: "#FFFFFF", borderColor: "#086847" }
-              : { background: "#FFFFFF", color: "#5F7D72", borderColor: "#CFE7DC" }}
-          >
-            <t.icon size={14} />
-            {t.label}
-            {t.badge && (
-              <span className="ml-1 text-[10px] font-black rounded-full px-1.5" style={tab === t.id ? { background: "rgba(255,255,255,0.25)" } : { background: "#F0F7F4" }}>
-                {t.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* ═══════════════════════════════════════════════════════════════════
-          TAB: INSCRIPCIONES
-      ═══════════════════════════════════════════════════════════════════ */}
-      {tab === "inscripciones" && (
-        <div>
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h2 className="text-base font-black" style={{ color: "#173A2E" }}>
-              Parejas inscriptas
-              {registrations.length > 0 && (
-                <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F0F7F4", color: "#5F7D72" }}>
-                  {registrations.length}
-                </span>
-              )}
-            </h2>
-            <div className="flex items-center gap-2">
-              {registrations.length > 0 && (
                 <button
-                  data-print-hide
-                  onClick={handlePrintList}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
-                  style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
+                  key={m.id}
+                  onClick={() => setTab(m.id)}
+                  className={`group relative rounded-2xl p-5 text-left transition-all duration-200 border-2 ${
+                    isActive
+                      ? `${m.lightBg} border-current ${m.lightText} shadow-md`
+                      : "bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm"
+                  }`}
                 >
-                  <Printer size={14} /> Imprimir
+                  {isActive && <div className={`absolute top-3 right-3 w-2 h-2 rounded-full ${m.color}`} />}
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 ${isActive ? m.color : "bg-slate-100 group-hover:bg-slate-200"}`}>
+                    <m.icon size={22} className={isActive ? "text-white" : "text-gray-500"} />
+                  </div>
+                  <div className="font-black text-base mb-0.5" style={{ color: isActive ? undefined : "#173A2E" }}>
+                    {m.label}
+                  </div>
+                  <div className={`text-xs font-medium ${isActive ? "opacity-70" : "text-gray-400"}`}>
+                    {m.description}
+                  </div>
                 </button>
-              )}
-              <button
-                data-print-hide
-                onClick={() => setRegModal({ open: true })}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold text-white"
-                style={{ background: "#0B8457" }}
-              >
-                <Plus size={14} /> Inscribir pareja
-              </button>
-            </div>
+              );
+            })}
           </div>
 
-          {/* Tabla para impresión (solo visible al imprimir) */}
-          {registrations.length > 0 && (
-            <table className="print-reg-table">
-              <thead>
-                <tr>
-                  <th>#</th><th>Jugador 1</th><th>Jugador 2</th><th>Estado</th><th>Zona</th>
-                </tr>
-              </thead>
-              <tbody>
-                {registrations.map((reg, ri) => (
-                  <tr key={reg.id}>
-                    <td>{ri + 1}</td>
-                    <td>{reg.player1Name ?? "—"}</td>
-                    <td>{reg.player2Name ?? "—"}</td>
-                    <td>{REG_STATUS_META[reg.status]?.label ?? reg.status}</td>
-                    <td>{grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {registrations.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscripciones todavía.</p>
-          ) : (
-            <div data-print-hide className="flex flex-col gap-3">
-              {registrations.map((reg, ri) => {
-                const regMeta = REG_STATUS_META[reg.status ?? "pending"];
-                return (
-                  <div key={reg.id} className="rounded-[18px] border p-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                    {/* Cabecera */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase" style={{ color: "#5F7D72" }}>PAREJA {ri + 1}</span>
-                        <span className="inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
-                          style={{ background: regMeta.tint, borderColor: regMeta.border, color: regMeta.accent }}>
-                          {regMeta.label}
-                        </span>
-                        {reg.groupId && grupos.find(g => g.id === reg.groupId) && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                            Zona {grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => setRegModal({ open: true, initial: reg })}
-                          className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
-                          style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
-                          <PencilLine size={13} style={{ color: "#086847" }} />
-                        </button>
-                        <button onClick={() => setDeleteConfirm(reg.id)}
-                          className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
-                          style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
-                          <Trash2 size={13} style={{ color: "#B24343" }} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Jugadores */}
-                    <div className="flex flex-col gap-1.5 mb-2">
-                      {[
-                        { name: reg.player1Name, label: "Jugador 1" },
-                        { name: reg.player2Name, label: "Jugador 2" },
-                      ].map((pl, pi) => (
-                        <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2"
-                          style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0"
-                            style={{ background: "#EFF2F4", color: "#5F7D72" }}>
-                            {pl.name ? pl.name[0].toUpperCase() : "?"}
-                          </div>
-                          <div>
-                            <p className="text-[13px] font-bold" style={{ color: "#173A2E" }}>
-                              {pl.name ?? <span style={{ color: "#9CA3AF", fontStyle: "italic" }}>Sin asignar</span>}
-                            </p>
-                            <p className="text-[11px]" style={{ color: "#5F7D72" }}>{pl.label}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Chips de acción */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {reg.availability ? (
-                        <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                          style={{ background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }}>
-                          <CheckCircle size={12} /> Disponibilidad OK
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                          style={{ background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                          <Clock size={12} /> Disponibilidad pendiente
-                        </span>
-                      )}
-
-                      {reg.withdrawalStatus === "requested" && (
-                        <button onClick={() => confirmWithdrawal(reg.id)}
-                          className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
-                          style={{ background: "#C27A1C", borderColor: "#C27A1C" }}>
-                          Confirmar baja
-                        </button>
-                      )}
-
-                      {reg.status !== "confirmed" && reg.withdrawalStatus !== "confirmed" && (
-                        <button onClick={() => confirmRegistration(reg.id)}
-                          className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
-                          style={{ background: "#086847", borderColor: "#086847" }}>
-                          <CheckCircle size={12} /> Confirmar pareja
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Content panel */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Colored header strip */}
+            <div className={`px-6 py-4 flex items-center gap-3 border-b border-gray-100 ${activeModule.lightBg}`} data-print-hide>
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${activeModule.color}`}>
+                <activeModule.icon size={16} className="text-white" />
+              </div>
+              <div>
+                <h2 className="font-black text-base" style={{ color: "#173A2E" }}>{activeModule.label}</h2>
+                <p className="text-xs" style={{ color: "#5F7D72" }}>{activeModule.description}</p>
+              </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          TAB: GRUPOS
-      ═══════════════════════════════════════════════════════════════════ */}
-      {tab === "grupos" && (
-        <div className="flex flex-col gap-4">
-          {grupos.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>Las zonas todavía no fueron generadas.</p>
-          ) : (
-            grupos.map((g) => {
-              const gMatches = matches.filter(m => m.groupId === g.id);
-              return (
-                <div key={g.id} className="rounded-[22px] overflow-hidden border" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                  {/* Header grupo */}
-                  <div className="px-5 py-3 font-black text-base border-b" style={{ color: "#173A2E", background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                    Zona {g.name ?? g.nombre}
+            {/* Content body */}
+            <div className="p-6">
+
+              {/* ═══════════════════════════════════════════════════════
+                  INSCRIPCIONES
+              ═══════════════════════════════════════════════════════ */}
+              {tab === "inscripciones" && (
+                <div>
+                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <h3 className="text-base font-black" style={{ color: "#173A2E" }}>
+                      Parejas inscriptas
+                      {registrations.length > 0 && (
+                        <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F0F7F4", color: "#5F7D72" }}>
+                          {registrations.length}
+                        </span>
+                      )}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {registrations.length > 0 && (
+                        <button
+                          data-print-hide
+                          onClick={handlePrintList}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
+                          style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
+                        >
+                          <Printer size={14} /> Imprimir
+                        </button>
+                      )}
+                      <button
+                        data-print-hide
+                        onClick={() => setRegModal({ open: true })}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold text-white"
+                        style={{ background: "#0B8457" }}
+                      >
+                        <Plus size={14} /> Inscribir pareja
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Partidos */}
-                  <div className="px-5 py-4">
-                    <p className="text-xs font-bold uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Partidos</p>
-                    {gMatches.length === 0 ? (
-                      <p className="text-xs italic" style={{ color: "#5F7D72" }}>Sin partidos todavía.</p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {gMatches.map(m => {
-                          const completed = m.status === "completed";
-                          const aWon = completed && m.winnerPairId === (m.sideARef ?? "");
-                          const bWon = completed && m.winnerPairId === (m.sideBRef ?? "");
-                          return (
-                            <div key={m.id} className="flex items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "#F0F7F4" }}>
-                              <span className="flex-1 text-right text-sm font-semibold truncate" style={{ color: aWon ? "#0B8457" : "#173A2E", fontWeight: aWon ? 800 : 500 }}>
-                                {m.sideALabel ?? "TBD"}
-                              </span>
-                              {completed ? (
-                                <span className="text-xs font-black px-2 py-1 rounded-lg text-white min-w-[52px] text-center" style={{ background: "#173A2E" }}>
-                                  {m.scoreText || (m.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ")) || "•"}
+                  {/* Tabla para impresión */}
+                  {registrations.length > 0 && (
+                    <table className="print-reg-table">
+                      <thead>
+                        <tr>
+                          <th>#</th><th>Jugador 1</th><th>Jugador 2</th><th>Estado</th><th>Zona</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registrations.map((reg, ri) => (
+                          <tr key={reg.id}>
+                            <td>{ri + 1}</td>
+                            <td>{reg.player1Name ?? "—"}</td>
+                            <td>{reg.player2Name ?? "—"}</td>
+                            <td>{REG_STATUS_META[reg.status]?.label ?? reg.status}</td>
+                            <td>{grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {registrations.length === 0 ? (
+                    <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscripciones todavía.</p>
+                  ) : (
+                    <div data-print-hide className="flex flex-col gap-3">
+                      {registrations.map((reg, ri) => {
+                        const regMeta = REG_STATUS_META[reg.status ?? "pending"];
+                        return (
+                          <div key={reg.id} className="rounded-[18px] border p-3" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-black uppercase" style={{ color: "#5F7D72" }}>PAREJA {ri + 1}</span>
+                                <span className="inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
+                                  style={{ background: regMeta.tint, borderColor: regMeta.border, color: regMeta.accent }}>
+                                  {regMeta.label}
+                                </span>
+                                {reg.groupId && grupos.find(g => g.id === reg.groupId) && (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                                    Zona {grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button onClick={() => setRegModal({ open: true, initial: reg })}
+                                  className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
+                                  style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
+                                  <PencilLine size={13} style={{ color: "#086847" }} />
+                                </button>
+                                <button onClick={() => setDeleteConfirm(reg.id)}
+                                  className="rounded-full border p-1.5 hover:opacity-70 transition-opacity"
+                                  style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
+                                  <Trash2 size={13} style={{ color: "#B24343" }} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5 mb-2">
+                              {[
+                                { name: reg.player1Name, label: "Jugador 1" },
+                                { name: reg.player2Name, label: "Jugador 2" },
+                              ].map((pl, pi) => (
+                                <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2"
+                                  style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0"
+                                    style={{ background: "#EFF2F4", color: "#5F7D72" }}>
+                                    {pl.name ? pl.name[0].toUpperCase() : "?"}
+                                  </div>
+                                  <div>
+                                    <p className="text-[13px] font-bold" style={{ color: "#173A2E" }}>
+                                      {pl.name ?? <span style={{ color: "#9CA3AF", fontStyle: "italic" }}>Sin asignar</span>}
+                                    </p>
+                                    <p className="text-[11px]" style={{ color: "#5F7D72" }}>{pl.label}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {reg.availability ? (
+                                <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
+                                  style={{ background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }}>
+                                  <CheckCircle size={12} /> Disponibilidad OK
                                 </span>
                               ) : (
-                                <span className="text-xs font-black px-2 py-1 rounded-lg min-w-[52px] text-center" style={{ background: "#F0F7F4", color: "#5F7D72" }}>vs</span>
+                                <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
+                                  style={{ background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
+                                  <Clock size={12} /> Disponibilidad pendiente
+                                </span>
                               )}
-                              <span className="flex-1 text-sm font-semibold truncate" style={{ color: bWon ? "#0B8457" : "#173A2E", fontWeight: bWon ? 800 : 500 }}>
-                                {m.sideBLabel ?? "TBD"}
-                              </span>
-                              <button
-                                onClick={() => setMatchModal(m)}
-                                className="text-[11px] font-bold px-2.5 py-1 rounded-full border flex-shrink-0 transition-colors"
-                                style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
-                              >
-                                {completed ? "Editar" : "Resultado"}
-                              </button>
+                              {reg.withdrawalStatus === "requested" && (
+                                <button onClick={() => confirmWithdrawal(reg.id)}
+                                  className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
+                                  style={{ background: "#C27A1C", borderColor: "#C27A1C" }}>
+                                  Confirmar baja
+                                </button>
+                              )}
+                              {reg.status !== "confirmed" && reg.withdrawalStatus !== "confirmed" && (
+                                <button onClick={() => confirmRegistration(reg.id)}
+                                  className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
+                                  style={{ background: "#086847", borderColor: "#086847" }}>
+                                  <CheckCircle size={12} /> Confirmar pareja
+                                </button>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Standings */}
-                  {(g.standings ?? []).length > 0 && (
-                    <div className="px-5 pb-4">
-                      <p className="text-xs font-bold uppercase mb-2" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Posiciones</p>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs" style={{ minWidth: 340 }}>
-                          <thead>
-                            <tr className="text-xs" style={{ borderBottom: "2px solid #CFE7DC", color: "#5F7D72" }}>
-                              <th className="py-2 text-left w-6">#</th>
-                              <th className="py-2 text-left">Pareja</th>
-                              <th className="py-2 text-center w-10" style={{ color: "#086847" }}>Pts</th>
-                              <th className="py-2 text-center w-10">PJ</th>
-                              <th className="py-2 text-center w-10">PG</th>
-                              <th className="py-2 text-center w-10">PP</th>
-                              <th className="py-2 text-center w-10">SF</th>
-                              <th className="py-2 text-center w-10">SC</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {g.standings.map((s: any, si: number) => (
-                              <tr key={s.pairId ?? si} style={{ borderBottom: "1px solid #F0F7F4", background: si === 0 ? "rgba(11,132,87,0.05)" : undefined }}>
-                                <td className="py-2 font-black" style={{ color: "#5F7D72" }}>{si + 1}</td>
-                                <td className="py-2 font-semibold truncate max-w-[120px]" style={{ color: si === 0 ? "#0B8457" : "#173A2E" }}>
-                                  {si === 0 && <Shield size={10} className="inline mr-1" style={{ color: "#0B8457" }} />}
-                                  {s.pairLabel}
-                                  {s.qualified && (
-                                    <span className="ml-1.5 text-[9px] font-black rounded-full px-1.5 py-0.5" style={{ background: "#CFF4D8", color: "#0F5F36" }}>
-                                      Clasifica
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2 text-center font-black" style={{ color: "#086847" }}>{s.points ?? 0}</td>
-                                <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.played ?? 0}</td>
-                                <td className="py-2 text-center font-semibold" style={{ color: "#0B8457" }}>{s.won ?? 0}</td>
-                                <td className="py-2 text-center" style={{ color: "#E87070" }}>{s.lost ?? 0}</td>
-                                <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsWon ?? 0}</td>
-                                <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsLost ?? 0}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════════
-          TAB: BRACKET
-      ═══════════════════════════════════════════════════════════════════ */}
-      {tab === "bracket" && (
-        <div>
-          {bracketRounds.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El bracket todavía no fue generado.</p>
-          ) : (
-            <BracketBoard
-              rounds={bracketRounds}
-              onMatchClick={(m) => setMatchModal(m)}
-              printScale={bracketScale}
-              onPrint={handlePrintBracket}
-            />
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════════
-          TAB: PAGOS
-      ═══════════════════════════════════════════════════════════════════ */}
-      {tab === "pagos" && (
-        <div>
-          {/* Info de pago */}
-          {torneo.entryFee > 0 && (
-            <div className="rounded-xl border p-3 mb-4 flex flex-wrap gap-4 text-sm" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-              <span className="font-bold" style={{ color: "#173A2E" }}>Cuota: <span style={{ color: "#0B8457" }}>$ {torneo.entryFee}</span></span>
-              {torneo.paymentMethods?.length > 0 && (
-                <span style={{ color: "#5F7D72" }}>Métodos: {torneo.paymentMethods.join(", ")}</span>
               )}
-              {torneo.paymentAlias && (
-                <span style={{ color: "#5F7D72" }}>Alias: <strong style={{ color: "#173A2E" }}>{torneo.paymentAlias}</strong></span>
-              )}
-            </div>
-          )}
 
-          {/* Contadores */}
-          {registrations.length > 0 && (() => {
-            const allPayments = registrations.flatMap(r => r.payments ?? []);
-            const approved = allPayments.filter(p => p.status === "approved").length;
-            const inReview = allPayments.filter(p => p.status === "in_review").length;
-            const pending  = allPayments.filter(p => !p.status || p.status === "pending").length;
-            return (
-              <div className="flex gap-2 mb-4 flex-wrap">
-                <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#EEF8F1", borderColor: "#C5E5CF", color: "#1F7A43" }}>Aprobados {approved}</span>
-                <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#FFF7E3", borderColor: "#E8D59A", color: "#9B6A00" }}>En revisión {inReview}</span>
-                <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#F3F5F7", borderColor: "#D4DBE2", color: "#667482" }}>Pendientes {pending}</span>
-              </div>
-            );
-          })()}
+              {/* ═══════════════════════════════════════════════════════
+                  FIXTURE (Zonas + Bracket)
+              ═══════════════════════════════════════════════════════ */}
+              {tab === "fixture" && (
+                <div>
+                  {!hasGrupos && !hasBracket && (
+                    <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El fixture todavía no fue generado.</p>
+                  )}
 
-          {registrations.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscriptos todavía.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {registrations.filter(r => r.status !== "rejected").map((reg) => {
-                const payments: any[] = reg.payments ?? [];
-                return (
-                  <div key={reg.id} className="rounded-[18px] border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="font-bold text-sm" style={{ color: "#173A2E" }}>{reg.pairLabel ?? reg.player1Name}</p>
-                      <span className="inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
-                        style={{ background: REG_STATUS_META[reg.status]?.tint, borderColor: REG_STATUS_META[reg.status]?.border, color: REG_STATUS_META[reg.status]?.accent }}>
-                        {REG_STATUS_META[reg.status]?.label ?? reg.status}
-                      </span>
-                    </div>
-
-                    {payments.length === 0 ? (
-                      <p className="text-xs" style={{ color: "#5F7D72" }}>Sin datos de pago.</p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {payments.map((pay, pi) => {
-                          const pm = PAY_STATUS_META[pay.status ?? "pending"];
+                  {/* Zonas */}
+                  {hasGrupos && (
+                    <div className={hasBracket ? "mb-8" : ""}>
+                      {hasBracket && (
+                        <p className="text-xs font-black uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.8px" }}>ZONAS DE GRUPOS</p>
+                      )}
+                      <div className="flex flex-col gap-4">
+                        {grupos.map((g) => {
+                          const gMatches = matches.filter(m => m.groupId === g.id);
                           return (
-                            <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2 flex-wrap" style={{ borderColor: "#F0F7F4" }}>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold" style={{ color: "#173A2E" }}>{pay.playerName ?? `Jugador ${pi + 1}`}</p>
-                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full border inline-block mt-0.5"
-                                  style={{ background: pm.tint, borderColor: pm.border, color: pm.accent }}>
-                                  {pm.label}
-                                </span>
+                            <div key={g.id} className="rounded-[22px] overflow-hidden border" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                              <div className="px-5 py-3 font-black text-base border-b" style={{ color: "#173A2E", background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                                Zona {g.name ?? g.nombre}
                               </div>
-
-                              {/* Selector de método */}
-                              {(!pay.method || pay.status === "pending") && (
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => handleSetPaymentMethod(reg, pi, "efectivo")}
-                                    className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border transition-colors"
-                                    style={pay.method === "efectivo" ? { background: "#086847", color: "#FFFFFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}
-                                  >
-                                    <Banknote size={11} /> Efectivo
-                                  </button>
-                                  <button
-                                    onClick={() => handleSetPaymentMethod(reg, pi, "transferencia")}
-                                    className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border transition-colors"
-                                    style={pay.method === "transferencia" ? { background: "#086847", color: "#FFFFFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}
-                                  >
-                                    <ArrowLeftRight size={11} /> Transfer.
-                                  </button>
+                              <div className="px-5 py-4">
+                                <p className="text-xs font-bold uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Partidos</p>
+                                {gMatches.length === 0 ? (
+                                  <p className="text-xs italic" style={{ color: "#5F7D72" }}>Sin partidos todavía.</p>
+                                ) : (
+                                  <div className="flex flex-col gap-2">
+                                    {gMatches.map(m => {
+                                      const completed = m.status === "completed";
+                                      const aWon = completed && m.winnerPairId === (m.sideARef ?? "");
+                                      const bWon = completed && m.winnerPairId === (m.sideBRef ?? "");
+                                      return (
+                                        <div key={m.id} className="flex items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "#F0F7F4" }}>
+                                          <span className="flex-1 text-right text-sm font-semibold truncate" style={{ color: aWon ? "#0B8457" : "#173A2E", fontWeight: aWon ? 800 : 500 }}>
+                                            {m.sideALabel ?? "TBD"}
+                                          </span>
+                                          {completed ? (
+                                            <span className="text-xs font-black px-2 py-1 rounded-lg text-white min-w-[52px] text-center" style={{ background: "#173A2E" }}>
+                                              {m.scoreText || (m.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ")) || "•"}
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs font-black px-2 py-1 rounded-lg min-w-[52px] text-center" style={{ background: "#F0F7F4", color: "#5F7D72" }}>vs</span>
+                                          )}
+                                          <span className="flex-1 text-sm font-semibold truncate" style={{ color: bWon ? "#0B8457" : "#173A2E", fontWeight: bWon ? 800 : 500 }}>
+                                            {m.sideBLabel ?? "TBD"}
+                                          </span>
+                                          <button
+                                            onClick={() => setMatchModal(m)}
+                                            className="text-[11px] font-bold px-2.5 py-1 rounded-full border flex-shrink-0 transition-colors"
+                                            style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
+                                          >
+                                            {completed ? "Editar" : "Resultado"}
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                              {(g.standings ?? []).length > 0 && (
+                                <div className="px-5 pb-4">
+                                  <p className="text-xs font-bold uppercase mb-2" style={{ color: "#5F7D72", letterSpacing: "0.5px" }}>Posiciones</p>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs" style={{ minWidth: 340 }}>
+                                      <thead>
+                                        <tr className="text-xs" style={{ borderBottom: "2px solid #CFE7DC", color: "#5F7D72" }}>
+                                          <th className="py-2 text-left w-6">#</th>
+                                          <th className="py-2 text-left">Pareja</th>
+                                          <th className="py-2 text-center w-10" style={{ color: "#086847" }}>Pts</th>
+                                          <th className="py-2 text-center w-10">PJ</th>
+                                          <th className="py-2 text-center w-10">PG</th>
+                                          <th className="py-2 text-center w-10">PP</th>
+                                          <th className="py-2 text-center w-10">SF</th>
+                                          <th className="py-2 text-center w-10">SC</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {g.standings.map((s: any, si: number) => (
+                                          <tr key={s.pairId ?? si} style={{ borderBottom: "1px solid #F0F7F4", background: si === 0 ? "rgba(11,132,87,0.05)" : undefined }}>
+                                            <td className="py-2 font-black" style={{ color: "#5F7D72" }}>{si + 1}</td>
+                                            <td className="py-2 font-semibold truncate max-w-[120px]" style={{ color: si === 0 ? "#0B8457" : "#173A2E" }}>
+                                              {si === 0 && <Shield size={10} className="inline mr-1" style={{ color: "#0B8457" }} />}
+                                              {s.pairLabel}
+                                              {s.qualified && (
+                                                <span className="ml-1.5 text-[9px] font-black rounded-full px-1.5 py-0.5" style={{ background: "#CFF4D8", color: "#0F5F36" }}>
+                                                  Clasifica
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="py-2 text-center font-black" style={{ color: "#086847" }}>{s.points ?? 0}</td>
+                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.played ?? 0}</td>
+                                            <td className="py-2 text-center font-semibold" style={{ color: "#0B8457" }}>{s.won ?? 0}</td>
+                                            <td className="py-2 text-center" style={{ color: "#E87070" }}>{s.lost ?? 0}</td>
+                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsWon ?? 0}</td>
+                                            <td className="py-2 text-center" style={{ color: "#5F7D72" }}>{s.setsLost ?? 0}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
                                 </div>
-                              )}
-
-                              {/* Ver comprobante */}
-                              {pay.receiptUrl && (
-                                <a href={pay.receiptUrl} target="_blank" rel="noreferrer"
-                                  className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border"
-                                  style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
-                                  <Eye size={11} /> Comprobante
-                                </a>
-                              )}
-
-                              {/* Acciones */}
-                              {pay.status !== "approved" && (
-                                <button onClick={() => handlePaymentAction(reg, pi, "approved")}
-                                  className="text-[11px] font-bold px-2.5 py-1 rounded-full text-white"
-                                  style={{ background: "#0B8457" }}>
-                                  Aprobar
-                                </button>
-                              )}
-                              {(pay.status === "in_review" || pay.status === "approved") && (
-                                <button onClick={() => handlePaymentAction(reg, pi, "rejected")}
-                                  className="text-[11px] font-bold px-2.5 py-1 rounded-full border"
-                                  style={{ borderColor: "#E6C0C0", color: "#B24343", background: "#FFF1F1" }}>
-                                  Rechazar
-                                </button>
-                              )}
-                              {pay.status === "approved" && (
-                                <button onClick={() => handlePaymentAction(reg, pi, "pending")}
-                                  className="text-[11px] font-bold px-2.5 py-1 rounded-full border"
-                                  style={{ borderColor: "#D4DBE2", color: "#667482" }}>
-                                  Revertir
-                                </button>
                               )}
                             </div>
                           );
                         })}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Bracket */}
+                  {hasBracket && (
+                    <div>
+                      {hasGrupos && <div className="border-t mb-6" style={{ borderColor: "#F0F7F4" }} />}
+                      {hasGrupos && (
+                        <p className="text-xs font-black uppercase mb-3" style={{ color: "#5F7D72", letterSpacing: "0.8px" }}>BRACKET ELIMINATORIO</p>
+                      )}
+                      {bracketRounds.length === 0 ? (
+                        <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>El bracket todavía no fue generado.</p>
+                      ) : (
+                        <BracketBoard
+                          rounds={bracketRounds}
+                          onMatchClick={(m) => setMatchModal(m)}
+                          printScale={bracketScale}
+                          onPrint={handlePrintBracket}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════
+                  PAGOS
+              ═══════════════════════════════════════════════════════ */}
+              {tab === "pagos" && (
+                <div>
+                  {torneo.entryFee > 0 && (
+                    <div className="rounded-xl border p-3 mb-4 flex flex-wrap gap-4 text-sm" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                      <span className="font-bold" style={{ color: "#173A2E" }}>Cuota: <span style={{ color: "#0B8457" }}>$ {torneo.entryFee}</span></span>
+                      {torneo.paymentMethods?.length > 0 && (
+                        <span style={{ color: "#5F7D72" }}>Métodos: {torneo.paymentMethods.join(", ")}</span>
+                      )}
+                      {torneo.paymentAlias && (
+                        <span style={{ color: "#5F7D72" }}>Alias: <strong style={{ color: "#173A2E" }}>{torneo.paymentAlias}</strong></span>
+                      )}
+                    </div>
+                  )}
+
+                  {registrations.length > 0 && (() => {
+                    const allPayments = registrations.flatMap(r => r.payments ?? []);
+                    const approved = allPayments.filter(p => p.status === "approved").length;
+                    const inReview = allPayments.filter(p => p.status === "in_review").length;
+                    const pending  = allPayments.filter(p => !p.status || p.status === "pending").length;
+                    return (
+                      <div className="flex gap-2 mb-4 flex-wrap">
+                        <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#EEF8F1", borderColor: "#C5E5CF", color: "#1F7A43" }}>Aprobados {approved}</span>
+                        <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#FFF7E3", borderColor: "#E8D59A", color: "#9B6A00" }}>En revisión {inReview}</span>
+                        <span className="text-xs font-bold px-3 py-1.5 rounded-full border" style={{ background: "#F3F5F7", borderColor: "#D4DBE2", color: "#667482" }}>Pendientes {pending}</span>
+                      </div>
+                    );
+                  })()}
+
+                  {registrations.length === 0 ? (
+                    <p className="text-sm text-center py-8" style={{ color: "#5F7D72" }}>No hay inscriptos todavía.</p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {registrations.filter(r => r.status !== "rejected").map((reg) => {
+                        const payments: any[] = reg.payments ?? [];
+                        return (
+                          <div key={reg.id} className="rounded-[18px] border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="font-bold text-sm" style={{ color: "#173A2E" }}>{reg.pairLabel ?? reg.player1Name}</p>
+                              <span className="inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
+                                style={{ background: REG_STATUS_META[reg.status]?.tint, borderColor: REG_STATUS_META[reg.status]?.border, color: REG_STATUS_META[reg.status]?.accent }}>
+                                {REG_STATUS_META[reg.status]?.label ?? reg.status}
+                              </span>
+                            </div>
+                            {payments.length === 0 ? (
+                              <p className="text-xs" style={{ color: "#5F7D72" }}>Sin datos de pago.</p>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                {payments.map((pay, pi) => {
+                                  const pm = PAY_STATUS_META[pay.status ?? "pending"];
+                                  return (
+                                    <div key={pi} className="flex items-center gap-2 rounded-xl border px-3 py-2 flex-wrap" style={{ borderColor: "#F0F7F4" }}>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-bold" style={{ color: "#173A2E" }}>{pay.playerName ?? `Jugador ${pi + 1}`}</p>
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full border inline-block mt-0.5"
+                                          style={{ background: pm.tint, borderColor: pm.border, color: pm.accent }}>
+                                          {pm.label}
+                                        </span>
+                                      </div>
+                                      {(!pay.method || pay.status === "pending") && (
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={() => handleSetPaymentMethod(reg, pi, "efectivo")}
+                                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border transition-colors"
+                                            style={pay.method === "efectivo" ? { background: "#086847", color: "#FFFFFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}
+                                          >
+                                            <Banknote size={11} /> Efectivo
+                                          </button>
+                                          <button
+                                            onClick={() => handleSetPaymentMethod(reg, pi, "transferencia")}
+                                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border transition-colors"
+                                            style={pay.method === "transferencia" ? { background: "#086847", color: "#FFFFFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}
+                                          >
+                                            <ArrowLeftRight size={11} /> Transfer.
+                                          </button>
+                                        </div>
+                                      )}
+                                      {pay.receiptUrl && (
+                                        <a href={pay.receiptUrl} target="_blank" rel="noreferrer"
+                                          className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border"
+                                          style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
+                                          <Eye size={11} /> Comprobante
+                                        </a>
+                                      )}
+                                      {pay.status !== "approved" && (
+                                        <button onClick={() => handlePaymentAction(reg, pi, "approved")}
+                                          className="text-[11px] font-bold px-2.5 py-1 rounded-full text-white"
+                                          style={{ background: "#0B8457" }}>
+                                          Aprobar
+                                        </button>
+                                      )}
+                                      {(pay.status === "in_review" || pay.status === "approved") && (
+                                        <button onClick={() => handlePaymentAction(reg, pi, "rejected")}
+                                          className="text-[11px] font-bold px-2.5 py-1 rounded-full border"
+                                          style={{ borderColor: "#E6C0C0", color: "#B24343", background: "#FFF1F1" }}>
+                                          Rechazar
+                                        </button>
+                                      )}
+                                      {pay.status === "approved" && (
+                                        <button onClick={() => handlePaymentAction(reg, pi, "pending")}
+                                          className="text-[11px] font-bold px-2.5 py-1 rounded-full border"
+                                          style={{ borderColor: "#D4DBE2", color: "#667482" }}>
+                                          Revertir
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════
+                  GESTIÓN
+              ═══════════════════════════════════════════════════════ */}
+              {tab === "gestion" && (
+                <div className="flex flex-col gap-4 max-w-lg">
+                  {/* Estado */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Estado del torneo</p>
+                    <div className="flex justify-center mb-4">
+                      <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {torneo.status === "draft" && (
+                        <button onClick={() => handleStatusChange("published")} disabled={savingAction}
+                          className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                          style={{ background: "#0B8457" }}>
+                          Publicar torneo
+                        </button>
+                      )}
+                      {["published", "registration_closed"].includes(torneo.status) && (
+                        <button onClick={() => handleStatusChange("registration_open")} disabled={savingAction}
+                          className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                          style={{ background: "#0B8457" }}>
+                          Abrir inscripciones
+                        </button>
+                      )}
+                      {torneo.status === "registration_open" && (
+                        <button onClick={() => handleStatusChange("registration_closed")} disabled={savingAction}
+                          className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                          style={{ background: "#FFF7E3", color: "#9B6A00", border: "1px solid #E8D59A" }}>
+                          Cerrar inscripciones
+                        </button>
+                      )}
+                      {["registration_closed", "building", "in_progress"].includes(torneo.status) && (
+                        <button onClick={() => handleStatusChange("finished")} disabled={savingAction}
+                          className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                          style={{ background: "#F2F5F7", color: "#576773", border: "1px solid #CDD6DC" }}>
+                          Marcar como finalizado
+                        </button>
+                      )}
+                      {!["cancelled", "finished"].includes(torneo.status ?? "") && (
+                        <button onClick={() => handleStatusChange("cancelled")} disabled={savingAction}
+                          className="w-full py-2 text-sm font-bold transition-opacity hover:opacity-70"
+                          style={{ color: "#D64545" }}>
+                          Cancelar torneo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Cupos */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Cupos de parejas</p>
+                    <div className="flex gap-3 mb-3">
+                      <div className="flex-1">
+                        <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Mínimo</label>
+                        <input type="number" min={2} value={minPairs} onChange={e => setMinPairs(Number(e.target.value))}
+                          className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Máximo</label>
+                        <input type="number" min={2} value={maxPairs} onChange={e => setMaxPairs(Number(e.target.value))}
+                          className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>Mostrar % de cupos cubiertos</span>
+                      <button
+                        onClick={() => setShowOccupancy(!showOccupancy)}
+                        className="relative flex-shrink-0 rounded-full transition-all"
+                        style={{ width: 46, height: 26, background: showOccupancy ? "#0B8457" : "#CFE7DC" }}
+                      >
+                        <span className="absolute top-[3px] rounded-full bg-white transition-all" style={{ width: 20, height: 20, left: showOccupancy ? 23 : 3 }} />
+                      </button>
+                    </div>
+                    <button onClick={handleSaveCupos} disabled={savingAction}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                      style={{ background: "#0B8457" }}>
+                      {savingAction ? "Guardando…" : "Guardar cupos"}
+                    </button>
+                  </div>
+
+                  {/* Resultado final */}
+                  {["in_progress", "finished"].includes(torneo.status ?? "") && (
+                    <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                      <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Resultado final</p>
+                      <div className="flex flex-col gap-3 mb-3">
+                        <div>
+                          <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>🏆 Campeón</label>
+                          <select value={championId} onChange={e => setChampionId(e.target.value)}
+                            className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }}>
+                            <option value="">Sin definir</option>
+                            {confirmedRegs.map(r => <option key={r.id} value={r.id}>{r.pairLabel ?? r.player1Name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>🥈 Subcampeón</label>
+                          <select value={runnerUpId} onChange={e => setRunnerUpId(e.target.value)}
+                            className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }}>
+                            <option value="">Sin definir</option>
+                            {confirmedRegs.map(r => <option key={r.id} value={r.id}>{r.pairLabel ?? r.player1Name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <button onClick={handleSaveChampion} disabled={savingAction}
+                        className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                        style={{ background: "#0B8457" }}>
+                        {savingAction ? "Guardando…" : "Guardar resultado"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Notificaciones push */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Bell size={15} style={{ color: "#0B8457" }} />
+                      <p className="font-black text-sm" style={{ color: "#173A2E" }}>Enviar notificación</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      {([
+                        { val: "confirmed",       label: "Solo confirmados" },
+                        { val: "all",             label: "Todos los inscriptos" },
+                        { val: "pending_payment", label: "Solo con pago pendiente" },
+                      ] as const).map(opt => (
+                        <label key={opt.val} className="flex items-center gap-2 cursor-pointer">
+                          <div
+                            onClick={() => setNotifAudience(opt.val)}
+                            className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 cursor-pointer"
+                            style={{ borderColor: notifAudience === opt.val ? "#0B8457" : "#CFE7DC", background: notifAudience === opt.val ? "#0B8457" : "transparent" }}
+                          >
+                            {notifAudience === opt.val && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </div>
+                          <span className="text-sm" style={{ color: "#173A2E" }}>{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Título</label>
+                        <span className="text-[10px]" style={{ color: notifTitle.length > 45 ? "#B24343" : "#9AB5AB" }}>{notifTitle.length}/50</span>
+                      </div>
+                      <input
+                        value={notifTitle}
+                        onChange={e => setNotifTitle(e.target.value.slice(0, 50))}
+                        placeholder="ej: ¡Arranca el torneo!"
+                        className="w-full border rounded-xl px-3 py-2 text-sm"
+                        style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Mensaje</label>
+                        <span className="text-[10px]" style={{ color: notifBody.length > 130 ? "#B24343" : "#9AB5AB" }}>{notifBody.length}/150</span>
+                      </div>
+                      <textarea
+                        value={notifBody}
+                        onChange={e => setNotifBody(e.target.value.slice(0, 150))}
+                        placeholder="ej: Los partidos empiezan mañana a las 9hs. ¡Buena suerte!"
+                        rows={3}
+                        className="w-full border rounded-xl px-3 py-2 text-sm resize-none"
+                        style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => setNotifConfirm(true)}
+                      disabled={!notifTitle.trim() || !notifBody.trim() || sendingNotif}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50"
+                      style={{ background: "#0B8457" }}
+                    >
+                      <Send size={13} /> Enviar notificación
+                    </button>
+                    <p className="text-[10px] mt-2 text-center" style={{ color: "#9AB5AB" }}>
+                      Solo llega a jugadores inscriptos desde la app con EAS Build activo.
+                    </p>
+                    {notifHistory.length > 0 && (
+                      <div className="mt-4 pt-3 border-t" style={{ borderColor: "#F0F7F4" }}>
+                        <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Últimas enviadas</p>
+                        <div className="flex flex-col gap-1.5">
+                          {notifHistory.map(n => (
+                            <div key={n.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "#F0F7F4", background: "#F6FBF8" }}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold truncate" style={{ color: "#173A2E" }}>{n.title}</span>
+                                <span className="text-[10px] flex-shrink-0" style={{ color: "#9AB5AB" }}>
+                                  {n.sentAt?.toDate ? n.sentAt.toDate().toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : ""}
+                                </span>
+                              </div>
+                              <p className="text-[11px] truncate" style={{ color: "#5F7D72" }}>{n.body}</p>
+                              <p className="text-[10px] mt-0.5" style={{ color: "#9AB5AB" }}>
+                                {n.recipientCount} dispositivo{n.recipientCount !== 1 ? "s" : ""} · {
+                                  n.audience === "confirmed" ? "Confirmados" :
+                                  n.audience === "pending_payment" ? "Pago pendiente" : "Todos"
+                                }
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          TAB: GESTIÓN
-      ═══════════════════════════════════════════════════════════════════ */}
-      {tab === "gestion" && (
-        <div className="flex flex-col gap-4 max-w-lg">
-          {/* Estado actual */}
-          <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-            <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Estado del torneo</p>
-            <div className="flex justify-center mb-4">
-              <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
-            </div>
-            <div className="flex flex-col gap-2">
-              {torneo.status === "draft" && (
-                <button onClick={() => handleStatusChange("published")} disabled={savingAction}
-                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                  style={{ background: "#0B8457" }}>
-                  Publicar torneo
-                </button>
-              )}
-              {["published", "registration_closed"].includes(torneo.status) && (
-                <button onClick={() => handleStatusChange("registration_open")} disabled={savingAction}
-                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                  style={{ background: "#0B8457" }}>
-                  Abrir inscripciones
-                </button>
-              )}
-              {torneo.status === "registration_open" && (
-                <button onClick={() => handleStatusChange("registration_closed")} disabled={savingAction}
-                  className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
-                  style={{ background: "#FFF7E3", color: "#9B6A00", border: "1px solid #E8D59A" }}>
-                  Cerrar inscripciones
-                </button>
-              )}
-              {["registration_closed", "building", "in_progress"].includes(torneo.status) && (
-                <button onClick={() => handleStatusChange("finished")} disabled={savingAction}
-                  className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
-                  style={{ background: "#F2F5F7", color: "#576773", border: "1px solid #CDD6DC" }}>
-                  Marcar como finalizado
-                </button>
-              )}
-              {!["cancelled", "finished"].includes(torneo.status ?? "") && (
-                <button onClick={() => handleStatusChange("cancelled")} disabled={savingAction}
-                  className="w-full py-2 text-sm font-bold transition-opacity hover:opacity-70"
-                  style={{ color: "#D64545" }}>
-                  Cancelar torneo
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Cupos */}
-          <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-            <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Cupos de parejas</p>
-            <div className="flex gap-3 mb-3">
-              <div className="flex-1">
-                <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Mínimo</label>
-                <input type="number" min={2} value={minPairs} onChange={e => setMinPairs(Number(e.target.value))}
-                  className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Máximo</label>
-                <input type="number" min={2} value={maxPairs} onChange={e => setMaxPairs(Number(e.target.value))}
-                  className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>Mostrar % de cupos cubiertos</span>
-              <button
-                onClick={() => setShowOccupancy(!showOccupancy)}
-                className="relative flex-shrink-0 rounded-full transition-all"
-                style={{ width: 46, height: 26, background: showOccupancy ? "#0B8457" : "#CFE7DC" }}
-              >
-                <span
-                  className="absolute top-[3px] rounded-full bg-white transition-all"
-                  style={{ width: 20, height: 20, left: showOccupancy ? 23 : 3 }}
-                />
-              </button>
-            </div>
-            <button onClick={handleSaveCupos} disabled={savingAction}
-              className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-              style={{ background: "#0B8457" }}>
-              {savingAction ? "Guardando…" : "Guardar cupos"}
-            </button>
-          </div>
-
-          {/* Resultado final */}
-          {["in_progress", "finished"].includes(torneo.status ?? "") && (
-            <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-              <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Resultado final</p>
-              <div className="flex flex-col gap-3 mb-3">
-                <div>
-                  <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>🏆 Campeón</label>
-                  <select value={championId} onChange={e => setChampionId(e.target.value)}
-                    className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }}>
-                    <option value="">Sin definir</option>
-                    {confirmedRegs.map(r => <option key={r.id} value={r.id}>{r.pairLabel ?? r.player1Name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>🥈 Subcampeón</label>
-                  <select value={runnerUpId} onChange={e => setRunnerUpId(e.target.value)}
-                    className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }}>
-                    <option value="">Sin definir</option>
-                    {confirmedRegs.map(r => <option key={r.id} value={r.id}>{r.pairLabel ?? r.player1Name}</option>)}
-                  </select>
-                </div>
-              </div>
-              <button onClick={handleSaveChampion} disabled={savingAction}
-                className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: "#0B8457" }}>
-                {savingAction ? "Guardando…" : "Guardar resultado"}
-              </button>
-            </div>
-          )}
-
-          {/* Notificaciones push */}
-          <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <Bell size={15} style={{ color: "#0B8457" }} />
-              <p className="font-black text-sm" style={{ color: "#173A2E" }}>Enviar notificación</p>
-            </div>
-
-            {/* Audiencia */}
-            <div className="flex flex-col gap-1.5 mb-3">
-              {([
-                { val: "confirmed",       label: "Solo confirmados" },
-                { val: "all",             label: "Todos los inscriptos" },
-                { val: "pending_payment", label: "Solo con pago pendiente" },
-              ] as const).map(opt => (
-                <label key={opt.val} className="flex items-center gap-2 cursor-pointer">
-                  <div
-                    onClick={() => setNotifAudience(opt.val)}
-                    className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 cursor-pointer"
-                    style={{ borderColor: notifAudience === opt.val ? "#0B8457" : "#CFE7DC", background: notifAudience === opt.val ? "#0B8457" : "transparent" }}
-                  >
-                    {notifAudience === opt.val && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                  </div>
-                  <span className="text-sm" style={{ color: "#173A2E" }}>{opt.label}</span>
-                </label>
-              ))}
-            </div>
-
-            {/* Título */}
-            <div className="mb-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Título</label>
-                <span className="text-[10px]" style={{ color: notifTitle.length > 45 ? "#B24343" : "#9AB5AB" }}>{notifTitle.length}/50</span>
-              </div>
-              <input
-                value={notifTitle}
-                onChange={e => setNotifTitle(e.target.value.slice(0, 50))}
-                placeholder="ej: ¡Arranca el torneo!"
-                className="w-full border rounded-xl px-3 py-2 text-sm"
-                style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-              />
-            </div>
-
-            {/* Cuerpo */}
-            <div className="mb-3">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold" style={{ color: "#5F7D72" }}>Mensaje</label>
-                <span className="text-[10px]" style={{ color: notifBody.length > 130 ? "#B24343" : "#9AB5AB" }}>{notifBody.length}/150</span>
-              </div>
-              <textarea
-                value={notifBody}
-                onChange={e => setNotifBody(e.target.value.slice(0, 150))}
-                placeholder="ej: Los partidos empiezan mañana a las 9hs. ¡Buena suerte!"
-                rows={3}
-                className="w-full border rounded-xl px-3 py-2 text-sm resize-none"
-                style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-              />
-            </div>
-
-            <button
-              onClick={() => setNotifConfirm(true)}
-              disabled={!notifTitle.trim() || !notifBody.trim() || sendingNotif}
-              className="w-full py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50"
-              style={{ background: "#0B8457" }}
-            >
-              <Send size={13} /> Enviar notificación
-            </button>
-
-            {/* Aviso tokens */}
-            <p className="text-[10px] mt-2 text-center" style={{ color: "#9AB5AB" }}>
-              Solo llega a jugadores inscriptos desde la app con EAS Build activo.
-            </p>
-
-            {/* Historial */}
-            {notifHistory.length > 0 && (
-              <div className="mt-4 pt-3 border-t" style={{ borderColor: "#F0F7F4" }}>
-                <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Últimas enviadas</p>
-                <div className="flex flex-col gap-1.5">
-                  {notifHistory.map(n => (
-                    <div key={n.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "#F0F7F4", background: "#F6FBF8" }}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold truncate" style={{ color: "#173A2E" }}>{n.title}</span>
-                        <span className="text-[10px] flex-shrink-0" style={{ color: "#9AB5AB" }}>
-                          {n.sentAt?.toDate ? n.sentAt.toDate().toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : ""}
-                        </span>
+                  {/* Modal confirmación de envío */}
+                  {notifConfirm && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+                      <div className="w-full max-w-sm rounded-2xl p-6 shadow-xl" style={{ background: "#FFFFFF" }}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Bell size={16} style={{ color: "#0B8457" }} />
+                          <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Confirmar envío</h3>
+                        </div>
+                        <div className="rounded-xl border p-3 mb-4" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                          <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Título</p>
+                          <p className="text-sm font-bold mb-2" style={{ color: "#173A2E" }}>{notifTitle}</p>
+                          <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Mensaje</p>
+                          <p className="text-sm" style={{ color: "#173A2E" }}>{notifBody}</p>
+                          <p className="text-xs mt-2" style={{ color: "#9AB5AB" }}>
+                            Destinatarios: <strong style={{ color: "#086847" }}>
+                              {notifAudience === "confirmed" ? "Solo confirmados" :
+                               notifAudience === "pending_payment" ? "Solo con pago pendiente" : "Todos los inscriptos"}
+                            </strong>
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setNotifConfirm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={handleSendNotification}
+                            disabled={sendingNotif}
+                            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-60"
+                            style={{ background: "#0B8457" }}
+                          >
+                            {sendingNotif ? <><Loader2 size={13} className="animate-spin" /> Enviando…</> : <><Send size={13} /> Confirmar</>}
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-[11px] truncate" style={{ color: "#5F7D72" }}>{n.body}</p>
-                      <p className="text-[10px] mt-0.5" style={{ color: "#9AB5AB" }}>
-                        {n.recipientCount} dispositivo{n.recipientCount !== 1 ? "s" : ""} · {
-                          n.audience === "confirmed" ? "Confirmados" :
-                          n.audience === "pending_payment" ? "Pago pendiente" : "Todos"
-                        }
-                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+                  )}
 
-          {/* Modal confirmación de envío */}
-          {notifConfirm && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
-              <div className="w-full max-w-sm rounded-2xl p-6 shadow-xl" style={{ background: "#FFFFFF" }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Bell size={16} style={{ color: "#0B8457" }} />
-                  <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Confirmar envío</h3>
+                  {/* Link editar */}
+                  <a href={`/dashboard/torneos/nueva?edit=${torneoId}`}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border transition-colors hover:opacity-80"
+                    style={{ borderColor: "#CFE7DC", color: "#173A2E" }}>
+                    <PencilLine size={14} /> Editar detalles del torneo
+                  </a>
                 </div>
-                <div className="rounded-xl border p-3 mb-4" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                  <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Título</p>
-                  <p className="text-sm font-bold mb-2" style={{ color: "#173A2E" }}>{notifTitle}</p>
-                  <p className="text-xs font-bold mb-0.5" style={{ color: "#5F7D72" }}>Mensaje</p>
-                  <p className="text-sm" style={{ color: "#173A2E" }}>{notifBody}</p>
-                  <p className="text-xs mt-2" style={{ color: "#9AB5AB" }}>
-                    Destinatarios: <strong style={{ color: "#086847" }}>
-                      {notifAudience === "confirmed" ? "Solo confirmados" :
-                       notifAudience === "pending_payment" ? "Solo con pago pendiente" : "Todos los inscriptos"}
-                    </strong>
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setNotifConfirm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleSendNotification}
-                    disabled={sendingNotif}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-60"
-                    style={{ background: "#0B8457" }}
-                  >
-                    {sendingNotif ? <><Loader2 size={13} className="animate-spin" /> Enviando…</> : <><Send size={13} /> Confirmar</>}
-                  </button>
-                </div>
-              </div>
+              )}
+
             </div>
-          )}
-
-          {/* Link editar */}
-          <a href={`/dashboard/torneos/nueva?edit=${torneoId}`}
-            className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border transition-colors hover:opacity-80"
-            style={{ borderColor: "#CFE7DC", color: "#173A2E" }}>
-            <PencilLine size={14} /> Editar detalles del torneo
-          </a>
+          </div>
         </div>
-      )}
+      </div>
     </DashboardLayout>
   );
 }
