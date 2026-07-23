@@ -1495,16 +1495,16 @@ export default function TorneoDetailPage() {
 
                         return (
                           <div key={reg.id} className="rounded-[18px] border-2 p-3" style={{ background: "#FFFFFF", borderColor: "#A8CFBC" }}>
-                            {/* Fila principal: número | jugadores | estado */}
-                            <div className="flex items-center gap-3 mb-2.5">
+                            {/* Fila principal: número | jugadores | acciones */}
+                            <div className="flex items-center gap-2 mb-2">
                               {/* Pareja # */}
-                              <div className="flex-shrink-0 flex flex-col items-center leading-none w-12">
+                              <div className="flex-shrink-0 flex flex-col items-center leading-none w-11">
                                 <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: "#9BB8AE" }}>PAREJA</span>
                                 <span className="text-xl font-black" style={{ color: "#173A2E" }}>{ri + 1}</span>
                               </div>
 
                               {/* Jugadores lado a lado */}
-                              <div className="flex gap-2 flex-1 min-w-0">
+                              <div className="flex gap-1.5 flex-1 min-w-0">
                                 {[
                                   { id: reg.player1Id || reg.player1UserId, name: reg.player1Name },
                                   { id: reg.player2Id || reg.player2UserId, name: reg.player2Name },
@@ -1512,64 +1512,63 @@ export default function TorneoDetailPage() {
                                   const pd = players.find((p: any) => p.id && p.id === pl.id);
                                   const foto = pd?.fotoURL || pd?.foto || "";
                                   return (
-                                    <div key={pi} className="flex items-center gap-1.5 rounded-xl border px-2 py-1.5 flex-1 min-w-0"
-                                      style={{ background: "#F7FAF8", borderColor: "#CFE7DC" }}>
+                                    <div key={pi} className="flex items-center gap-1 rounded-xl border px-1.5 py-1 min-w-0" style={{ flex: "0 1 38%", background: "#F7FAF8", borderColor: "#CFE7DC" }}>
                                       {foto ? (
-                                        <img src={foto} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                                        <img src={foto} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                                       ) : (
-                                        <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden" style={{ background: "#DDE8E3" }}>
+                                        <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden" style={{ background: "#DDE8E3" }}>
                                           <svg viewBox="0 0 32 32" fill="none" className="w-full h-full">
                                             <circle cx="16" cy="12" r="5.5" fill="#9BB8AE" />
                                             <path d="M3 30c0-7.18 5.82-13 13-13s13 5.82 13 13" fill="#9BB8AE" />
                                           </svg>
                                         </div>
                                       )}
-                                      <p className="text-[11px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
+                                      <p className="text-[10px] font-bold leading-tight truncate" style={{ color: "#173A2E" }}>{pl.name}</p>
                                     </div>
                                   );
                                 })}
                               </div>
 
-                              {/* Estado */}
-                              <div className="flex-shrink-0">
-                                <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full whitespace-nowrap"
-                                  style={{ color: statusColor, background: statusColor + "18" }}>
-                                  {statusLabel}
-                                </span>
+                              {/* Acciones compactas */}
+                              <div className="flex-shrink-0 flex items-center gap-1.5">
+                                <div className="flex flex-col items-center rounded-lg border px-1.5 py-0.5 text-center leading-tight"
+                                  style={hasAvailability
+                                    ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
+                                    : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
+                                  <span className="text-[8px] font-black uppercase">Disponib.</span>
+                                  <span className="text-[8px] font-semibold">{hasAvailability ? "cargada" : "pendiente"}</span>
+                                </div>
+                                <button onClick={() => setRegModal({ open: true, initial: reg })}
+                                  className="rounded-full border p-1.5"
+                                  style={{ background: "#EDF7F2", borderColor: "#C9E5D8" }}>
+                                  <PencilLine size={11} style={{ color: "#086847" }} />
+                                </button>
+                                <button onClick={() => setDeleteConfirm(reg.id)}
+                                  className="rounded-full border p-1.5"
+                                  style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
+                                  <Trash2 size={11} style={{ color: "#B24343" }} />
+                                </button>
                               </div>
                             </div>
 
-                            {/* Fila de acciones */}
+                            {/* Estado + acciones extra — centrados */}
                             <div className="flex items-center justify-center gap-2 flex-wrap">
-                              <span className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                                style={hasAvailability
-                                  ? { background: "#EEF9F1", borderColor: "#B7DFBF", color: "#1D7A34" }
-                                  : { background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
-                                {hasAvailability ? <CheckCircle size={11} /> : <Clock size={11} />}
-                                {hasAvailability ? "Disponibilidad cargada" : "Disponibilidad pendiente"}
+                              <span className="text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full"
+                                style={{ color: statusColor, background: statusColor + "18" }}>
+                                {statusLabel}
                               </span>
-                              <button onClick={() => setRegModal({ open: true, initial: reg })}
-                                className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1"
-                                style={{ background: "#EDF7F2", borderColor: "#C9E5D8", color: "#086847" }}>
-                                <PencilLine size={11} /> Editar
-                              </button>
-                              <button onClick={() => setDeleteConfirm(reg.id)}
-                                className="rounded-full border p-1.5"
-                                style={{ background: "#FFF1F1", borderColor: "#F1C8C8" }}>
-                                <Trash2 size={12} style={{ color: "#B24343" }} />
-                              </button>
                               {reg.withdrawalStatus === "requested" && (
                                 <button onClick={() => confirmWithdrawal(reg.id)}
-                                  className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
+                                  className="text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
                                   style={{ background: "#C27A1C", borderColor: "#C27A1C" }}>
                                   Confirmar baja
                                 </button>
                               )}
                               {reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed" && (
                                 <button onClick={() => confirmRegistration(reg.id)}
-                                  className="flex items-center gap-1 text-[11px] font-bold rounded-full border px-2.5 py-1 text-white"
+                                  className="flex items-center gap-1 text-[10px] font-bold rounded-full border px-2.5 py-0.5 text-white"
                                   style={{ background: "#086847", borderColor: "#086847" }}>
-                                  <CheckCircle size={11} /> Confirmar pareja
+                                  <CheckCircle size={10} /> Confirmar pareja
                                 </button>
                               )}
                             </div>
