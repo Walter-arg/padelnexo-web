@@ -1857,6 +1857,7 @@ export default function TorneoDetailPage() {
                 <FixtureTab
                   torneoId={torneoId}
                   fixtureSetup={torneo?.fixtureSetup}
+                  registrations={registrations}
                   showToast={showToast}
                 />
               )}
