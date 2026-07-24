@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { X, Plus, Minus, ChevronDown, ChevronUp, Zap, Clock, Check } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type FixSub = "configurar" | "nuevazonas" | "llaves";
+type FixSub = "configurar" | "automatico" | "manual";
 type MatchFmt = "third_set" | "super_tiebreak";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -571,6 +571,7 @@ export default function FixtureTab({
   showToast: (msg: string, ok?: boolean) => void;
 }) {
   const [sub, setSub] = useState<FixSub>("configurar");
+  const [view, setView] = useState<"zonas" | "llaves">("zonas");
   const [zoom, setZoom] = useState(1);
 
   // ── Config state ────────────────────────────────────────────────────────────
@@ -585,8 +586,7 @@ export default function FixtureTab({
   const [savingConfig, setSavingConfig] = useState(false);
   const [configOpen, setConfigOpen] = useState<"zonas" | "llaves" | null>("zonas");
 
-  // ── Nuevas zonas state ──────────────────────────────────────────────────────
-  const [manualMode, setManualMode] = useState(false);
+  // ── Zonas state ─────────────────────────────────────────────────────────────
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedPairIds, setSelectedPairIds] = useState<Set<string>>(new Set());
   const [savingZones, setSavingZones] = useState(false);
@@ -620,11 +620,10 @@ export default function FixtureTab({
     [registrations, assignedRegIds]
   );
 
-  // Initialise selected day when entering manual mode
-  const handleEnterManual = () => {
-    setManualMode(true);
-    if (!selectedDay && allDayKeys.length > 0) setSelectedDay(allDayKeys[0]);
-  };
+  function handleSetSub(s: FixSub) {
+    if (s === "manual" && !selectedDay && allDayKeys.length > 0) setSelectedDay(allDayKeys[0]);
+    setSub(s);
+  }
 
   // ── Save helpers ────────────────────────────────────────────────────────────
   async function saveConfig() {
@@ -680,7 +679,6 @@ export default function FixtureTab({
       fs.lastViewedSection = "newzones";
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Armado confirmado");
-      setManualMode(false);
     } catch {
       showToast("Error al confirmar", false);
     }
@@ -728,11 +726,15 @@ export default function FixtureTab({
     <div>
       {/* Sub-tab navigation */}
       <div className="flex gap-1 mb-6 p-1 rounded-2xl" style={{ background: "#F2FAF5", border: "1px solid #D5EADF" }}>
-        {(["configurar", "nuevazonas", "llaves"] as FixSub[]).map(s => (
-          <button key={s} onClick={() => setSub(s)}
-            className="flex-1 py-3 rounded-xl font-black text-sm uppercase transition-all"
-            style={sub === s ? { background: "#086847", color: "#FFFFFF" } : { background: "transparent", color: "#086847" }}>
-            {s === "configurar" ? "CONFIGURAR" : s === "nuevazonas" ? "NUEVAS ZONAS" : "LLAVES"}
+        {([
+          { id: "configurar", label: "CONFIGURAR" },
+          { id: "automatico", label: "ARMADO AUTO" },
+          { id: "manual", label: "ARMADO MANUAL" },
+        ] as { id: FixSub; label: string }[]).map(s => (
+          <button key={s.id} onClick={() => handleSetSub(s.id)}
+            className="flex-1 py-3 rounded-xl font-black text-xs uppercase transition-all"
+            style={sub === s.id ? { background: "#086847", color: "#FFFFFF" } : { background: "transparent", color: "#086847" }}>
+            {s.label}
           </button>
         ))}
       </div>
@@ -823,55 +825,54 @@ export default function FixtureTab({
         </div>
       )}
 
-      {/* ── NUEVAS ZONAS ───────────────────────────────────────────────────── */}
-      {sub === "nuevazonas" && (
-        <div>
-          {/* Mode buttons */}
-          <div className="flex gap-3 mb-6">
-            <button onClick={() => setManualMode(false)}
-              className="flex-1 py-3 rounded-2xl font-black text-sm border transition-all"
-              style={!manualMode
-                ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
-                : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
-              ARMADO AUTOMÁTICO
-            </button>
-            <button onClick={handleEnterManual}
-              className="flex-1 py-3 rounded-2xl font-black text-sm border transition-all"
-              style={manualMode
-                ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
-                : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
-              ARMADO MANUAL
-            </button>
-          </div>
+      {/* ── ZONAS / LLAVES selector (shared by automatico + manual) ─────────── */}
+      {(sub === "automatico" || sub === "manual") && (
+        <div className="flex gap-3 mb-6">
+          <button onClick={() => setView("zonas")}
+            className="flex-1 py-3 rounded-2xl font-black text-sm border transition-all"
+            style={view === "zonas"
+              ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
+              : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
+            ZONAS
+          </button>
+          <button onClick={() => setView("llaves")}
+            className="flex-1 py-3 rounded-2xl font-black text-sm border transition-all"
+            style={view === "llaves"
+              ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
+              : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
+            LLAVES
+          </button>
+        </div>
+      )}
 
-          {/* ARMADO AUTOMÁTICO: mensaje */}
-          {!manualMode && (
-            <div>
-              {zones.length === 0 ? (
-                <div className="text-center py-10 rounded-2xl border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                  <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>
-                    No hay zonas configuradas todavía.
-                  </p>
-                  <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>
-                    Usá "Armado Manual" para crear zonas desde acá, o generálas desde la app.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {zones.map((zone) => (
-                    <ZoneCard key={zone.id}
-                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat}
-                      onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
-                      onStandingsClick={() => setStandingsModal(zone)} />
-                  ))}
-                </div>
-              )}
+      {/* ── ARMADO AUTOMÁTICO — vista ZONAS ────────────────────────────────── */}
+      {sub === "automatico" && view === "zonas" && (
+        <div>
+          {zones.length === 0 ? (
+            <div className="text-center py-10 rounded-2xl border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+              <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>
+                No hay zonas configuradas todavía.
+              </p>
+              <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>
+                Usá "Armado Manual" para crear zonas desde acá, o generálas desde la app.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {zones.map((zone) => (
+                <ZoneCard key={zone.id}
+                  zone={zone} regMap={regMap} zonesFormat={savedZonesFormat}
+                  onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
+                  onStandingsClick={() => setStandingsModal(zone)} />
+              ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ARMADO MANUAL */}
-          {manualMode && (
-            <div>
+      {/* ── ARMADO MANUAL — vista ZONAS ────────────────────────────────────── */}
+      {sub === "manual" && view === "zonas" && (
+        <div>
               {/* Day selector chips */}
               {allDayKeys.length === 0 ? (
                 <div className="rounded-2xl border px-5 py-6 mb-5 text-center" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
@@ -991,7 +992,7 @@ export default function FixtureTab({
 
               {/* GUARDAR BORRADOR | CONFIRMAR ARMADO */}
               <div className="flex gap-3">
-                <button onClick={() => setManualMode(false)}
+                <button onClick={() => showToast("Borrador guardado")}
                   className="flex-1 py-3 rounded-2xl border font-black text-sm transition-all"
                   style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
                   GUARDAR BORRADOR
@@ -1007,8 +1008,8 @@ export default function FixtureTab({
         </div>
       )}
 
-      {/* ── LLAVES ─────────────────────────────────────────────────────────── */}
-      {sub === "llaves" && (
+      {/* ── LLAVES (vista compartida por automatico + manual) ───────────────── */}
+      {(sub === "automatico" || sub === "manual") && view === "llaves" && (
         <div>
           {!hasBracket ? (
             <div className="text-center py-10 rounded-2xl border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
