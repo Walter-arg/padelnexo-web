@@ -8,7 +8,7 @@ const links = [
   { label: "Funcionalidades", href: "#funcionalidades" },
   { label: "Organizadores", href: "#organizadores" },
   { label: "Jugadores", href: "#jugadores" },
-  { label: "Precios", href: "#precios" },
+  { label: "Precios", href: "/planes" },
   { label: "FAQ", href: "#faq" },
 ];
 
