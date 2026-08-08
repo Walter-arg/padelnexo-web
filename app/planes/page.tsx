@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PricingToggle from "@/components/PricingToggle";
+import { Zap, DollarSign, BarChart3 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Planes para organizadores | PadelNexo",
@@ -10,29 +11,84 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://www.padelnexo.com.ar/planes" },
 };
 
+const keyFeatures = [
+  {
+    icon: Zap,
+    title: "Fixture automático en segundos",
+    desc: "Cargás los equipos y la plataforma genera fechas, cruces y zonas sola. Lo que antes te llevaba horas, ahora te lleva un tap.",
+  },
+  {
+    icon: DollarSign,
+    title: "Sabés exactamente quién pagó",
+    desc: "Panel de cobros con MercadoPago integrado. Deudas, comprobantes y estados en tiempo real — sin perseguir a nadie por WhatsApp.",
+  },
+  {
+    icon: BarChart3,
+    title: "Rankings y resultados sin intermediarios",
+    desc: "Tus jugadores ven posiciones, estadísticas y próximas fechas desde la app. Cero consultas, cero mensajes.",
+  },
+];
+
 export default function PlanesPage() {
   return (
     <main className="min-h-screen bg-white overflow-x-hidden">
       <Navbar />
 
-      {/* Hero */}
-      <section className="pt-32 pb-16 px-6 text-center bg-gradient-to-b from-pn-mint to-white">
+      {/* Hero — descubrimiento */}
+      <section className="pt-32 pb-20 px-6 text-center bg-gradient-to-b from-pn-mint to-white">
         <p className="text-pn-green font-bold text-sm uppercase tracking-widest mb-3">
-          Planes para organizadores
+          Para organizadores
         </p>
         <h1 className="text-4xl md:text-5xl font-extrabold text-pn-navy leading-tight mb-4">
-          Elegí el plan que se adapta<br className="hidden md:block" /> a tu actividad
+          Organizá tu liga o torneo<br className="hidden md:block" /> sin complicaciones
         </h1>
-        <p className="text-gray-500 text-lg max-w-xl mx-auto mb-2">
-          Todos los planes incluyen acceso a la app, fixtures automáticos y cobros con MercadoPago.
+        <p className="text-gray-500 text-lg max-w-lg mx-auto mb-10">
+          Fixtures, cobros y rankings — todo resuelto desde tu celular.
         </p>
-        <p className="text-pn-green font-semibold text-sm">
-          Nexo Plus incluye 30 días de prueba gratuita · Pagá anual y ahorrá un 20%
+
+        {/* 3 features clave */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto mb-12">
+          {keyFeatures.map(({ icon: Icon, title, desc }) => (
+            <div
+              key={title}
+              className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-pn-mint flex items-center justify-center mb-4">
+                <Icon size={20} className="text-pn-green" />
+              </div>
+              <h3 className="font-bold text-pn-navy text-sm mb-2">{title}</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <a
+          href="#precios"
+          className="inline-block bg-pn-green hover:bg-pn-dark text-white font-bold px-8 py-3.5 rounded-2xl transition-colors shadow-md"
+        >
+          Ver planes y precios
+        </a>
+      </section>
+
+      {/* Puente hacia precios */}
+      <section
+        id="precios"
+        className="py-16 px-6 text-center bg-gradient-to-b from-white to-pn-mint"
+      >
+        <p className="text-pn-green font-bold text-sm uppercase tracking-widest mb-3">
+          Planes y precios
+        </p>
+        <h2 className="text-3xl md:text-4xl font-extrabold text-pn-navy mb-3">
+          Elegí el plan ideal para vos
+        </h2>
+        <p className="text-gray-500 max-w-md mx-auto text-sm">
+          Todos los planes incluyen fixtures automáticos y cobros con MercadoPago.
+          <br />Nexo Plus incluye 30 días de prueba · Pagá anual y ahorrá un 20%
         </p>
       </section>
 
-      {/* Billing toggle + Plans grid (client component) */}
-      <div className="pt-10">
+      {/* Billing toggle + plans grid */}
+      <div className="pt-4">
         <PricingToggle />
       </div>
 
