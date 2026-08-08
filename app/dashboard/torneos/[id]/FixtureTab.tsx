@@ -1004,8 +1004,6 @@ export default function FixtureTab({
                   {savingZones ? "Confirmando..." : "CONFIRMAR ARMADO"}
                 </button>
               </div>
-            </div>
-          )}
         </div>
       )}
 
