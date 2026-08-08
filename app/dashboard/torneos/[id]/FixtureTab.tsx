@@ -720,6 +720,7 @@ export default function FixtureTab({
 
   const savedZonesFormat: MatchFmt = fixtureSetup?.matchFormat?.zones ?? "super_tiebreak";
   const savedBracketFormat: MatchFmt = fixtureSetup?.matchFormat?.bracket ?? "super_tiebreak";
+  const bracketLayout = hasBracket ? buildBracketLayout(bracketRounds) : null;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -1016,85 +1017,82 @@ export default function FixtureTab({
               <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>No hay llaves configuradas.</p>
               <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>Se generarán desde la app una vez finalizadas las zonas.</p>
             </div>
-          ) : (() => {
-            const { pos, bw, bh, lines } = buildBracketLayout(bracketRounds);
-            return (
-              <>
-                <div className="flex items-center justify-end gap-2 mb-3">
-                  <button onClick={() => setZoom(z => Math.max(0.3, parseFloat((z - 0.1).toFixed(1))))}
-                    className="w-8 h-8 rounded-full border flex items-center justify-center"
-                    style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                    <Minus size={13} />
-                  </button>
-                  <span className="text-xs font-bold w-12 text-center" style={{ color: "#5F7D72" }}>
-                    {Math.round(zoom * 100)}%
-                  </span>
-                  <button onClick={() => setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(1))))}
-                    className="w-8 h-8 rounded-full border flex items-center justify-center"
-                    style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                    <Plus size={13} />
-                  </button>
-                  <button onClick={() => setZoom(1)} className="text-xs font-bold px-3 py-1.5 rounded-full border"
-                    style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>Ajustar</button>
-                </div>
-                <div style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
-                  <div style={{ position: "relative", width: bw * zoom, height: bh * zoom, minWidth: bw * zoom }}>
-                    <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: bw, height: bh, position: "relative" }}>
-                      <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }} width={bw} height={bh}>
-                        {lines.map((l, i) => (
-                          <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#B6CBD9" strokeWidth={2} strokeLinecap="round" />
-                        ))}
-                      </svg>
-                      {bracketRounds.map((roundMatches, ri) => {
-                        const color = roundColor(ri, bracketRounds.length);
-                        const dark = isDarkRoundColor(color);
-                        const label = roundLabel(roundMatches.length);
-                        const p0 = pos[ri][0];
-                        return (
-                          <div key={ri}>
-                            <div style={{ position: "absolute", left: p0.x, top: B_PAD, width: CARD_W, height: B_HDR, background: color, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <span style={{ color: dark ? "#FFF" : "#173A2E", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.6px" }}>{label}</span>
-                            </div>
-                            {roundMatches.map((match, mi) => {
-                              const a = getSideA(match), b = getSideB(match);
-                              const w = getWinnerId(match);
-                              const matchSets = getSets(match);
-                              const completed = isCompleted(match);
-                              const score = getScoreText(match);
-                              return (
-                                <div key={match.id ?? mi} style={{ position: "absolute", left: pos[ri][mi].x, top: pos[ri][mi].y, width: CARD_W, height: CARD_H }}>
-                                  <div style={{ background: "#FFFFFF", borderRadius: 16, border: "2px solid #CFE7DC", overflow: "hidden", height: "100%", display: "flex", flexDirection: "column" }}>
-                                    {/* Side A */}
-                                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #F0F7F4", background: w === a.id ? "rgba(11,132,87,0.06)" : undefined }}>
-                                      <span style={{ flex: 1, fontSize: 12, fontWeight: w === a.id ? 800 : 500, color: w === a.id ? "#0B8457" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
-                                      {completed && matchSets.length > 0 && <span style={{ fontSize: 12, fontWeight: 900, color: w === a.id ? "#0B8457" : "#9BB8AE", flexShrink: 0 }}>{matchSets.map(s => s.a).join(" ")}</span>}
-                                    </div>
-                                    {/* Middle */}
-                                    <div style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "#F8FDFA", flexShrink: 0 }}>
-                                      <span style={{ fontSize: 10, color: "#9BB8AE" }}>{completed ? score : "Pendiente"}</span>
-                                      <button onClick={() => setBracketResultModal({ match, ri, mi })}
-                                        style={{ fontSize: 10, fontWeight: 700, color: "#086847", padding: "2px 8px", background: "#EEF8F1", borderRadius: 10, border: "1px solid #C5E5CF", cursor: "pointer", flexShrink: 0 }}>
-                                        {completed ? "Editar" : "Resultado"}
-                                      </button>
-                                    </div>
-                                    {/* Side B */}
-                                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderTop: "1px solid #F0F7F4", background: w === b.id ? "rgba(11,132,87,0.06)" : undefined }}>
-                                      <span style={{ flex: 1, fontSize: 12, fontWeight: w === b.id ? 800 : 500, color: w === b.id ? "#0B8457" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</span>
-                                      {completed && matchSets.length > 0 && <span style={{ fontSize: 12, fontWeight: 900, color: w === b.id ? "#0B8457" : "#9BB8AE", flexShrink: 0 }}>{matchSets.map(s => s.b).join(" ")}</span>}
-                                    </div>
+          ) : bracketLayout ? (
+            <>
+              <div className="flex items-center justify-end gap-2 mb-3">
+                <button onClick={() => setZoom(z => Math.max(0.3, parseFloat((z - 0.1).toFixed(1))))}
+                  className="w-8 h-8 rounded-full border flex items-center justify-center"
+                  style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                  <Minus size={13} />
+                </button>
+                <span className="text-xs font-bold w-12 text-center" style={{ color: "#5F7D72" }}>
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button onClick={() => setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(1))))}
+                  className="w-8 h-8 rounded-full border flex items-center justify-center"
+                  style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                  <Plus size={13} />
+                </button>
+                <button onClick={() => setZoom(1)} className="text-xs font-bold px-3 py-1.5 rounded-full border"
+                  style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>Ajustar</button>
+              </div>
+              <div style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
+                <div style={{ position: "relative", width: bracketLayout.bw * zoom, height: bracketLayout.bh * zoom, minWidth: bracketLayout.bw * zoom }}>
+                  <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: bracketLayout.bw, height: bracketLayout.bh, position: "relative" }}>
+                    <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }} width={bracketLayout.bw} height={bracketLayout.bh}>
+                      {bracketLayout.lines.map((l, i) => (
+                        <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#B6CBD9" strokeWidth={2} strokeLinecap="round" />
+                      ))}
+                    </svg>
+                    {bracketRounds.map((roundMatches, ri) => {
+                      const color = roundColor(ri, bracketRounds.length);
+                      const dark = isDarkRoundColor(color);
+                      const label = roundLabel(roundMatches.length);
+                      const p0 = bracketLayout.pos[ri][0];
+                      return (
+                        <div key={ri}>
+                          <div style={{ position: "absolute", left: p0.x, top: B_PAD, width: CARD_W, height: B_HDR, background: color, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ color: dark ? "#FFF" : "#173A2E", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.6px" }}>{label}</span>
+                          </div>
+                          {roundMatches.map((match, mi) => {
+                            const a = getSideA(match), b = getSideB(match);
+                            const w = getWinnerId(match);
+                            const matchSets = getSets(match);
+                            const completed = isCompleted(match);
+                            const score = getScoreText(match);
+                            return (
+                              <div key={match.id ?? mi} style={{ position: "absolute", left: bracketLayout.pos[ri][mi].x, top: bracketLayout.pos[ri][mi].y, width: CARD_W, height: CARD_H }}>
+                                <div style={{ background: "#FFFFFF", borderRadius: 16, border: "2px solid #CFE7DC", overflow: "hidden", height: "100%", display: "flex", flexDirection: "column" }}>
+                                  {/* Side A */}
+                                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #F0F7F4", background: w === a.id ? "rgba(11,132,87,0.06)" : undefined }}>
+                                    <span style={{ flex: 1, fontSize: 12, fontWeight: w === a.id ? 800 : 500, color: w === a.id ? "#0B8457" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
+                                    {completed && matchSets.length > 0 && <span style={{ fontSize: 12, fontWeight: 900, color: w === a.id ? "#0B8457" : "#9BB8AE", flexShrink: 0 }}>{matchSets.map(s => s.a).join(" ")}</span>}
+                                  </div>
+                                  {/* Middle */}
+                                  <div style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "#F8FDFA", flexShrink: 0 }}>
+                                    <span style={{ fontSize: 10, color: "#9BB8AE" }}>{completed ? score : "Pendiente"}</span>
+                                    <button onClick={() => setBracketResultModal({ match, ri, mi })}
+                                      style={{ fontSize: 10, fontWeight: 700, color: "#086847", padding: "2px 8px", background: "#EEF8F1", borderRadius: 10, border: "1px solid #C5E5CF", cursor: "pointer", flexShrink: 0 }}>
+                                      {completed ? "Editar" : "Resultado"}
+                                    </button>
+                                  </div>
+                                  {/* Side B */}
+                                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderTop: "1px solid #F0F7F4", background: w === b.id ? "rgba(11,132,87,0.06)" : undefined }}>
+                                    <span style={{ flex: 1, fontSize: 12, fontWeight: w === b.id ? 800 : 500, color: w === b.id ? "#0B8457" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</span>
+                                    {completed && matchSets.length > 0 && <span style={{ fontSize: 12, fontWeight: 900, color: w === b.id ? "#0B8457" : "#9BB8AE", flexShrink: 0 }}>{matchSets.map(s => s.b).join(" ")}</span>}
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </>
-            );
-          })()}
+              </div>
+            </>
+          ) : null}
         </div>
       )}
 
