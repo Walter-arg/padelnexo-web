@@ -106,7 +106,7 @@ export default function FAQ() {
           className="text-center mt-10 text-gray-500"
         >
           ¿No encontrás lo que buscás?{" "}
-          <a href="mailto:padelnexo@gmail.com" className="text-pn-green font-semibold hover:underline">
+          <a href="mailto:soporte.padelnexo@gmail.com" className="text-pn-green font-semibold hover:underline">
             Escribinos
           </a>
         </motion.div>

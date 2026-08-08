@@ -38,7 +38,7 @@ export default function Footer() {
               Comenzar por WhatsApp
             </a>
             <a
-              href="mailto:padelnexo@gmail.com"
+              href="mailto:soporte.padelnexo@gmail.com"
               className="inline-flex items-center justify-center gap-2 border-2 border-white/30 hover:border-white/60 text-white font-bold text-base px-10 py-4 rounded-2xl transition-all hover:bg-white/5"
             >
               <Mail size={18} />
@@ -99,16 +99,16 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="mailto:padelnexo@gmail.com"
+                  href="mailto:soporte.padelnexo@gmail.com"
                   className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
                 >
                   <Mail size={15} />
-                  padelnexo@gmail.com
+                  soporte.padelnexo@gmail.com
                 </a>
               </li>
               <li>
                 <a
-                  href="https://instagram.com/padelnexo"
+                  href="https://instagram.com/padel.nexo"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-sm text-gray-400 hover:text-pink-400 transition-colors"
