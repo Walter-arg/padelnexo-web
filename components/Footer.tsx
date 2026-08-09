@@ -67,7 +67,7 @@ export default function Footer() {
             <h4 className="font-bold text-sm mb-4 text-gray-300 uppercase tracking-wider">Producto</h4>
             <ul className="flex flex-col gap-2.5">
               {[
-                { label: "Funcionalidades", href: "#funcionalidades" },
+                { label: "Funcionalidades", href: "/funcionalidades" },
                 { label: "Para organizadores", href: "#organizadores" },
                 { label: "Para jugadores", href: "#jugadores" },
                 { label: "Centro de cobros", href: "#cobros" },
