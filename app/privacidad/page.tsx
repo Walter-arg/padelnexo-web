@@ -13,7 +13,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 );
 
 export default function PrivacidadPage() {
-  const lastUpdate = "29 de junio de 2026";
+  const lastUpdate = "11 de agosto de 2026";
 
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(160deg, #e8f5ee 0%, #f0faf5 60%, #ffffff 100%)" }}>
@@ -134,15 +134,41 @@ export default function PrivacidadPage() {
             </p>
           </Section>
 
-          <Section title="6. Retención de datos">
+          <Section title="6. Retención de datos y eliminación de cuenta">
             <p>
-              Conservamos tu información mientras tu cuenta esté activa. Si eliminás tu cuenta,
-              borraremos o anonimizaremos tus datos personales dentro de los <strong>30 días hábiles</strong>,
-              excepto aquellos que debamos conservar por obligaciones legales.
+              Conservamos tu información mientras tu cuenta esté activa. Cuando eliminás tu cuenta
+              desde la app (o un administrador la elimina por incumplimiento de las normas de uso),
+              lo siguiente se borra <strong>de inmediato</strong>:
+            </p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>Tu acceso a la cuenta</li>
+              <li>Tu perfil (nombre, foto, categoría, ubicación, etc.)</li>
+              <li>Tu email y teléfono</li>
+              <li>Tu foto de perfil</li>
+            </ul>
+            <p className="mt-3">
+              Por motivos de integridad de la plataforma, cierta información <strong>no se elimina</strong>{" "}
+              al borrar tu cuenta, porque forma parte de registros compartidos con otros usuarios u
+              organizadores:
+            </p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>Mensajes que enviaste o recibiste en conversaciones</li>
+              <li>Historial de reservas de turnos e inscripciones a ligas y torneos en los que participaste</li>
+              <li>Invitaciones enviadas o recibidas</li>
+              <li>Reportes que presentaste o que se presentaron sobre tu perfil</li>
+              <li>Registros de bloqueo entre usuarios</li>
+            </ul>
+            <p className="mt-3">
+              Esta información queda desvinculada de tu email y teléfono (que sí se eliminan), y se
+              conserva únicamente para mantener la integridad de resultados, historiales compartidos
+              y procesos de moderación.
             </p>
             <p>
-              Los datos de ligas y torneos pueden conservarse en forma anonimizada para estadísticas
-              generales de la plataforma.
+              Si eliminás tu cuenta, tu email queda registrado para evitar que se cree una cuenta
+              nueva con esa misma dirección. Si creés que esto es un error, contactanos a{" "}
+              <a href="mailto:soporte.padelnexo@gmail.com" className="text-pn-green hover:underline font-semibold">
+                soporte.padelnexo@gmail.com
+              </a>.
             </p>
           </Section>
 

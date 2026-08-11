@@ -4,6 +4,20 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: false,
   },
+  async redirects() {
+    return [
+      {
+        source: "/politica-privacidad",
+        destination: "/privacidad",
+        permanent: true,
+      },
+      {
+        source: "/terminos-condiciones",
+        destination: "/terminos",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {
