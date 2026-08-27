@@ -943,7 +943,7 @@ export default function TurnosPage() {
         <div className={`${activeTabDef.panelBg} rounded-3xl p-5 transition-colors`}>
           {/* Selector de dias, compartido por las 3 secciones */}
           <div className="flex items-center gap-3 mb-5">
-            <div className="flex gap-1.5 overflow-x-auto pt-2 pb-1">
+            <div className="flex gap-2 overflow-x-auto pt-2 pb-1">
               {days.map((day) => {
                 const isCurrent = day.id === selectedDayId;
                 const isToday = day.id === days[0].id;
@@ -955,7 +955,7 @@ export default function TurnosPage() {
                       setSelectedDayId(day.id);
                       setBookingSlot("");
                     }}
-                    className={`relative flex flex-col items-center justify-center w-16 h-20 rounded-lg border-2 text-xs font-black flex-shrink-0 whitespace-nowrap transition-all ${
+                    className={`relative flex flex-col items-center justify-center w-20 h-20 rounded-xl border-2 text-xs font-black flex-shrink-0 whitespace-nowrap transition-all ${
                       isCurrent
                         ? "bg-[#0B8457] border-[#0B8457] text-white"
                         : isToday
@@ -969,17 +969,17 @@ export default function TurnosPage() {
                           e.stopPropagation();
                           toggleDateSelection(day.id);
                         }}
-                        className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                        className={`absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full border flex items-center justify-center ${
                           isChecked ? "bg-[#A6D96A] border-[#7FB845]" : "bg-white border-gray-300"
                         }`}
                       >
-                        {isChecked && <Check size={9} className="text-[#244B1A]" />}
+                        {isChecked && <Check size={10} className="text-[#244B1A]" />}
                       </span>
                     )}
-                    <span className="opacity-80 text-[9px]">{day.dayName}</span>
-                    <span className="text-base leading-tight">{day.dayNumber}</span>
+                    <span className="opacity-80 text-[10px]">{day.dayName}</span>
+                    <span className="text-lg leading-tight">{day.dayNumber}</span>
                     <span
-                      className={`text-[8px] font-black tracking-wide ${
+                      className={`text-[9px] font-black tracking-wide ${
                         isToday ? (isCurrent ? "text-white" : "text-[#B4790F]") : "opacity-0"
                       }`}
                     >
