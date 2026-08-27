@@ -851,7 +851,7 @@ export default function TurnosPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-3 mb-6 flex-wrap justify-center">
+      <div className="flex gap-3 mb-6 flex-wrap justify-between">
         {TABS.map(({ key, label, icon: Icon, active }) => {
           const isActive = tab === key;
           return (
