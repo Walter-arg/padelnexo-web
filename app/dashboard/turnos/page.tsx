@@ -266,10 +266,47 @@ function buildNextSevenDays() {
   });
 }
 
-function chunkSlots(slots: string[], size = SLOT_ROW_SIZE) {
+function chunkSlots<T>(slots: T[], size = SLOT_ROW_SIZE): T[][] {
   return Array.from({ length: Math.ceil(slots.length / size) }, (_, index) =>
     slots.slice(index * size, index * size + size)
   );
+}
+
+type CalendarDay = {
+  id: string;
+  dateMillis: number;
+  dayName: string;
+  dayNumber: number;
+  monthName: string;
+  isDisabled: boolean;
+  isToday: boolean;
+};
+
+function buildCalendarDays(daysAhead = 35): CalendarDay[] {
+  const dayFmt = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
+  const monthFmt = new Intl.DateTimeFormat("es-AR", { month: "short" });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const firstDay = new Date(today);
+  firstDay.setDate(today.getDate() - mondayOffset);
+
+  return Array.from({ length: daysAhead }, (_, index) => {
+    const date = new Date(firstDay);
+    date.setDate(firstDay.getDate() + index);
+    date.setHours(0, 0, 0, 0);
+    const dateMillis = date.getTime();
+
+    return {
+      id: String(dateMillis),
+      dateMillis,
+      dayName: dayFmt.format(date).replace(".", "").toUpperCase(),
+      dayNumber: date.getDate(),
+      monthName: monthFmt.format(date).replace(".", "").toUpperCase(),
+      isDisabled: dateMillis < today.getTime(),
+      isToday: dateMillis === today.getTime(),
+    };
+  });
 }
 
 function formatCurrency(value: number) {
@@ -420,6 +457,9 @@ export default function TurnosPage() {
     null
   );
   const [applyCourtIds, setApplyCourtIds] = useState<string[]>([]);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const calendarDays = useMemo(() => buildCalendarDays(35), []);
+  const calendarRows = useMemo(() => chunkSlots(calendarDays, 7), [calendarDays]);
 
   // ── Seccion "Reservas confirmadas" ──
   const [reservationDetail, setReservationDetail] = useState<Reservation | null>(null);
@@ -613,6 +653,22 @@ export default function TurnosPage() {
     setSelectedDateIds((current) =>
       current.includes(dateId) ? current.filter((id) => id !== dateId) : [...current, dateId]
     );
+  }
+
+  function toggleDateIdsGroup(dateIds: string[]) {
+    setSelectedDateIds((current) => {
+      const groupIsComplete = dateIds.every((id) => current.includes(id));
+      return groupIsComplete
+        ? current.filter((id) => !dateIds.includes(id))
+        : [...new Set([...current, ...dateIds])];
+    });
+  }
+
+  function getCalendarColumnDateIds(columnIndex: number): string[] {
+    return calendarRows
+      .map((row) => row[columnIndex])
+      .filter((day) => day && !day.isDisabled)
+      .map((day) => day.id);
   }
 
   function applySlotsToSelectedDays(complexKey: string, court: Court) {
@@ -933,6 +989,16 @@ export default function TurnosPage() {
                 );
               })}
             </div>
+            {tab === "config" && (
+              <button
+                onClick={() => setCalendarVisible(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#CFE7DC] bg-white text-[#173A2E] text-xs font-black flex-shrink-0 hover:border-[#0B8457] transition-colors"
+              >
+                <Calendar size={15} className="text-[#086847]" />
+                {new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}
+                <ChevronDown size={13} />
+              </button>
+            )}
           </div>
 
           {/* ── RESERVAS CONFIRMADAS ─────────────────────────────────── */}
@@ -1526,6 +1592,109 @@ export default function TurnosPage() {
               className="w-full text-sm font-black py-3 rounded-xl border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50"
             >
               {runningAction === `${reservationDetail.id}-cancelled` ? "..." : "Cancelar reserva"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal calendario: seleccion masiva de dias (dia por dia, semanas enteras o
+          un mismo dia de la semana repetido) para aplicar disponibilidad */}
+      {calendarVisible && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-black text-[#173A2E] text-base">Aplicar disponibilidad</div>
+              <button onClick={() => setCalendarVisible(false)}>
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+            <p className="text-xs text-[#5F7D72] mb-4">
+              Selecciona los dias que van a recibir los horarios configurados. Podes marcar dia por
+              dia, una semana entera, o repetir el mismo dia de la semana en todas las semanas.
+            </p>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[560px]">
+                {/* Encabezado: un boton por dia de la semana, marca esa columna en las 5 semanas */}
+                <div className="flex gap-1.5 mb-1.5">
+                  {calendarRows[0]?.map((day, columnIndex) => {
+                    const columnIds = getCalendarColumnDateIds(columnIndex);
+                    const columnIsComplete =
+                      columnIds.length > 0 && columnIds.every((id) => selectedDateIds.includes(id));
+                    return (
+                      <button
+                        key={`column-${columnIndex}`}
+                        disabled={!columnIds.length}
+                        onClick={() => toggleDateIdsGroup(columnIds)}
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-[11px] font-black border transition-colors ${
+                          columnIsComplete
+                            ? "bg-[#EDF7F2] border-[#0B8457] text-[#086847]"
+                            : columnIds.length
+                              ? "bg-white border-[#CFE7DC] text-[#1D5C91] hover:border-[#0B8457]"
+                              : "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed"
+                        }`}
+                      >
+                        {day.dayName}
+                        {columnIsComplete ? <Check size={11} /> : <ChevronDown size={11} />}
+                      </button>
+                    );
+                  })}
+                  <div className="w-7 flex-shrink-0" />
+                </div>
+
+                {/* Filas: una por semana, con boton al final para marcar la semana entera */}
+                <div className="flex flex-col gap-1.5">
+                  {calendarRows.map((row) => {
+                    const rowIds = row.filter((day) => !day.isDisabled).map((day) => day.id);
+                    const rowIsComplete = rowIds.length > 0 && rowIds.every((id) => selectedDateIds.includes(id));
+                    return (
+                      <div key={rowIds.join("-") || row[0]?.id} className="flex gap-1.5 items-center">
+                        {row.map((day) => {
+                          const isSelected = selectedDateIds.includes(day.id);
+                          return (
+                            <button
+                              key={day.id}
+                              disabled={day.isDisabled}
+                              onClick={() => toggleDateSelection(day.id)}
+                              className={`flex-1 flex flex-col items-center justify-center py-2 rounded-lg text-[11px] font-black border transition-colors ${
+                                day.isDisabled
+                                  ? "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed"
+                                  : isSelected
+                                    ? "bg-[#0B8457] border-[#0B8457] text-white"
+                                    : day.isToday
+                                      ? "bg-white border-[#D9A441] text-[#173A2E] hover:border-[#0B8457]"
+                                      : "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
+                              }`}
+                            >
+                              <span className="text-[9px] opacity-80">
+                                {day.isToday ? "HOY" : day.dayName}
+                              </span>
+                              <span>{day.dayNumber}</span>
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => toggleDateIdsGroup(rowIds)}
+                          className={`w-7 h-9 flex-shrink-0 flex items-center justify-center rounded-lg border ${
+                            rowIsComplete
+                              ? "bg-[#EDF7F2] border-[#C9E5D8] text-[#086847]"
+                              : "bg-white border-gray-200 text-gray-400"
+                          }`}
+                        >
+                          {rowIsComplete ? <Check size={13} /> : <ChevronDown size={13} className="-rotate-90" />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setCalendarVisible(false)}
+              className="w-full mt-5 bg-[#0B8457] hover:bg-[#086847] text-white font-black text-sm py-3 rounded-xl transition-colors"
+            >
+              LISTO
             </button>
           </div>
         </div>
