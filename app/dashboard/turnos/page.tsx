@@ -942,8 +942,8 @@ export default function TurnosPage() {
       ) : (
         <div className={`${activeTabDef.panelBg} rounded-3xl p-5 transition-colors`}>
           {/* Selector de dias, compartido por las 3 secciones */}
-          <div className="flex items-center gap-3 mb-5">
-            <div className="flex gap-2 overflow-x-auto pt-2 pb-1">
+          <div className="flex items-center gap-3 mb-5 flex-wrap">
+            <div className="flex gap-2 flex-wrap pt-2 pb-1">
               {days.map((day) => {
                 const isCurrent = day.id === selectedDayId;
                 const isToday = day.id === days[0].id;
