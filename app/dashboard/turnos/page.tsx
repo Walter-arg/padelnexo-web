@@ -812,26 +812,31 @@ export default function TurnosPage() {
     label: string;
     icon: any;
     active: { bg: string; border: string; text: string };
+    panelBg: string;
   }[] = [
     {
       key: "reservas",
       label: "Reservas confirmadas",
       icon: Calendar,
       active: { bg: "bg-[#EAF8F0]", border: "border-[#0B8457]", text: "text-[#086847]" },
+      panelBg: "bg-[#F4FBF7]",
     },
     {
       key: "asignar",
       label: "Asignar reserva",
       icon: UserPlus,
       active: { bg: "bg-[#EAF3FB]", border: "border-[#3E7FBE]", text: "text-[#1D5C91]" },
+      panelBg: "bg-[#F3F8FD]",
     },
     {
       key: "config",
       label: "Asignar canchas disponibles",
       icon: Settings,
       active: { bg: "bg-[#FBF1DF]", border: "border-[#D9A441]", text: "text-[#8A5E10]" },
+      panelBg: "bg-[#FDF8EE]",
     },
   ];
+  const activeTabDef = TABS.find((t) => t.key === tab)!;
 
   return (
     <DashboardLayout title="Turnos">
@@ -846,14 +851,14 @@ export default function TurnosPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-3 mb-6 flex-wrap">
+      <div className="grid grid-cols-3 gap-3 mb-6 max-w-2xl mx-auto">
         {TABS.map(({ key, label, icon: Icon, active }) => {
           const isActive = tab === key;
           return (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex flex-col items-center justify-center gap-2 w-32 h-28 sm:w-36 sm:h-32 rounded-2xl border-2 text-center px-2 transition-all ${
+              className={`flex flex-col items-center justify-center gap-2 aspect-square w-full rounded-2xl border-2 text-center px-2 transition-all ${
                 isActive
                   ? `${active.bg} ${active.border} ${active.text} shadow-md`
                   : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
@@ -879,7 +884,7 @@ export default function TurnosPage() {
           </p>
         </div>
       ) : (
-        <>
+        <div className={`${activeTabDef.panelBg} rounded-3xl p-5 transition-colors`}>
           {/* Selector de dias, compartido por las 3 secciones */}
           <div className="flex items-center gap-3 mb-5">
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1451,7 +1456,7 @@ export default function TurnosPage() {
               )}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Modal detalle de reserva (seccion Reservas confirmadas) */}
