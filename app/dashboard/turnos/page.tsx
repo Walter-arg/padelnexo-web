@@ -890,6 +890,7 @@ export default function TurnosPage() {
             <div className="flex gap-2 overflow-x-auto pb-1">
               {days.map((day) => {
                 const isCurrent = day.id === selectedDayId;
+                const isToday = day.id === days[0].id;
                 const isChecked = tab === "config" && selectedDateIds.includes(day.id);
                 return (
                   <button
@@ -898,10 +899,12 @@ export default function TurnosPage() {
                       setSelectedDayId(day.id);
                       setBookingSlot("");
                     }}
-                    className={`relative flex flex-col items-center justify-center w-24 h-20 rounded-xl border text-xs font-black flex-shrink-0 whitespace-nowrap transition-all ${
+                    className={`relative flex flex-col items-center justify-center w-24 h-24 rounded-xl border-2 text-xs font-black flex-shrink-0 whitespace-nowrap transition-all ${
                       isCurrent
                         ? "bg-[#0B8457] border-[#0B8457] text-white"
-                        : "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
+                        : isToday
+                          ? "bg-white border-[#D9A441] text-[#173A2E] hover:border-[#0B8457]"
+                          : "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
                     }`}
                   >
                     {tab === "config" && (
@@ -918,7 +921,14 @@ export default function TurnosPage() {
                       </span>
                     )}
                     <span className="opacity-80 text-[10px]">{day.dayName}</span>
-                    <span className="text-lg">{day.dayNumber}</span>
+                    <span className="text-lg leading-tight">{day.dayNumber}</span>
+                    <span
+                      className={`text-[9px] font-black tracking-wide ${
+                        isToday ? (isCurrent ? "text-white" : "text-[#B4790F]") : "opacity-0"
+                      }`}
+                    >
+                      HOY
+                    </span>
                   </button>
                 );
               })}
