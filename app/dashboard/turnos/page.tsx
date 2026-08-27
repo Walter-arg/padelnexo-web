@@ -246,7 +246,7 @@ function normalizeComplexConfig(complex: any, storedComplex: any): ComplexConfig
 }
 
 function buildNextSevenDays() {
-  const dayFmt = new Intl.DateTimeFormat("es-AR", { weekday: "short" });
+  const dayFmt = new Intl.DateTimeFormat("es-AR", { weekday: "long" });
   const monthFmt = new Intl.DateTimeFormat("es-AR", { month: "short" });
   const today = new Date();
 
@@ -807,10 +807,30 @@ export default function TurnosPage() {
 
   const hasComplexes = Boolean(config && config.complexes.length > 0);
 
-  const TABS: { key: TabKey; label: string; icon: any }[] = [
-    { key: "reservas", label: "Reservas confirmadas", icon: Calendar },
-    { key: "asignar", label: "Asignar reserva", icon: UserPlus },
-    { key: "config", label: "Asignar canchas disponibles", icon: Settings },
+  const TABS: {
+    key: TabKey;
+    label: string;
+    icon: any;
+    active: { bg: string; border: string; text: string };
+  }[] = [
+    {
+      key: "reservas",
+      label: "Reservas confirmadas",
+      icon: Calendar,
+      active: { bg: "bg-[#EAF8F0]", border: "border-[#0B8457]", text: "text-[#086847]" },
+    },
+    {
+      key: "asignar",
+      label: "Asignar reserva",
+      icon: UserPlus,
+      active: { bg: "bg-[#EAF3FB]", border: "border-[#3E7FBE]", text: "text-[#1D5C91]" },
+    },
+    {
+      key: "config",
+      label: "Asignar canchas disponibles",
+      icon: Settings,
+      active: { bg: "bg-[#FBF1DF]", border: "border-[#D9A441]", text: "text-[#8A5E10]" },
+    },
   ];
 
   return (
@@ -826,21 +846,24 @@ export default function TurnosPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {TABS.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-tight transition-all ${
-              tab === key
-                ? "bg-[#0B8457] text-white shadow-md"
-                : "bg-white text-gray-500 border border-gray-200 hover:border-[#0B8457] hover:text-[#0B8457]"
-            }`}
-          >
-            <Icon size={15} />
-            {label}
-          </button>
-        ))}
+      <div className="flex gap-3 mb-6 flex-wrap">
+        {TABS.map(({ key, label, icon: Icon, active }) => {
+          const isActive = tab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex flex-col items-center justify-center gap-2 w-32 h-28 sm:w-36 sm:h-32 rounded-2xl border-2 text-center px-2 transition-all ${
+                isActive
+                  ? `${active.bg} ${active.border} ${active.text} shadow-md`
+                  : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
+              }`}
+            >
+              <Icon size={28} />
+              <span className="text-xs font-black uppercase leading-tight">{label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {!hasComplexes ? (
@@ -870,7 +893,7 @@ export default function TurnosPage() {
                       setSelectedDayId(day.id);
                       setBookingSlot("");
                     }}
-                    className={`relative flex flex-col items-center justify-center w-14 h-16 rounded-xl border text-xs font-black flex-shrink-0 transition-all ${
+                    className={`relative flex flex-col items-center justify-center w-24 h-20 rounded-xl border text-xs font-black flex-shrink-0 whitespace-nowrap transition-all ${
                       isCurrent
                         ? "bg-[#0B8457] border-[#0B8457] text-white"
                         : "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
@@ -889,8 +912,8 @@ export default function TurnosPage() {
                         {isChecked && <Check size={10} className="text-[#244B1A]" />}
                       </span>
                     )}
-                    <span className="opacity-80">{day.dayName}</span>
-                    <span>{day.dayNumber}</span>
+                    <span className="opacity-80 text-[10px]">{day.dayName}</span>
+                    <span className="text-lg">{day.dayNumber}</span>
                   </button>
                 );
               })}
