@@ -851,14 +851,14 @@ export default function TurnosPage() {
       )}
 
       {/* Tabs */}
-      <div className="grid grid-cols-3 gap-3 mb-6 max-w-2xl mx-auto">
+      <div className="flex gap-3 mb-6 flex-wrap justify-center">
         {TABS.map(({ key, label, icon: Icon, active }) => {
           const isActive = tab === key;
           return (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex flex-col items-center justify-center gap-2 aspect-square w-full rounded-2xl border-2 text-center px-2 transition-all ${
+              className={`flex flex-col items-center justify-center gap-2 w-32 h-28 sm:w-36 sm:h-32 rounded-2xl border-2 text-center px-2 transition-all ${
                 isActive
                   ? `${active.bg} ${active.border} ${active.text} shadow-md`
                   : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
