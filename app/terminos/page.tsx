@@ -13,7 +13,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 );
 
 export default function TerminosPage() {
-  const lastUpdate = "29 de junio de 2026";
+  const lastUpdate = "31 de agosto de 2026";
 
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(160deg, #e8f5ee 0%, #f0faf5 60%, #ffffff 100%)" }}>
@@ -155,8 +155,8 @@ export default function TerminosPage() {
           <Section title="10. Cancelación de cuenta">
             <p>
               Podés cancelar tu cuenta en cualquier momento desde la configuración de la app o
-              contactándonos por email. Al cancelar, tus datos personales serán eliminados dentro
-              de los 30 días hábiles conforme a nuestra{" "}
+              contactándonos por email. Al cancelar, tus datos personales se eliminan de inmediato
+              y de forma permanente, conforme a nuestra{" "}
               <a href="/privacidad" className="text-pn-green hover:underline font-semibold">
                 Política de Privacidad
               </a>.
