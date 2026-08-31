@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Bell, Send, CheckCircle2, Trophy, Clock } from "lucide-react";
+import { Bell, Send, CheckCircle2, Trophy, Clock, AlertCircle } from "lucide-react";
+
+const SEND_BROADCAST_URL =
+  "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/sendOrganizerBroadcast";
 
 export default function NotificacionesPage() {
   const router = useRouter();
@@ -16,6 +19,7 @@ export default function NotificacionesPage() {
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
+  const [error, setError] = useState("");
   const [uid, setUid] = useState("");
 
   // Form state
@@ -49,35 +53,48 @@ export default function NotificacionesPage() {
   async function handleEnviar(e: React.FormEvent) {
     e.preventDefault();
     if (!titulo.trim() || !mensaje.trim()) return;
+    if (!auth.currentUser) return;
     setEnviando(true);
+    setError("");
     try {
-      // Guardar la notificación en Firestore
-      // La app móvil escucha esta colección para notificar a los jugadores
-      await addDoc(collection(db, "organizerNotifications"), {
-        organizerId: uid,
-        titulo: titulo.trim(),
-        mensaje: mensaje.trim(),
-        destino,
-        destinoId: destino !== "todos" ? destinoId : null,
-        destinoNombre: destino === "liga"
-          ? ligas.find(l => l.id === destinoId)?.nombre
-          : destino === "torneo"
-          ? torneos.find(t => t.id === destinoId)?.nombre
-          : "Todos los jugadores",
-        sentAt: serverTimestamp(),
-        status: "sent",
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch(SEND_BROADCAST_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          destino,
+          destinoId: destino !== "todos" ? destinoId : null,
+          titulo: titulo.trim(),
+          mensaje: mensaje.trim(),
+        }),
       });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "No pudimos enviar la notificacion.");
+      }
+
+      if (!result.recipientCount) {
+        setError("No encontramos jugadores registrados para este destino, no se envio nada.");
+        return;
+      }
+
+      const destinoNombre = destino === "liga"
+        ? ligas.find(l => l.id === destinoId)?.nombre
+        : destino === "torneo"
+        ? torneos.find(t => t.id === destinoId)?.nombre
+        : "Todos los jugadores";
 
       setHistorial(prev => [{
         id: Date.now().toString(),
         titulo: titulo.trim(),
         mensaje: mensaje.trim(),
         destino,
-        destinoNombre: destino === "liga"
-          ? ligas.find(l => l.id === destinoId)?.nombre
-          : destino === "torneo"
-          ? torneos.find(t => t.id === destinoId)?.nombre
-          : "Todos",
+        destinoNombre,
+        recipientCount: result.recipientCount,
         sentAt: { seconds: Date.now() / 1000 },
       }, ...prev]);
 
@@ -85,6 +102,8 @@ export default function NotificacionesPage() {
       setMensaje("");
       setEnviado(true);
       setTimeout(() => setEnviado(false), 3000);
+    } catch (err: any) {
+      setError(err?.message || "No pudimos enviar la notificacion.");
     } finally {
       setEnviando(false);
     }
@@ -181,6 +200,13 @@ export default function NotificacionesPage() {
                   )}
                 </div>
 
+                {error && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-xl px-4 py-3">
+                    <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+                    {error}
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={enviando || enviado}
@@ -213,9 +239,16 @@ export default function NotificacionesPage() {
                       <span className="text-xs text-gray-400 flex-shrink-0">{formatFecha(n.sentAt)}</span>
                     </div>
                     <p className="text-xs text-gray-500 mb-2 line-clamp-2">{n.mensaje}</p>
-                    <span className="text-xs bg-slate-100 text-gray-500 px-2.5 py-1 rounded-full">
-                      {n.destino === "todos" ? "Todos los jugadores" : n.destinoNombre ?? n.destino}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs bg-slate-100 text-gray-500 px-2.5 py-1 rounded-full">
+                        {n.destino === "todos" ? "Todos los jugadores" : n.destinoNombre ?? n.destino}
+                      </span>
+                      {typeof n.recipientCount === "number" && (
+                        <span className="text-xs bg-pn-mint text-pn-green px-2.5 py-1 rounded-full font-semibold">
+                          {n.recipientCount} destinatario{n.recipientCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
