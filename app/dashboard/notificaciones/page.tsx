@@ -25,8 +25,10 @@ export default function NotificacionesPage() {
   // Form state
   const [titulo, setTitulo] = useState("");
   const [mensaje, setMensaje] = useState("");
-  const [destino, setDestino] = useState<"todos" | "liga" | "torneo">("todos");
+  const [tipo, setTipo] = useState<"liga" | "torneo">("liga");
+  const [alcance, setAlcance] = useState<"todas" | "una">("todas");
   const [destinoId, setDestinoId] = useState("");
+  const destino = alcance === "todas" ? (tipo === "liga" ? "todas_ligas" : "todos_torneos") : tipo;
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -66,7 +68,7 @@ export default function NotificacionesPage() {
         },
         body: JSON.stringify({
           destino,
-          destinoId: destino !== "todos" ? destinoId : null,
+          destinoId: alcance === "una" ? destinoId : null,
           titulo: titulo.trim(),
           mensaje: mensaje.trim(),
         }),
@@ -86,7 +88,9 @@ export default function NotificacionesPage() {
         ? ligas.find(l => l.id === destinoId)?.nombre
         : destino === "torneo"
         ? torneos.find(t => t.id === destinoId)?.nombre
-        : "Todos los jugadores";
+        : destino === "todas_ligas"
+        ? "Todas mis ligas"
+        : "Todos mis torneos";
 
       setHistorial(prev => [{
         id: Date.now().toString(),
@@ -160,22 +164,40 @@ export default function NotificacionesPage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-600 mb-2">Destinatarios</label>
-                  <div className="flex gap-2 mb-3 flex-wrap">
-                    {(["todos","liga","torneo"] as const).map((d) => (
+
+                  <div className="flex gap-2 mb-2 flex-wrap">
+                    {(["liga", "torneo"] as const).map((t) => (
                       <button
-                        key={d}
+                        key={t}
                         type="button"
-                        onClick={() => { setDestino(d); setDestinoId(""); }}
+                        onClick={() => { setTipo(t); setDestinoId(""); }}
                         className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
-                          destino === d ? "bg-pn-navy text-white border-pn-navy" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                          tipo === t ? "bg-pn-navy text-white border-pn-navy" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                         }`}
                       >
-                        {d === "todos" ? "Todos mis jugadores" : d === "liga" ? "Una liga" : "Un torneo"}
+                        {t === "liga" ? "Liga" : "Torneo"}
                       </button>
                     ))}
                   </div>
 
-                  {destino === "liga" && (
+                  <div className="flex gap-2 mb-3 flex-wrap">
+                    {(["todas", "una"] as const).map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => { setAlcance(a); setDestinoId(""); }}
+                        className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                          alcance === a ? "bg-pn-green text-white border-pn-green" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        {a === "todas"
+                          ? (tipo === "liga" ? "Todas mis ligas" : "Todos mis torneos")
+                          : (tipo === "liga" ? "Una liga específica" : "Un torneo específico")}
+                      </button>
+                    ))}
+                  </div>
+
+                  {alcance === "una" && tipo === "liga" && (
                     <select
                       value={destinoId}
                       onChange={e => setDestinoId(e.target.value)}
@@ -187,7 +209,7 @@ export default function NotificacionesPage() {
                     </select>
                   )}
 
-                  {destino === "torneo" && (
+                  {alcance === "una" && tipo === "torneo" && (
                     <select
                       value={destinoId}
                       onChange={e => setDestinoId(e.target.value)}
@@ -241,7 +263,7 @@ export default function NotificacionesPage() {
                     <p className="text-xs text-gray-500 mb-2 line-clamp-2">{n.mensaje}</p>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs bg-slate-100 text-gray-500 px-2.5 py-1 rounded-full">
-                        {n.destino === "todos" ? "Todos los jugadores" : n.destinoNombre ?? n.destino}
+                        {n.destinoNombre ?? n.destino}
                       </span>
                       {typeof n.recipientCount === "number" && (
                         <span className="text-xs bg-pn-mint text-pn-green px-2.5 py-1 rounded-full font-semibold">
