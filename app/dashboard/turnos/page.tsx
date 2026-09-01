@@ -374,12 +374,6 @@ function isPastSlotForDay(day: { dateMillis: number }, slot: string): boolean {
   return currentMinutes > slotMinutes + SAME_DAY_TOLERANCE_MINUTES;
 }
 
-function getReservableCourtSlots(court: Court | null, day: { dateMillis: number } | undefined): string[] {
-  if (!court || !day) return [];
-  const dateSlots = court.slotsByDate[String(day.dateMillis)] || [];
-  return dateSlots.filter((slot) => !isPastSlotForDay(day, slot));
-}
-
 function getReservedSlotsForCourtDay(
   reservations: Reservation[],
   complexKey: string,
@@ -586,8 +580,17 @@ export default function TurnosPage() {
   const bookingReservedSlots = bookingCourt
     ? getReservedSlotsForCourtDay(reservations, bookingComplex!.complexKey, bookingCourt.id, selectedDay.dateMillis)
     : new Set<string>();
-  const bookingAllSlots = getReservableCourtSlots(bookingCourt, selectedDay);
-  const bookingAvailableSlotSet = new Set(bookingAllSlots.filter((s) => !bookingReservedSlots.has(s)));
+  // El organizador puede asignar CUALQUIER horario, no solo los que puso como
+  // disponibles en "Asignar canchas disponibles" — esos solo se marcan de
+  // forma sutil para orientarlo, pero nunca bloquean la asignacion manual.
+  const bookingConfiguredSlots = new Set(
+    bookingCourt?.slotsByDate[String(selectedDay.dateMillis)] || []
+  );
+  const bookingSelectableSlots = new Set(
+    HALF_HOUR_SLOTS.filter(
+      (slot) => !bookingReservedSlots.has(slot) && !isPastSlotForDay(selectedDay, slot)
+    )
+  );
   const bookingPrice = getCourtPrice(bookingCourt, bookingDuration);
 
   const filteredPlayers = useMemo(() => {
@@ -1155,42 +1158,53 @@ export default function TurnosPage() {
                         ))}
                       </div>
                       <div>
-                        <div className="text-xs font-black text-[#086847] uppercase tracking-wide mb-2">
-                          Elegi un turno
-                        </div>
-                        {bookingAllSlots.length === 0 ? (
-                          <p className="text-xs text-gray-400">No hay horarios cargados para este dia.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {bookingAllSlots.map((slot) => {
-                              const isAvailable = bookingAvailableSlotSet.has(slot);
-                              const isSelected = slot === bookingSlot;
-                              return (
-                                <button
-                                  key={slot}
-                                  disabled={!isAvailable}
-                                  onClick={() => {
-                                    setBookingSlot(slot);
-                                    setBookingDuration(
-                                      isDurationAvailable(bookingAvailableSlotSet, new Set(), slot, 90)
-                                        ? 90
-                                        : 60
-                                    );
-                                  }}
-                                  className={`text-xs font-bold px-3 py-2 rounded-lg border transition-colors ${
-                                    isSelected
-                                      ? "bg-[#0B8457] border-[#0B8457] text-white"
-                                      : isAvailable
-                                        ? "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
-                                        : "bg-gray-100 border-gray-100 text-gray-300 cursor-not-allowed"
-                                  }`}
-                                >
-                                  {slot}
-                                </button>
-                              );
-                            })}
+                        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                          <div className="text-xs font-black text-[#086847] uppercase tracking-wide">
+                            Elegi un turno
                           </div>
-                        )}
+                          <div className="flex items-center gap-3 text-[10px] text-[#5F7D72] font-semibold">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-white border border-[#CFE7DC] inline-block" />
+                              Disponible configurado
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-white border border-dashed border-gray-300 inline-block" />
+                              Fuera de lo configurado
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {HALF_HOUR_SLOTS.map((slot) => {
+                            const isSelectable = bookingSelectableSlots.has(slot);
+                            const isConfigured = bookingConfiguredSlots.has(slot);
+                            const isSelected = slot === bookingSlot;
+                            return (
+                              <button
+                                key={slot}
+                                disabled={!isSelectable}
+                                onClick={() => {
+                                  setBookingSlot(slot);
+                                  setBookingDuration(
+                                    isDurationAvailable(bookingSelectableSlots, new Set(), slot, 90)
+                                      ? 90
+                                      : 60
+                                  );
+                                }}
+                                className={`text-xs font-bold px-3 py-2 rounded-lg border transition-colors ${
+                                  isSelected
+                                    ? "bg-[#0B8457] border-[#0B8457] text-white"
+                                    : !isSelectable
+                                      ? "bg-gray-100 border-gray-100 text-gray-300 cursor-not-allowed"
+                                      : isConfigured
+                                        ? "bg-white border-[#CFE7DC] text-[#173A2E] hover:border-[#0B8457]"
+                                        : "bg-white border-dashed border-gray-300 text-[#5F7D72] hover:border-[#0B8457]"
+                                }`}
+                              >
+                                {slot}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
                       {bookingSlot && (
@@ -1506,18 +1520,32 @@ export default function TurnosPage() {
                     </button>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-[#CFE7DC] p-5">
+                  <div
+                    className={`rounded-2xl border p-5 ${
+                      config!.mercadoPagoConfig?.enabled
+                        ? "bg-[#EDF7F2] border-[#0B8457]"
+                        : "bg-red-50 border-red-300"
+                    }`}
+                  >
                     <div className="flex items-center gap-2 mb-1">
                       <Wallet
                         size={16}
-                        className={config!.mercadoPagoConfig?.enabled ? "text-[#1A7F5A]" : "text-gray-400"}
+                        className={config!.mercadoPagoConfig?.enabled ? "text-[#086847]" : "text-red-600"}
                       />
-                      <div className="font-black text-[#173A2E] text-sm">Mercado Pago</div>
+                      <div
+                        className={`font-black text-sm ${
+                          config!.mercadoPagoConfig?.enabled ? "text-[#086847]" : "text-red-600"
+                        }`}
+                      >
+                        {config!.mercadoPagoConfig?.enabled
+                          ? "Cobros con Mercado Pago habilitado"
+                          : "Cobros con Mercado Pago no esta activo"}
+                      </div>
                     </div>
-                    <p className="text-xs text-[#5F7D72]">
+                    <p className={`text-xs ${config!.mercadoPagoConfig?.enabled ? "text-[#0F5A3E]" : "text-red-700"}`}>
                       {config!.mercadoPagoConfig?.enabled
-                        ? "Los turnos nuevos ya quedan preparados para cobrar tambien con Mercado Pago."
-                        : "Activalo desde tu perfil para cobrar tambien con Mercado Pago en reservas nuevas."}
+                        ? "Vinculaste Mercado Pago: quien reserve un turno nuevo va a poder pagarlo directo con Mercado Pago."
+                        : "Todavia no esta vinculado. Activalo desde tu perfil para que quien reserve pueda pagar con Mercado Pago."}
                     </p>
                   </div>
 
