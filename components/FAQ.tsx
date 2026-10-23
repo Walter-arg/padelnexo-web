@@ -27,7 +27,7 @@ const faqs = [
   },
   {
     q: "¿Está disponible para iOS?",
-    a: "Por el momento PadelNexo está disponible para Android. La versión para iOS está en desarrollo y estará disponible próximamente.",
+    a: "Sí, PadelNexo está disponible tanto para Android como para iOS (iPhone), descargable desde Google Play y la App Store.",
   },
   {
     q: "¿Puedo usar PadelNexo para torneos eliminatorios?",

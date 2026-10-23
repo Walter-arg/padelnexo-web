@@ -131,13 +131,18 @@ export default function Footer() {
                   <div className="text-sm font-bold">Google Play</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 border border-white/10 rounded-xl px-4 py-3 opacity-40">
+              <a
+                href="https://apps.apple.com/us/app/padel-nexo/id6819523991"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 border border-white/10 rounded-xl px-4 py-3 hover:border-white/30 transition-colors"
+              >
                 <span className="text-2xl">🍎</span>
                 <div>
-                  <div className="text-[10px] text-gray-400">Próximamente</div>
+                  <div className="text-[10px] text-gray-400">Disponible en</div>
                   <div className="text-sm font-bold">App Store</div>
                 </div>
-              </div>
+              </a>
             </div>
           </div>
         </div>
