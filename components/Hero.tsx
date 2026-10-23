@@ -171,7 +171,7 @@ export default function Hero() {
           >
             <div className="w-2 h-2 rounded-full bg-pn-green animate-pulse" />
             <span className="text-pn-dark text-sm font-semibold">
-              Próximamente en Google Play
+              Ya disponible en Android e iOS
             </span>
           </motion.div>
 
