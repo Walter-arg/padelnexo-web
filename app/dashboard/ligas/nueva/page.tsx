@@ -85,6 +85,7 @@ function defaultForm() {
     complejoNombre: "",
 
     teamType:      "pair"       as "pair" | "individual",
+    individualSideMode: "fijo"  as "fijo" | "libre",
     sexo:          "Masculino"  as "Masculino" | "Femenino" | "Mixto",
     categoryMode:  "single"     as "single" | "sum_fixed" | "sum_open",
     fixedCategoryA: "4ta",
@@ -341,6 +342,7 @@ export default function NuevaLigaPage() {
         complejoNombre: first?.nombre || "",
 
         teamType:      ld.teamType      || "pair",
+        individualSideMode: ld.individualSideMode || "fijo",
         sexo:          ld.sexo          || "Masculino",
         categoryMode:  ld.categoryMode  || "single",
         fixedCategoryA: ld.fixedCategoryA || "4ta",
@@ -482,8 +484,8 @@ export default function NuevaLigaPage() {
       replacementQuota:           form.replacementQuota,
       publishReplacementRequests: form.publishReplacementRequests,
       standings: {
-        mode:   form.teamType === "pair" ? "pair" : "drive_reves",
-        tables: form.teamType === "pair" ? ["Parejas"] : ["Drive", "Revés"],
+        mode:   form.teamType === "pair" ? "pair" : form.individualSideMode === "libre" ? "general" : "drive_reves",
+        tables: form.teamType === "pair" ? ["Parejas"] : form.individualSideMode === "libre" ? ["Tabla general"] : ["Drive", "Revés"],
       },
     };
 
@@ -495,6 +497,7 @@ export default function NuevaLigaPage() {
 
       sexo:               form.sexo,
       teamType:           form.teamType,
+      individualSideMode: form.teamType === "individual" ? form.individualSideMode : "fijo",
       modalidadCategoria: form.categoryMode === "single" ? "libre" : "suma",
       sumTarget:          form.categoryMode !== "single" ? form.sumTarget : "",
       sumRule:            form.categoryMode === "sum_fixed" ? "fixed"
@@ -561,6 +564,7 @@ export default function NuevaLigaPage() {
       // Persist user defaults (same as app's handleSubmit)
       const leagueDefaults = {
         teamType:           form.teamType,
+        individualSideMode: form.individualSideMode,
         sexo:               form.sexo,
         categoryMode:       form.categoryMode,
         fixedCategoryA:     form.fixedCategoryA,
@@ -706,6 +710,21 @@ export default function NuevaLigaPage() {
                 ]}
               />
             </div>
+
+            {/* Posicion de juego (solo individual) */}
+            {form.teamType === "individual" && (
+              <div className="mb-5">
+                <FieldLabel>Posición de juego</FieldLabel>
+                <SegControl
+                  value={form.individualSideMode}
+                  onChange={(v) => set("individualSideMode", v as "fijo" | "libre")}
+                  options={[
+                    { value: "fijo",  label: "Lado fijo (Drive/Revés)" },
+                    { value: "libre", label: "Posición libre"          },
+                  ]}
+                />
+              </div>
+            )}
 
             {/* Género */}
             <div className="mb-5">

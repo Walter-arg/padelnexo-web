@@ -155,10 +155,21 @@ function generatePairFixture(league: any): FixtureData {
   };
 }
 
+function splitIndividualPlayers(league: any, players: any[]): { drive: any[]; reves: any[] } {
+  if (league?.individualSideMode === "libre") {
+    const drive: any[] = []; const reves: any[] = [];
+    players.forEach((p: any, i: number) => { (i % 2 === 0 ? drive : reves).push(p); });
+    return { drive, reves };
+  }
+  return {
+    drive: players.filter((p: any) => p.ladoJuego === "drive"),
+    reves: players.filter((p: any) => p.ladoJuego === "reves"),
+  };
+}
+
 function generateIndividualFixture(league: any): FixtureData {
   const players = (Array.isArray(league?.players) ? league.players : []).map(normalizePlayerEntry);
-  const drive = players.filter((p: any) => p.ladoJuego === "drive");
-  const reves = players.filter((p: any) => p.ladoJuego === "reves");
+  const { drive, reves } = splitIndividualPlayers(league, players);
   const pairsCount = Math.min(drive.length, reves.length);
   const roundsCount = Number(league?.fixtureConfig?.roundsCount) || 6;
   const timeSlots: string[] = league?.scheduleConfig?.timeSlots ?? [];
@@ -198,10 +209,14 @@ function validateFixture(league: any): { valid: boolean; message: string } {
       return { valid: false, message: "Necesitás al menos dos parejas para generar el fixture." };
     return { valid: true, message: "" };
   }
-  const drive = players.filter((p: any) => normalizePlayerEntry(p).ladoJuego === "drive");
-  const reves = players.filter((p: any) => normalizePlayerEntry(p).ladoJuego === "reves");
+  const { drive, reves } = splitIndividualPlayers(league, players.map(normalizePlayerEntry));
   if (drive.length < 2 || reves.length < 2)
-    return { valid: false, message: "Necesitás al menos dos Drive y dos Reves para el fixture individual." };
+    return {
+      valid: false,
+      message: league?.individualSideMode === "libre"
+        ? "Necesitás al menos 4 jugadores para generar el fixture individual."
+        : "Necesitás al menos dos Drive y dos Reves para el fixture individual.",
+    };
   return { valid: true, message: "" };
 }
 
@@ -586,7 +601,7 @@ function GenerateModal({ league, onClose, onGenerate }: { league: any; onClose: 
         {validation.valid && (
           <div className="bg-[#EEF9F1] border border-[#CFE7DC] rounded-xl px-4 py-3 mb-4 text-sm text-[#086847] font-semibold">
             Se generarán <strong>{league?.fixtureConfig?.roundsCount ?? 6}</strong> fechas con el algoritmo{" "}
-            {league?.teamType === "individual" ? "Individual (Drive/Reves)" : "Round Robin (parejas"}.
+            {league?.teamType !== "individual" ? "Round Robin (parejas" : league?.individualSideMode === "libre" ? "Individual (posición libre)" : "Individual (Drive/Reves)"}.
           </div>
         )}
         <div className="flex gap-3">

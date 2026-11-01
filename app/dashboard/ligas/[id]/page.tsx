@@ -161,10 +161,20 @@ function fxGeneratePair(league: any): any {
   const base = fxRoundRobin(teams);
   return { generatedAtMillis: Date.now(), rounds: Array.from({ length: roundsCount }, (_, ri) => { const b = base[ri % Math.max(base.length, 1)] ?? { matches: [], byeLabels: [] }; return { id: `round-${ri + 1}`, number: ri + 1, title: `Fecha ${ri + 1}`, scheduleLabel: "", completedAtMillis: 0, suspendedAtMillis: 0, suspensionReason: "", suspensionMode: "", rescheduledDateMillis: 0, byeLabels: b.byeLabels, matches: b.matches.map((m: any, mi: number) => fxCreateMatch(m, ri, mi, timeSlots[mi % timeSlots.length] ?? "")) }; }) };
 }
+function fxSplitIndividualPlayers(league: any, players: any[]): { drive: any[]; reves: any[] } {
+  if (league?.individualSideMode === "libre") {
+    const drive: any[] = []; const reves: any[] = [];
+    players.forEach((p: any, i: number) => { (i % 2 === 0 ? drive : reves).push(p); });
+    return { drive, reves };
+  }
+  return {
+    drive: players.filter((p: any) => p.ladoJuego === "drive"),
+    reves: players.filter((p: any) => p.ladoJuego === "reves"),
+  };
+}
 function fxGenerateIndividual(league: any): any {
   const players = (Array.isArray(league?.players) ? league.players : []).map(fxNormalizePlayer);
-  const drive = players.filter((p: any) => p.ladoJuego === "drive");
-  const reves = players.filter((p: any) => p.ladoJuego === "reves");
+  const { drive, reves } = fxSplitIndividualPlayers(league, players);
   const pairsCount = Math.min(drive.length, reves.length);
   const roundsCount = Number(league?.fixtureConfig?.roundsCount) || 6;
   const timeSlots: string[] = league?.scheduleConfig?.timeSlots ?? [];
@@ -181,9 +191,15 @@ function fxValidate(league: any): { valid: boolean; message: string } {
     return { valid: true, message: "" };
   }
   const norm = players.map(fxNormalizePlayer);
-  const drive = norm.filter((p: any) => p.ladoJuego === "drive");
-  const reves = norm.filter((p: any) => p.ladoJuego === "reves");
-  if (drive.length < 2 || reves.length < 2) return { valid: false, message: "Necesitás al menos 2 Drive y 2 Reves para el fixture individual." };
+  const { drive, reves } = fxSplitIndividualPlayers(league, norm);
+  if (drive.length < 2 || reves.length < 2) {
+    return {
+      valid: false,
+      message: league?.individualSideMode === "libre"
+        ? "Necesitás al menos 4 jugadores para generar el fixture individual."
+        : "Necesitás al menos 2 Drive y 2 Reves para generar el fixture individual.",
+    };
+  }
   return { valid: true, message: "" };
 }
 function fxGenerate(league: any): any {
@@ -531,7 +547,7 @@ function FixtureGenerateModal({ league, onClose, onGenerate }: { league: any; on
         {!validation.valid&&<div className="bg-[#FFF1F1] border border-[#F2CACA] rounded-xl px-4 py-3 mb-4 text-sm text-[#8C2D2D] font-semibold">{validation.message}</div>}
         {err&&<div className="bg-[#FFF1F1] border border-[#F2CACA] rounded-xl px-4 py-3 mb-4 text-sm text-[#8C2D2D] font-semibold">{err}</div>}
         {validation.valid&&<div className="bg-[#EEF9F1] border border-[#CFE7DC] rounded-xl px-4 py-3 mb-4 text-sm text-[#086847] font-semibold">
-          Se generarán <strong>{league?.fixtureConfig?.roundsCount??6}</strong> fechas · {league?.teamType==="individual"?"Individual (Drive/Reves)":"Round Robin (parejas)"}
+          Se generarán <strong>{league?.fixtureConfig?.roundsCount??6}</strong> fechas · {league?.teamType!=="individual"?"Round Robin (parejas)":league?.individualSideMode==="libre"?"Individual (posición libre)":"Individual (Drive/Reves)"}
         </div>}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
@@ -1396,6 +1412,14 @@ export default function LigaDetailPage() {
       setReplacementTargetId("");
       return;
     }
+    if(liga?.teamType==="individual" && liga?.individualSideMode==="libre") {
+      const newP=normalizePlayerEntry({id:`registered-${rp.id}`,type:"registered",linkedUserId:rp.id,
+        nombre:rp.nombre??"",apellido:rp.apellido??"",telefono:rp.telefono??rp.celular??"",
+        categoria:rp.categoria??"",sexo:rp.sexo??"",ciudad:rp.ciudad??"",provincia:rp.provincia??"",
+        foto:rp.foto||rp.avatarUrl||rp.fotoURL||rp.photoURL||"",pairNumber:0});
+      persistPlayers([...(liga?.players??[]),newP]);
+      return;
+    }
     setPendingPlayer(rp);
     setPendingIsGuest(false);
     if(liga?.teamType==="pair") setPairPickerOpen(true);
@@ -1404,6 +1428,14 @@ export default function LigaDetailPage() {
 
   function handleGuestCreate() {
     if(!guestName.trim()||!guestLastName.trim()) return;
+    if(liga?.teamType==="individual" && liga?.individualSideMode==="libre") {
+      const newP=normalizePlayerEntry({id:`guest-${Date.now()}`,type:"guest",linkedUserId:"",
+        nombre:guestName.trim(),apellido:guestLastName.trim(),pairNumber:0});
+      setGuestName("");setGuestLastName("");
+      setGuestModalOpen(false);
+      persistPlayers([...(liga?.players??[]),newP]);
+      return;
+    }
     setPendingIsGuest(true);
     setPendingPlayer(null);
     setGuestModalOpen(false);
@@ -1522,6 +1554,7 @@ export default function LigaDetailPage() {
   const standings            = buildStandings(liga);
   const matchFormat          = liga.matchFormat ?? "three_full_sets";
   const isIndividual         = liga.teamType === "individual";
+  const isFreePosition       = isIndividual && liga.individualSideMode === "libre";
   const logoUrl              = liga.organizerLogoUrl || liga.organizerLogoURL || liga.complejo?.organizerLogoUrl || liga.complejo?.organizerLogoURL;
 
   const regFeeEnabled = liga.paymentConfig?.registrationFeeEnabled === true && (liga.paymentConfig?.registrationFeeAmount ?? 0) > 0;
@@ -1775,7 +1808,9 @@ export default function LigaDetailPage() {
                       <>
                         <div className="text-sm font-bold text-[#5F7D72]">
                           Participantes cargados {players.length}/{minimumPlayersCount}
-                          <span className="ml-3 font-semibold text-xs">Drive {driveCount}/{sideTargetCount} · Reves {revesCount}/{sideTargetCount}</span>
+                          {!isFreePosition && (
+                            <span className="ml-3 font-semibold text-xs">Drive {driveCount}/{sideTargetCount} · Reves {revesCount}/{sideTargetCount}</span>
+                          )}
                         </div>
                         <div className={`text-xs font-bold ${players.length>=minimumPlayersCount?"text-[#086847]":"text-[#8A5700]"}`}>
                           {players.length>=minimumPlayersCount ? "✓ Mínimo completo" : `Faltan ${minimumPlayersCount-players.length} participantes.`}
@@ -1906,7 +1941,7 @@ export default function LigaDetailPage() {
                           onDelete={()=>handleDeletePlayer(p.id)}
                           onSwap={p.type==="guest"?()=>setReplacementTargetId(replacementTargetId===p.id?"":p.id):undefined}
                           isSwapActive={replacementTargetId===p.id}
-                          showSide
+                          showSide={!isFreePosition}
                         />
                       ))}
                     </div>
@@ -2046,7 +2081,7 @@ export default function LigaDetailPage() {
                   {standings.length===0
                     ? <p className="text-center py-12" style={{color:"#5F7D72"}}>Todavía no hay resultados cargados.</p>
                     : <>
-                        {isIndividual
+                        {isIndividual && !isFreePosition
                           ? ["drive","reves"].map(lado=>{
                               const rows=standings.filter(r=>players.find((p:any)=>p.id===r.id&&p.ladoJuego===lado));
                               if(rows.length===0) return null;
