@@ -111,6 +111,7 @@ function defaultForm() {
     superTieBreakWinByTwo:     false,
     pointsWin:                 3,
     pointsLoss:                1,
+    threeSetWinPenalty:        0,
     replacementPenalty:        1,
     replacementPenaltyMode:    "individual" as "individual" | "pair",
     replacementQuota:          0,
@@ -355,6 +356,7 @@ export default function NuevaLigaPage() {
         singleSetWinByTwo:           ld.singleSetSettings?.winByTwo             ?? false,
         pointsWin:                   ld.scoringSettings?.pointsWin              ?? 3,
         pointsLoss:                  ld.scoringSettings?.pointsLoss             ?? 1,
+        threeSetWinPenalty:          ld.scoringSettings?.threeSetWinPenalty     ?? 0,
         replacementPenalty:          ld.scoringSettings?.replacementPenalty     ?? 1,
         replacementPenaltyMode:      ld.scoringSettings?.replacementPenaltyMode || "individual",
         replacementQuota:            ld.scoringSettings?.replacementQuota       ?? 0,
@@ -480,6 +482,7 @@ export default function NuevaLigaPage() {
       pointsWin:                  form.pointsWin,
       pointsLoss:                 form.pointsLoss,
       pointsWalkoverWin:          form.pointsWin,
+      threeSetWinPenalty:         form.threeSetWinPenalty,
       replacementPenalty:         form.replacementPenalty,
       replacementPenaltyMode:     form.replacementPenaltyMode,
       replacementQuota:           form.replacementQuota,
@@ -576,6 +579,7 @@ export default function NuevaLigaPage() {
         scoringSettings: {
           pointsWin:                  form.pointsWin,
           pointsLoss:                 form.pointsLoss,
+          threeSetWinPenalty:         form.threeSetWinPenalty,
           replacementPenalty:         form.replacementPenalty,
           replacementPenaltyMode:     form.replacementPenaltyMode,
           replacementQuota:           form.replacementQuota,
@@ -1133,6 +1137,13 @@ export default function NuevaLigaPage() {
                       label="Set ganado (perdedor suma)"
                       value={form.pointsLoss}
                       onChange={(v) => set("pointsLoss", v)}
+                      suffix="pts"
+                      min={0}
+                    />
+                    <NumberInput
+                      label="Descuento si gana en 3 sets (opcional)"
+                      value={form.threeSetWinPenalty}
+                      onChange={(v) => set("threeSetWinPenalty", v)}
                       suffix="pts"
                       min={0}
                     />

@@ -692,6 +692,7 @@ function buildStandings(liga: any) {
   const sc = liga.scoringSettings ?? {};
   const pointsWin    = sc.pointsWin  ?? 3;
   const pointsLoss   = sc.pointsLoss ?? 1;
+  const threeSetWinPenalty = sc.threeSetWinPenalty ?? 0;
   const penaltyPts   = sc.replacementPenalty ?? 1;
   const penaltyQuota = sc.replacementQuota   ?? 0;
   const isInd = liga.teamType === "individual";
@@ -706,8 +707,18 @@ function buildStandings(liga: any) {
       if (won) { table[id].pg++; table[id].pts += sc.pointsWalkoverWin ?? pointsWin; }
       else { table[id].pp++; }
     } else {
-      if (won) { table[id].pg++; table[id].pts += pointsWin; }
-      else { table[id].pp++; table[id].pts += pointsLoss; }
+      if (won) {
+        table[id].pg++;
+        // sc2 acá es la cantidad de sets que se llevó el rival (el perdedor): si
+        // ganó justo 1, el partido se cerro en el set/tiebreak decisivo.
+        const winPoints = sc2 === 1 && threeSetWinPenalty > 0
+          ? Math.max(0, pointsWin - threeSetWinPenalty)
+          : pointsWin;
+        table[id].pts += winPoints;
+      } else {
+        table[id].pp++;
+        table[id].pts += sf * pointsLoss;
+      }
       table[id].sf += sf; table[id].sc2 += sc2; table[id].gf += gf; table[id].gc += gc;
     }
   };
