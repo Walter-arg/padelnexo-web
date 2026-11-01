@@ -13,7 +13,35 @@ import {
   MapPin, Clock, ChevronLeft, ChevronDown, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
   MessageSquare, Smartphone, Banknote, Search, Plus, AlertCircle, SlidersHorizontal,
+  FileText, Bold,
 } from "lucide-react";
+
+// ── Reglas de la liga ────────────────────────────────────────────────────────
+function parseRulesSegments(text: string = ""): { bold: boolean; text: string }[] {
+  const segments: { bold: boolean; text: string }[] = [];
+  const regex = /\*\*([\s\S]+?)\*\*/g;
+  let lastIndex = 0;
+  let match = regex.exec(text);
+
+  while (match) {
+    if (match.index > lastIndex) segments.push({ bold: false, text: text.slice(lastIndex, match.index) });
+    segments.push({ bold: true, text: match[1] });
+    lastIndex = match.index + match[0].length;
+    match = regex.exec(text);
+  }
+  if (lastIndex < text.length) segments.push({ bold: false, text: text.slice(lastIndex) });
+  return segments;
+}
+
+function RulesText({ text, className }: { text: string; className?: string }) {
+  return (
+    <p className={className} style={{ whiteSpace: "pre-wrap" }}>
+      {parseRulesSegments(text).map((seg, i) => (
+        <span key={i} className={seg.bold ? "font-black" : undefined}>{seg.text}</span>
+      ))}
+    </p>
+  );
+}
 
 type Tab = "jugadores" | "fixture" | "posiciones" | "pagos";
 
@@ -1074,6 +1102,10 @@ export default function LigaDetailPage() {
   const [fxScheduleTarget, setFxScheduleTarget] = useState<{roundId:string;matchId:string}|null>(null);
   const [fxScheduleDateInput, setFxScheduleDateInput] = useState("");
   const [fxScheduleTimeInput, setFxScheduleTimeInput] = useState("");
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState("");
+  const [savingRules, setSavingRules] = useState(false);
+  const rulesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [fxGenOpen, setFxGenOpen] = useState(false);
   const [fxConfirmRegen, setFxConfirmRegen] = useState(false);
   const [fxConfirmDelete, setFxConfirmDelete] = useState(false);
@@ -1387,6 +1419,57 @@ export default function LigaDetailPage() {
       scheduledAtMillis: fxCombineDateAndTime(dateMillis, fxScheduleTimeInput || ""),
     }));
     setFxScheduleTarget(null);
+  }
+
+  function openRulesModal() {
+    setRulesDraft(liga?.rules ?? "");
+    setRulesModalOpen(true);
+  }
+
+  function toggleRulesBold() {
+    const el = rulesTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const text = rulesDraft;
+
+    if (start === end) {
+      const next = `${text.slice(0, start)}****${text.slice(start)}`;
+      setRulesDraft(next);
+      requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + 2, start + 2); });
+      return;
+    }
+
+    const selected = text.slice(start, end);
+    const isBold = selected.length >= 4 && selected.startsWith("**") && selected.endsWith("**");
+    let next: string, nextStart: number, nextEnd: number;
+
+    if (isBold) {
+      const inner = selected.slice(2, -2);
+      next = `${text.slice(0, start)}${inner}${text.slice(end)}`;
+      nextStart = start; nextEnd = start + inner.length;
+    } else {
+      next = `${text.slice(0, start)}**${selected}**${text.slice(end)}`;
+      nextStart = start; nextEnd = end + 4;
+    }
+
+    setRulesDraft(next);
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(nextStart, nextEnd); });
+  }
+
+  async function saveRules() {
+    if (savingRules) return;
+    try {
+      setSavingRules(true);
+      await updateDoc(doc(db,"leagues",ligaId), { rules: rulesDraft, updatedAt: serverTimestamp() });
+      setLiga((p:any)=>({...p, rules: rulesDraft}));
+      showToast("Reglas guardadas.");
+      setRulesModalOpen(false);
+    } catch {
+      showToast("Error al guardar las reglas.", false);
+    } finally {
+      setSavingRules(false);
+    }
   }
 
   async function fxSendReplacementNotifications(match: any, prevReplacements: any, newReplacements: any, roundTitle: string) {
@@ -1850,6 +1933,17 @@ export default function LigaDetailPage() {
                 </button>
               );
             })}
+          </div>
+
+          {/* ── Reglas de la liga ── */}
+          <div className="flex justify-center mb-6">
+            <button
+              onClick={openRulesModal}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all text-xs font-black text-pn-navy"
+            >
+              <FileText size={14} className="text-gray-500"/>
+              Reglas
+            </button>
           </div>
 
           {/* ── Contenido de la sección activa ── */}
@@ -2835,6 +2929,64 @@ export default function LigaDetailPage() {
               <button onClick={()=>setFxScheduleTarget(null)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
               <button onClick={saveFxSchedule} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black">Guardar</button>
             </div>
+          </div>
+        </div>
+      )}
+      {rulesModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={()=>setRulesModalOpen(false)}>
+          <div className="bg-white rounded-[22px] p-6 w-full max-w-lg shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-[#086847] text-lg">Reglas de la liga</h3>
+              <button onClick={()=>setRulesModalOpen(false)}><X size={16} className="text-[#5F7D72]"/></button>
+            </div>
+
+            {fxCanEdit ? (
+              <>
+                <p className="text-xs text-[#5F7D72] font-semibold mb-3">
+                  Escribí o pegá las reglas de tu liga. Los jugadores las van a ver, pero no van a poder modificarlas.
+                </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    onClick={toggleRulesBold}
+                    title="Negrita"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#CFE7DC] bg-[#E9FFF0] hover:bg-[#DDF6EF] transition-colors"
+                  >
+                    <Bold size={14} className="text-[#086847]"/>
+                  </button>
+                  <span className="text-xs text-gray-400">Seleccioná un texto y tocá el botón para resaltarlo.</span>
+                </div>
+                <textarea
+                  ref={rulesTextareaRef}
+                  value={rulesDraft}
+                  onChange={e=>setRulesDraft(e.target.value)}
+                  placeholder="Ej: Los partidos se juegan en el horario asignado. Las inasistencias sin aviso..."
+                  className="w-full min-h-[180px] border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-pn-navy focus:outline-none focus:border-pn-green resize-none"
+                />
+                {rulesDraft && (
+                  <div className="mt-3 bg-[#F6FBF8] border border-[#CFE7DC] rounded-xl p-3">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1.5">Vista previa</p>
+                    <RulesText text={rulesDraft} className="text-sm text-[#173A2E]"/>
+                  </div>
+                )}
+                <div className="flex gap-3 mt-4">
+                  <button onClick={()=>setRulesModalOpen(false)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+                  <button
+                    onClick={saveRules}
+                    disabled={savingRules || rulesDraft === (liga?.rules ?? "")}
+                    className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-40"
+                  >
+                    {savingRules ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </>
+            ) : liga?.rules ? (
+              <RulesText text={liga.rules} className="text-sm text-[#173A2E]"/>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <FileText size={28} className="text-gray-300"/>
+                <p className="text-sm text-gray-400 font-semibold">El organizador todavía no cargó las reglas de esta liga.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
