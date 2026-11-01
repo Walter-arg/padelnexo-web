@@ -407,7 +407,7 @@ export default function NuevaLigaPage() {
     set("timeSlots", [...form.timeSlots, "10:00"]);
   }
   function removeTimeSlot(idx: number) {
-    if (form.timeSlots.length <= 1) return;
+    if (form.timeSlots.length <= 1 && form.scheduleMode !== "weekly_coordination") return;
     set("timeSlots", form.timeSlots.filter((_, i) => i !== idx));
   }
   function updateTimeSlot(idx: number, val: string) {
@@ -422,7 +422,8 @@ export default function NuevaLigaPage() {
 
     if (!form.nombre.trim()) errs.nombre = "El nombre es obligatorio";
     if (!form.complejoNombre.trim()) errs.complejoNombre = "El complejo es obligatorio";
-    if (form.timeSlots.length === 0) errs.timeSlots = "Agregá al menos un horario";
+    if (form.scheduleMode !== "weekly_coordination" && form.timeSlots.length === 0)
+      errs.timeSlots = "Agregá al menos un horario";
     if (!form.roundsCount || parseInt(form.roundsCount) < 1)
       errs.roundsCount = "La cantidad de fechas debe ser mayor a 0";
 
@@ -887,7 +888,12 @@ export default function NuevaLigaPage() {
             {/* Horarios */}
             <div data-field-error={errors.timeSlots || undefined}>
               <div className="flex items-center justify-between mb-1.5">
-                <FieldLabel>Horarios posibles</FieldLabel>
+                <FieldLabel>
+                  Horarios posibles
+                  {form.scheduleMode === "weekly_coordination" && (
+                    <span className="text-gray-400 font-normal text-xs ml-1">(opcional)</span>
+                  )}
+                </FieldLabel>
                 {form.timeSlots.length < 4 && (
                   <button
                     type="button"
@@ -910,7 +916,7 @@ export default function NuevaLigaPage() {
                     <button
                       type="button"
                       onClick={() => removeTimeSlot(idx)}
-                      disabled={form.timeSlots.length <= 1}
+                      disabled={form.timeSlots.length <= 1 && form.scheduleMode !== "weekly_coordination"}
                       className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-50 border border-red-100 text-red-400 hover:bg-red-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={15} />

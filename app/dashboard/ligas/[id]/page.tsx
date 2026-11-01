@@ -154,6 +154,27 @@ function fxCreateMatch(match: any, ri: number, mi: number, timeSlot = ""): any {
   return { id: `round-${ri + 1}-match-${mi + 1}`, order: mi + 1, timeSlot, teamA: fxNormalizeTeam(match.teamA, mi * 2), teamB: fxNormalizeTeam(match.teamB, mi * 2 + 1), result: { winner: "", score: "", reason: "", sets: [] }, replacements: {} };
 }
 function fxRotate<T>(arr: T[], by: number): T[] { if (!arr.length) return arr; const n = ((by % arr.length) + arr.length) % arr.length; return [...arr.slice(n), ...arr.slice(0, n)]; }
+function fxNormalizeDateStart(value: number = 0): number {
+  if (!value) return 0;
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+function fxCombineDateAndTime(dateMillis: number = 0, timeSlot: string = ""): number {
+  if (!dateMillis) return 0;
+  const d = new Date(dateMillis);
+  const m = /^(\d{1,2}):(\d{2})$/.exec(timeSlot || "");
+  if (m) d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  else d.setHours(19, 0, 0, 0);
+  return d.getTime();
+}
+function fxFormatMatchDay(match: any, round: any): string {
+  const millis = match?.rescheduledDateMillis || round?.rescheduledDateMillis || round?.scheduledDateMillis || 0;
+  if (!millis) return "";
+  const d = new Date(millis);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "2-digit" });
+}
 function fxGeneratePair(league: any): any {
   const teams = fxBuildPairTeams(league);
   const roundsCount = Number(league?.fixtureConfig?.roundsCount) || 6;
@@ -561,7 +582,7 @@ function FixtureGenerateModal({ league, onClose, onGenerate }: { league: any; on
 }
 
 // ── MatchRow (fixture) ─────────────────────────────────────────────────────
-function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }: { match: any; canEdit: boolean; dayLabel?: string; onResultClick: ()=>void; onActionsClick: ()=>void }) {
+function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick, onScheduleClick }: { match: any; canEdit: boolean; dayLabel?: string; onResultClick: ()=>void; onActionsClick: ()=>void; onScheduleClick?: ()=>void }) {
   const res = match.result; const hasRes = !!res?.winner && res.winner !== ""; const aWon = res?.winner==="teamA"; const bWon = res?.winner==="teamB"; const isWO = res?.reason==="walkover"; const dotColor = fxRepDotColor(match);
   function renderTeam(team: any, teamKey: string) {
     const players = team.players ?? [];
@@ -611,8 +632,24 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
         <div className="text-[9px] font-black text-[#9FCFC3] leading-none tracking-widest shrink-0">VS</div>
         <div className="flex-1">{renderTeam(match.teamB,"teamB")}</div>
       </div>
-      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{dayLabel??""}</span></div>
-      <div className="text-center"><span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??""}</span></div>
+      <div className="text-center">
+        {canEdit&&onScheduleClick ? (
+          <button onClick={onScheduleClick} className="text-[11px] font-black text-[#176B5B] underline hover:text-[#0B8457] transition-colors">
+            {dayLabel || "Sin día"}
+          </button>
+        ) : (
+          <span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{dayLabel || "Sin día"}</span>
+        )}
+      </div>
+      <div className="text-center">
+        {canEdit&&onScheduleClick ? (
+          <button onClick={onScheduleClick} className="text-[11px] font-black text-[#176B5B] underline hover:text-[#0B8457] transition-colors">
+            {match.timeSlot || "--:--"}
+          </button>
+        ) : (
+          <span className={`text-[11px] font-black ${canEdit?"text-[#176B5B]":"text-[#173A2E]"}`}>{match.timeSlot??""}</span>
+        )}
+      </div>
       <div className="flex items-center justify-center relative">
         {canEdit&&<button onClick={onActionsClick} className="w-7 h-7 bg-[#EDF7F2] border border-[#C9E5D8] rounded-[8px] flex items-center justify-center hover:bg-[#DDF6EF] transition-colors"><MoreVertical size={14} className="text-[#086847]"/></button>}
         {dotColor&&<div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white" style={{background:dotColor}}/>}
@@ -622,7 +659,7 @@ function FxMatchRow({ match, canEdit, dayLabel, onResultClick, onActionsClick }:
 }
 
 // ── RoundBlock (fixture) ───────────────────────────────────────────────────
-function FxRoundBlock({ round, canEdit, dayLabel, onResultClick, onActionsClick, onSuspensionClick }: { round: any; canEdit: boolean; dayLabel?: string; onResultClick: (id:string)=>void; onActionsClick: (id:string)=>void; onSuspensionClick: ()=>void }) {
+function FxRoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensionClick, onScheduleClick }: { round: any; canEdit: boolean; onResultClick: (id:string)=>void; onActionsClick: (id:string)=>void; onSuspensionClick: ()=>void; onScheduleClick: (roundId:string, matchId:string)=>void }) {
   const status = fxRoundStatus(round); const st = FX_STATUS[status];
   return (
     <div className="rounded-xl overflow-hidden border border-[#BCD8D4]">
@@ -642,7 +679,7 @@ function FxRoundBlock({ round, canEdit, dayLabel, onResultClick, onActionsClick,
       <div className="bg-white">
         {(!round.matches||round.matches.length===0)
           ?<div className="px-4 py-4 text-sm text-[#5F7D72] italic text-center">Sin partidos</div>
-          :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} dayLabel={dayLabel} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)}/>)
+          :round.matches.map((m:any)=><FxMatchRow key={m.id} match={m} canEdit={canEdit&&status!=="suspended"} dayLabel={fxFormatMatchDay(m, round)} onResultClick={()=>onResultClick(m.id)} onActionsClick={()=>onActionsClick(m.id)} onScheduleClick={()=>onScheduleClick(round.id, m.id)}/>)
         }
         {round.byeLabels?.length>0&&<div className="px-4 py-2 text-[11px] text-[#5F7D72] italic border-t border-[#E4ECEA]">Libre: {round.byeLabels.join(", ")}</div>}
       </div>
@@ -1023,6 +1060,9 @@ export default function LigaDetailPage() {
   const [fxResultTarget, setFxResultTarget] = useState<{roundId:string;matchId:string}|null>(null);
   const [fxActionsTarget, setFxActionsTarget] = useState<{roundId:string;matchId:string}|null>(null);
   const [fxSuspTarget, setFxSuspTarget] = useState<string|null>(null);
+  const [fxScheduleTarget, setFxScheduleTarget] = useState<{roundId:string;matchId:string}|null>(null);
+  const [fxScheduleDateInput, setFxScheduleDateInput] = useState("");
+  const [fxScheduleTimeInput, setFxScheduleTimeInput] = useState("");
   const [fxGenOpen, setFxGenOpen] = useState(false);
   const [fxConfirmRegen, setFxConfirmRegen] = useState(false);
   const [fxConfirmDelete, setFxConfirmDelete] = useState(false);
@@ -1315,6 +1355,29 @@ export default function LigaDetailPage() {
     setFixtureDraft((prev:any)=>({...prev, rounds:prev.rounds.map((r:any)=>r.id!==roundId?r:updater(r))}));
   }
 
+  function openFxSchedule(roundId: string, matchId: string) {
+    const round = fixtureDraft?.rounds?.find((r:any)=>r.id===roundId);
+    const match = round?.matches?.find((m:any)=>m.id===matchId);
+    const dateMillis = match?.rescheduledDateMillis || round?.rescheduledDateMillis || round?.scheduledDateMillis || 0;
+    setFxScheduleDateInput(dateMillis ? new Date(dateMillis).toISOString().slice(0,10) : "");
+    setFxScheduleTimeInput(match?.timeSlot || "");
+    setFxScheduleTarget({roundId, matchId});
+  }
+
+  function saveFxSchedule() {
+    if (!fxScheduleTarget) return;
+    const [y,mo,da] = fxScheduleDateInput ? fxScheduleDateInput.split("-").map(Number) : [];
+    const dateMillis = fxScheduleDateInput ? fxNormalizeDateStart(new Date(y, (mo??1)-1, da??1).getTime()) : 0;
+    const roundDateMillis = fxScheduleRound?.scheduledDateMillis || 0;
+    fxUpdateMatch(fxScheduleTarget.roundId, fxScheduleTarget.matchId, (m:any)=>({
+      ...m,
+      timeSlot: fxScheduleTimeInput || "",
+      rescheduledDateMillis: dateMillis === roundDateMillis ? 0 : dateMillis,
+      scheduledAtMillis: fxCombineDateAndTime(dateMillis, fxScheduleTimeInput || ""),
+    }));
+    setFxScheduleTarget(null);
+  }
+
   async function fxSendReplacementNotifications(match: any, prevReplacements: any, newReplacements: any, roundTitle: string) {
     const ligaNombre = liga?.nombre ?? "la liga";
     const hora = match.timeSlot ? ` a las ${match.timeSlot}` : "";
@@ -1532,6 +1595,8 @@ export default function LigaDetailPage() {
   const fxActiveMatch        = fxResultTarget ? rounds.flatMap((r:any)=>r.matches??[]).find((m:any)=>m.id===fxResultTarget.matchId) : null;
   const fxActionsMatch       = fxActionsTarget ? rounds.flatMap((r:any)=>r.matches??[]).find((m:any)=>m.id===fxActionsTarget.matchId) : null;
   const fxSuspRound          = fxSuspTarget ? rounds.find((r:any)=>r.id===fxSuspTarget) : null;
+  const fxScheduleRound      = fxScheduleTarget ? rounds.find((r:any)=>r.id===fxScheduleTarget.roundId) : null;
+  const fxScheduleMatch      = fxScheduleTarget ? (fxScheduleRound?.matches??[]).find((m:any)=>m.id===fxScheduleTarget.matchId) : null;
   const fxCanEdit            = liga.organizerId === auth.currentUser?.uid;
 
   // ── Player computed values ───────────────────────────────────────────────
@@ -2040,10 +2105,10 @@ export default function LigaDetailPage() {
                   {/* Rounds */}
                   {fxHasFixture && rounds.map((round:any)=>(
                     <FxRoundBlock key={round.id} round={round} canEdit={fxCanEdit}
-                      dayLabel={DAY_LABELS[liga?.scheduleConfig?.dayKey ?? ""] ?? ""}
                       onResultClick={matchId=>setFxResultTarget({roundId:round.id,matchId})}
                       onActionsClick={matchId=>setFxActionsTarget({roundId:round.id,matchId})}
                       onSuspensionClick={()=>setFxSuspTarget(round.id)}
+                      onScheduleClick={(roundId,matchId)=>openFxSchedule(roundId,matchId)}
                     />
                   ))}
 
@@ -2738,6 +2803,29 @@ export default function LigaDetailPage() {
         <FixtureSuspensionModal round={fxSuspRound} onClose={()=>setFxSuspTarget(null)}
           onApply={data=>{ if(data.remove){ fxUpdateRound(fxSuspTarget,r=>({...r,suspendedAtMillis:0,suspensionReason:"",suspensionMode:""})); } else { fxUpdateRound(fxSuspTarget,r=>({...r,suspendedAtMillis:Date.now(),suspensionReason:data.reason,suspensionMode:data.mode})); } setFxSuspTarget(null); showToast("Suspensión aplicada. Presioná GUARDAR CAMBIOS."); }}
         />
+      )}
+      {fxScheduleTarget && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={()=>setFxScheduleTarget(null)}>
+          <div className="bg-white rounded-[22px] p-6 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-[#086847] text-lg">Día y horario del partido</h3>
+              <button onClick={()=>setFxScheduleTarget(null)}><X size={16} className="text-[#5F7D72]"/></button>
+            </div>
+            <p className="text-xs text-[#5F7D72] font-semibold mb-4">
+              {fxScheduleMatch ? `${fxScheduleMatch.teamA?.label ?? "Pareja A"} vs ${fxScheduleMatch.teamB?.label ?? "Pareja B"}` : ""}
+            </p>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Día</label>
+            <input type="date" value={fxScheduleDateInput} onChange={e=>setFxScheduleDateInput(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-pn-navy focus:outline-none focus:border-pn-green mb-4"/>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Horario</label>
+            <input type="time" value={fxScheduleTimeInput} onChange={e=>setFxScheduleTimeInput(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-pn-navy focus:outline-none focus:border-pn-green mb-5"/>
+            <div className="flex gap-3">
+              <button onClick={()=>setFxScheduleTarget(null)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+              <button onClick={saveFxSchedule} className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black">Guardar</button>
+            </div>
+          </div>
+        </div>
       )}
       {fxConfirmRegen && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
