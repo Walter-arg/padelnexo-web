@@ -201,9 +201,9 @@ export default function Hero() {
           </h1>
 
           <p className="text-xl text-gray-600 leading-relaxed mb-10 max-w-xl">
-            Gestioná jugadores, fixtures, pagos, rankings, resultados y
-            comunicación desde una sola plataforma. Sin Excel. Sin WhatsApp.
-            Sin caos.
+            Gestioná jugadores, fixtures, pagos, rankings y resultados de tu
+            liga o torneo de pádel desde una sola plataforma. Sin Excel. Sin
+            WhatsApp. Sin caos.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 mb-5">
