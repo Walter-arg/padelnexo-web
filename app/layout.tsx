@@ -55,6 +55,39 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://www.padelnexo.com.ar/#organization",
+      name: "PadelNexo",
+      url: "https://www.padelnexo.com.ar",
+      logo: "https://www.padelnexo.com.ar/logopn.png",
+      email: "soporte.padelnexo@gmail.com",
+      sameAs: ["https://instagram.com/padel.nexo"],
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "PadelNexo",
+      url: "https://www.padelnexo.com.ar",
+      applicationCategory: "SportsApplication",
+      operatingSystem: "Android, iOS",
+      description:
+        "Plataforma para organizar ligas, torneos y reservas de pádel amateur en Argentina, con fixtures automáticos, cobros integrados y rankings en tiempo real.",
+      publisher: { "@id": "https://www.padelnexo.com.ar/#organization" },
+      offers: {
+        "@type": "AggregateOffer",
+        priceCurrency: "ARS",
+        lowPrice: "49000",
+        highPrice: "99000",
+        offerCount: "3",
+        url: "https://www.padelnexo.com.ar/precios-app-padel",
+      },
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -62,7 +95,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es-AR" className={inter.variable}>
-      <body className="bg-white">{children}</body>
+      <body className="bg-white">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {children}
+      </body>
     </html>
   );
 }
