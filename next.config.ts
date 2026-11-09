@@ -16,6 +16,16 @@ const nextConfig: NextConfig = {
         destination: "/terminos",
         permanent: true,
       },
+      {
+        source: "/funcionalidades",
+        destination: "/funcionalidades-app-padel",
+        permanent: true,
+      },
+      {
+        source: "/planes",
+        destination: "/precios-app-padel",
+        permanent: true,
+      },
     ];
   },
   async headers() {

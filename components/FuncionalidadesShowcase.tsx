@@ -264,7 +264,7 @@ export default function FuncionalidadesShowcase() {
                 ¿Listo para dejar de improvisar y empezar a organizar en serio?
               </p>
               <Link
-                href="/planes"
+                href="/precios-app-padel"
                 className="inline-flex items-center gap-2 font-black text-sm px-8 py-4 rounded-2xl transition-all hover:scale-[1.03] shadow-lg"
                 style={{ background: active.accentHex, color: "#000" }}
               >

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: "Planes para organizadores | PadelNexo",
   description:
     "Conocé los planes de PadelNexo para organizadores de ligas y torneos de pádel en Argentina. Desde $49.000/mes. Probá 30 días gratis.",
-  alternates: { canonical: "https://www.padelnexo.com.ar/planes" },
+  alternates: { canonical: "https://www.padelnexo.com.ar/precios-app-padel" },
 };
 
 const keyFeatures = [
@@ -29,7 +29,7 @@ const keyFeatures = [
   },
 ];
 
-export default function PlanesPage() {
+export default function PreciosAppPadelPage() {
   return (
     <main className="min-h-screen bg-white overflow-x-hidden">
       <Navbar />

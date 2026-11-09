@@ -7,10 +7,10 @@ export const metadata: Metadata = {
   title: "Funcionalidades | PadelNexo",
   description:
     "Conocé todo lo que PadelNexo hace por vos: ligas con fixture automático, torneos con cuadros inteligentes, turnos sin llamadas y directorio de jugadores con reemplazos automáticos.",
-  alternates: { canonical: "https://www.padelnexo.com.ar/funcionalidades" },
+  alternates: { canonical: "https://www.padelnexo.com.ar/funcionalidades-app-padel" },
 };
 
-export default function FuncionalidadesPage() {
+export default function FuncionalidadesAppPadelPage() {
   return (
     <main className="min-h-screen overflow-x-hidden" style={{ background: "#050E1A" }}>
       <Navbar />

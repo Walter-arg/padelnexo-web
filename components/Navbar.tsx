@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
 const links = [
-  { label: "Funcionalidades", href: "/funcionalidades" },
+  { label: "Funcionalidades", href: "/funcionalidades-app-padel" },
   { label: "Organizadores", href: "#organizadores" },
   { label: "Jugadores", href: "#jugadores" },
-  { label: "Precios", href: "/planes" },
+  { label: "Precios", href: "/precios-app-padel" },
   { label: "FAQ", href: "#faq" },
 ];
 
