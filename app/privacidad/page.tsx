@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Política de Privacidad | PadelNexo",
   description: "Política de privacidad de PadelNexo. Conocé cómo recopilamos, usamos y protegemos tu información personal.",
+  alternates: { canonical: "https://www.padelnexo.com.ar/privacidad" },
 };
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (

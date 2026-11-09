@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Términos y Condiciones | PadelNexo",
   description: "Términos y condiciones de uso de PadelNexo. Conocé las reglas y condiciones para usar nuestra plataforma.",
+  alternates: { canonical: "https://www.padelnexo.com.ar/terminos" },
 };
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Eliminar cuenta | PadelNexo",
   description: "Cómo solicitar la eliminación de tu cuenta de PadelNexo y qué pasa con tus datos.",
+  alternates: { canonical: "https://www.padelnexo.com.ar/eliminar-cuenta" },
 };
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
