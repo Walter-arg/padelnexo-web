@@ -12,7 +12,17 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        source: "/politica-privacidad/",
+        destination: "/privacidad",
+        permanent: true,
+      },
+      {
         source: "/terminos-condiciones",
+        destination: "/terminos",
+        permanent: true,
+      },
+      {
+        source: "/terminos-condiciones/",
         destination: "/terminos",
         permanent: true,
       },
@@ -22,7 +32,17 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        source: "/funcionalidades/",
+        destination: "/funcionalidades-app-padel",
+        permanent: true,
+      },
+      {
         source: "/planes",
+        destination: "/precios-app-padel",
+        permanent: true,
+      },
+      {
+        source: "/planes/",
         destination: "/precios-app-padel",
         permanent: true,
       },
