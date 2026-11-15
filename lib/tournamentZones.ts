@@ -547,6 +547,149 @@ export function getZoneQualifiersCount(ruleSet = "fap", pairCount = 0): number {
   return Math.min(2, Number(pairCount || 0));
 }
 
+export function buildPlanningMatchLabels(pairCount = 0): string[] {
+  if (pairCount === 2) return ["1 vs 2"];
+  if (pairCount === 3) return ["1 vs 2", "1 vs 3", "2 vs 3"];
+  if (pairCount === 4) return ["1 vs 2", "3 vs 4", "G vs G", "P vs P"];
+  return [];
+}
+
+// ── Disponibilidad para asignar horario a un partido ──────────────────────
+
+function expandAvailabilityWindowsForDay(dayAvailability: any = {}) {
+  const windows: { fromMinutes: number; toMinutes: number }[] = [];
+  (dayAvailability?.quickSlots || []).forEach((key: string) => {
+    const r = QUICK_SLOT_MINUTE_RANGES[key];
+    if (r) windows.push({ fromMinutes: r.from, toMinutes: r.to });
+  });
+  (dayAvailability?.customSlots || []).forEach((slot: any) => {
+    const from = parseTimeToMinutes(slot?.from ?? slot?.startTime ?? slot?.start ?? "");
+    const to = parseTimeToMinutes(slot?.to ?? slot?.endTime ?? slot?.end ?? "");
+    if (to > from) windows.push({ fromMinutes: from, toMinutes: to });
+  });
+  return windows;
+}
+
+// Pareja sin ninguna disponibilidad cargada -> se la considera disponible
+// siempre (eligio coordinar por chat, no restringe el picker).
+export function isPairAvailableForSlot(
+  availability: any = {},
+  dayKey = "",
+  slotStartMinutes = 0,
+  slotEndMinutes = 0,
+  extensionMinutes = 0
+): boolean {
+  if (!Object.keys(availability || {}).length) return true;
+  const dayAvailability = availability?.[dayKey];
+  if (!dayAvailability) return false;
+  const windows = expandAvailabilityWindowsForDay(dayAvailability);
+  if (!windows.length) return false;
+
+  return windows.some(
+    (w) => slotStartMinutes >= w.fromMinutes - extensionMinutes && slotEndMinutes <= w.toMinutes + extensionMinutes
+  );
+}
+
+// Equivalente a buildAutoMatchSchedules: asigna dia/horario/cancha a cada
+// partido numerico (no a "G vs G"/"P vs P", que dependen de resultados que
+// todavia no existen) cruzando la disponibilidad real de ambas parejas y
+// evitando que una misma pareja juegue 2 partidos superpuestos.
+export function buildAutoMatchSchedules(
+  zones: ZonePlanningZone[],
+  registrationsById: Map<string, any>,
+  venueSchedules: ZoneVenueSchedule[],
+  matchDurationMinutes = ZONE_MATCH_DURATION_MINUTES
+): { zones: ZonePlanningZone[]; unassignedCount: number } {
+  const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
+  if (!slots.length) return { zones, unassignedCount: 0 };
+
+  const usedSlotIds = new Set<string>();
+  const pairOccupancy = new Map<string, any[]>();
+  let unassignedCount = 0;
+
+  const overlaps = (a: any, b: any) => a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
+
+  const scheduledZones = zones.map((zone) => {
+    const pairCount = zone.registrationIds.length;
+    const matchLabels = buildPlanningMatchLabels(pairCount);
+    const matchSchedules = { ...(zone.matchSchedules || {}) };
+
+    matchLabels.forEach((matchLabel) => {
+      const parts = matchLabel.match(/^(\d+)\s+vs\s+(\d+)$/i);
+      if (!parts) return;
+
+      const idA = zone.registrationIds[Number(parts[1]) - 1];
+      const idB = zone.registrationIds[Number(parts[2]) - 1];
+      if (!idA || !idB) return;
+
+      const availA = registrationsById.get(idA)?.availability || {};
+      const availB = registrationsById.get(idB)?.availability || {};
+      const occA = pairOccupancy.get(idA) || [];
+      const occB = pairOccupancy.get(idB) || [];
+
+      const findCandidates = (extensionMinutes: number) =>
+        slots.filter(
+          (slot) =>
+            !usedSlotIds.has(slot.id) &&
+            !occA.some((u) => overlaps(slot, u)) &&
+            !occB.some((u) => overlaps(slot, u)) &&
+            isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+            isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
+        );
+
+      const strictCandidates = findCandidates(0);
+      const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
+      const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
+
+      if (!candidates.length) {
+        unassignedCount++;
+        return;
+      }
+
+      const allOcc = [...occA, ...occB];
+      candidates.sort((a, b) => {
+        const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
+        const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
+        if (bVenue !== aVenue) return bVenue - aVenue;
+        if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
+        if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+        return a.courtIndex - b.courtIndex;
+      });
+
+      const chosen = candidates[0];
+      usedSlotIds.add(chosen.id);
+      pairOccupancy.set(idA, [...occA, chosen]);
+      pairOccupancy.set(idB, [...occB, chosen]);
+
+      matchSchedules[matchLabel] = {
+        ...(matchSchedules[matchLabel] || {}),
+        dayKey: chosen.dayKey,
+        startTime: formatMinutesToTime(chosen.startMinutes),
+        venueId: chosen.venueId,
+        courtIndex: chosen.courtIndex || 0,
+      };
+    });
+
+    return { ...zone, matchSchedules };
+  });
+
+  return { zones: scheduledZones, unassignedCount };
+}
+
+// Slots ya ocupados por OTRO partido (de cualquier zona) en el mismo
+// dia+hora+sede+cancha, para que el picker manual no los vuelva a ofrecer.
+export function getOccupiedSlotKeys(zones: ZonePlanningZone[], excludeZoneId = "", excludeMatchKey = ""): Set<string> {
+  const occupied = new Set<string>();
+  zones.forEach((zone) => {
+    Object.entries(zone.matchSchedules || {}).forEach(([matchKey, schedule]: [string, any]) => {
+      if (zone.id === excludeZoneId && matchKey === excludeMatchKey) return;
+      if (!schedule?.dayKey || !schedule?.startTime || !schedule?.venueId) return;
+      occupied.add(`${schedule.dayKey}|${parseTimeToMinutes(schedule.startTime)}|${schedule.venueId}|${schedule.courtIndex || 0}`);
+    });
+  });
+  return occupied;
+}
+
 // Resuelve, para "G vs G" / "P vs P" (semis cruzadas de una zona de 4), que
 // 2 numeros de pareja (1-based) corresponden realmente segun los
 // resultados ya cargados de "1 vs 2" y "3 vs 4".

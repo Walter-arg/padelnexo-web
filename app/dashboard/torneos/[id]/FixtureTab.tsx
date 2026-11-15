@@ -11,7 +11,12 @@ import {
   buildAutomaticZonePlanning,
   isRegistrationConfirmed,
   getPlanningMatchPairNumbers,
+  buildZoneMatchSchedulingSlots,
+  buildAutoMatchSchedules,
+  getOccupiedSlotKeys,
+  formatMinutesToTime,
   type ZoneVenueSchedule,
+  type ZonePlanningZone,
 } from "@/lib/tournamentZones";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -454,10 +459,11 @@ function StandingsModal({ zone, regMap, onClose }: {
 }
 
 // ── Zone card ─────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, regMap, zonesFormat, onResultClick, onStandingsClick }: {
-  zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt;
+function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onStandingsClick, onScheduleClick }: {
+  zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
   onResultClick: (matchKey: string, match: any) => void;
   onStandingsClick: () => void;
+  onScheduleClick: (matchKey: string) => void;
 }) {
   const regIds = toArray(zone.registrationIds);
   const matchKeys = getMatchRows(regIds.length);
@@ -526,7 +532,8 @@ function ZoneCard({ zone, regMap, zonesFormat, onResultClick, onStandingsClick }
                   const dayStr = md.dayKey ? formatDayKey(md.dayKey) : "—";
                   const matchObj = makeMatchObj(zone, matchKey, regMap);
                   const pairDisplay = (() => {
-                    const parts = matchKey.split(" vs ");
+                    const resolvedNumbers = getPlanningMatchPairNumbers(zone, regIds, matchKey);
+                    const parts = resolvedNumbers.length === 2 ? resolvedNumbers : matchKey.split(" vs ");
                     return parts.map(p => {
                       const n = parseInt(p);
                       if (!isNaN(n)) {
@@ -536,6 +543,10 @@ function ZoneCard({ zone, regMap, zonesFormat, onResultClick, onStandingsClick }
                       return p;
                     }).join(" vs ");
                   })();
+                  const venueName = md.venueId ? venueNameById[md.venueId] : "";
+                  const placeLabel = venueName
+                    ? `${venueName}${md.courtIndex ? " · C" + md.courtIndex : ""}`
+                    : "—";
 
                   return (
                     <tr key={matchKey} style={{ borderBottom: "1px solid #F0F7F4" }}>
@@ -551,9 +562,24 @@ function ZoneCard({ zone, regMap, zonesFormat, onResultClick, onStandingsClick }
                       <td className="py-2.5 pr-3 max-w-[140px]">
                         <span className="text-xs font-semibold truncate block" style={{ color: "#173A2E" }}>{pairDisplay}</span>
                       </td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap" style={{ color: "#5F7D72" }}>{dayStr}</td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap" style={{ color: "#5F7D72" }}>{md.startTime || "—"}</td>
-                      <td className="py-2.5 pr-3 truncate max-w-[70px]" style={{ color: "#5F7D72" }}>—</td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <button onClick={() => onScheduleClick(matchKey)}
+                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                          {dayStr}
+                        </button>
+                      </td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <button onClick={() => onScheduleClick(matchKey)}
+                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                          {md.startTime || "—"}
+                        </button>
+                      </td>
+                      <td className="py-2.5 pr-3 truncate max-w-[90px]">
+                        <button onClick={() => onScheduleClick(matchKey)}
+                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                          {placeLabel}
+                        </button>
+                      </td>
                       <td className="py-2.5">
                         <button onClick={() => onResultClick(matchKey, matchObj)}
                           className="text-[10px] font-black px-2.5 py-1 rounded-full border whitespace-nowrap"
@@ -643,6 +669,25 @@ export default function FixtureTab({
     [fixtureSetup?.zoneVenueSchedules, tournamentDayOptions, tournamentVenueOptions]
   );
 
+  const zoneSchedulesForMatches = useMemo(
+    () => zoneVenueSchedules.filter((s) => s.useForZones),
+    [zoneVenueSchedules]
+  );
+
+  const venueNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    tournamentVenueOptions.forEach((v) => { map[v.id] = v.name; });
+    return map;
+  }, [tournamentVenueOptions]);
+
+  const matchDurationMinutes = Number(fixtureSetup?.matchDurationMinutes || 75);
+
+  const registrationsById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const r of registrations) m.set(r.id, r);
+    return m;
+  }, [registrations]);
+
   const draftVenue = tournamentVenueOptions.find((v) => v.id === scheduleDraft.venueId);
 
   async function handleAddZoneSchedule() {
@@ -705,6 +750,8 @@ export default function FixtureTab({
   const [zoneResultModal, setZoneResultModal] = useState<{ zoneId: string; matchKey: string; match: any } | null>(null);
   const [standingsModal, setStandingsModal] = useState<any>(null);
   const [bracketResultModal, setBracketResultModal] = useState<{ match: any; ri: number; mi: number } | null>(null);
+  const [scheduleModal, setScheduleModal] = useState<{ zoneId: string; matchKey: string } | null>(null);
+  const [savingAutoSchedule, setSavingAutoSchedule] = useState(false);
 
   // ── Computed ────────────────────────────────────────────────────────────────
   const zones: any[] = toArray(fixtureSetup?.zonePlanning?.zones);
@@ -843,6 +890,45 @@ export default function FixtureTab({
     } catch {
       showToast("Error al guardar el resultado", false);
     }
+  }
+
+  async function saveZoneMatchSchedule(zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null) {
+    try {
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const zoneList = toArray(fs.zonePlanning?.zones);
+      const zone = zoneList.find((z: any) => z.id === zoneId);
+      if (!zone) return;
+      if (!zone.matchSchedules) zone.matchSchedules = {};
+      const existing = zone.matchSchedules[matchKey] ?? {};
+      zone.matchSchedules[matchKey] = schedule
+        ? { ...existing, ...schedule }
+        : { ...existing, dayKey: "", startTime: "", venueId: "", courtIndex: 0 };
+      fs.zonePlanning.zones = zoneList;
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast(schedule ? "Horario asignado" : "Horario borrado");
+    } catch {
+      showToast("Error al guardar el horario", false);
+    }
+  }
+
+  async function handleAutoScheduleAll() {
+    if (!zoneSchedulesForMatches.length) {
+      showToast("Primero cargá horarios de cancha en Configurar", false);
+      return;
+    }
+    setSavingAutoSchedule(true);
+    try {
+      const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedules(
+        zones as ZonePlanningZone[], registrationsById, zoneSchedulesForMatches, matchDurationMinutes
+      );
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      fs.zonePlanning = { ...(fs.zonePlanning ?? {}), zones: scheduledZones };
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
+    } catch {
+      showToast("Error al asignar horarios", false);
+    }
+    setSavingAutoSchedule(false);
   }
 
   async function saveBracketMatchResult(ri: number, mi: number, result: any) {
@@ -1131,11 +1217,17 @@ export default function FixtureTab({
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              <button onClick={handleAutoScheduleAll} disabled={savingAutoSchedule}
+                className="py-3 rounded-2xl font-black text-xs border disabled:opacity-40"
+                style={{ borderColor: "#086847", color: "#086847", background: "#EEF8F1" }}>
+                {savingAutoSchedule ? "Asignando..." : "ASIGNAR HORARIO/CANCHA AUTOMÁTICAMENTE"}
+              </button>
               {zones.map((zone) => (
                 <ZoneCard key={zone.id}
-                  zone={zone} regMap={regMap} zonesFormat={savedZonesFormat}
+                  zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById}
                   onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
-                  onStandingsClick={() => setStandingsModal(zone)} />
+                  onStandingsClick={() => setStandingsModal(zone)}
+                  onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
               ))}
             </div>
           )}
@@ -1255,9 +1347,10 @@ export default function FixtureTab({
                   <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>Zonas creadas</p>
                   {zones.map(zone => (
                     <ZoneCard key={zone.id}
-                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat}
+                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById}
                       onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
-                      onStandingsClick={() => setStandingsModal(zone)} />
+                      onStandingsClick={() => setStandingsModal(zone)}
+                      onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
                   ))}
                 </div>
               )}
@@ -1389,6 +1482,98 @@ export default function FixtureTab({
             setBracketResultModal(null);
           }} />
       )}
+      {scheduleModal && (() => {
+        const zone = zones.find((z: any) => z.id === scheduleModal.zoneId);
+        if (!zone) return null;
+        const currentSchedule = zone.matchSchedules?.[scheduleModal.matchKey] ?? {};
+        const occupied = getOccupiedSlotKeys(zones as ZonePlanningZone[], scheduleModal.zoneId, scheduleModal.matchKey);
+        const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, matchDurationMinutes);
+        const freeSlots = allSlots.filter((slot) => !occupied.has(`${slot.dayKey}|${slot.startMinutes}|${slot.venueId}|${slot.courtIndex}`));
+        return (
+          <ScheduleMatchModal
+            matchKey={scheduleModal.matchKey}
+            freeSlots={freeSlots}
+            tournamentDayOptions={tournamentDayOptions}
+            hasCurrentSchedule={Boolean(currentSchedule.dayKey && currentSchedule.startTime && currentSchedule.venueId)}
+            onClose={() => setScheduleModal(null)}
+            onClear={async () => {
+              await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, null);
+              setScheduleModal(null);
+            }}
+            onAssign={async (slot) => {
+              await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, {
+                dayKey: slot.dayKey, startTime: formatMinutesToTime(slot.startMinutes), venueId: slot.venueId, courtIndex: slot.courtIndex,
+              });
+              setScheduleModal(null);
+            }}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Modal: asignar horario/cancha a un partido ───────────────────────────────
+function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurrentSchedule, onClose, onClear, onAssign }: {
+  matchKey: string;
+  freeSlots: { id: string; dayKey: string; startMinutes: number; venueId: string; venueName: string; courtIndex: number; timeLabel: string }[];
+  tournamentDayOptions: { key: string; shortLabel: string }[];
+  hasCurrentSchedule: boolean;
+  onClose: () => void;
+  onClear: () => Promise<void>;
+  onAssign: (slot: { dayKey: string; startMinutes: number; venueId: string; courtIndex: number }) => Promise<void>;
+}) {
+  const dayKeysWithSlots = Array.from(new Set(freeSlots.map((s) => s.dayKey)));
+  const [day, setDay] = useState<string>(dayKeysWithSlots[0] ?? "");
+  const [saving, setSaving] = useState(false);
+  const slotsForDay = freeSlots.filter((s) => s.dayKey === day);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+      <div className="w-full max-w-sm rounded-[22px] p-6 shadow-xl overflow-y-auto" style={{ background: "#FFFFFF", maxHeight: "90vh" }}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Horario del partido</h3>
+          <button onClick={onClose}><X size={18} style={{ color: "#5F7D72" }} /></button>
+        </div>
+
+        {freeSlots.length === 0 ? (
+          <p className="text-sm text-center py-6" style={{ color: "#5F7D72" }}>
+            No hay horarios libres. Cargá más horarios de cancha en Configurar.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Día</p>
+            <div className="flex gap-2 flex-wrap mb-4">
+              {dayKeysWithSlots.map((dk) => (
+                <button key={dk} onClick={() => setDay(dk)}
+                  className="px-3 py-2 rounded-full text-xs font-bold border transition-all"
+                  style={day === dk ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" } : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
+                  {tournamentDayOptions.find((d) => d.key === dk)?.shortLabel || dk}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Horario libre</p>
+            <div className="flex flex-col gap-2 mb-2 max-h-60 overflow-y-auto">
+              {slotsForDay.map((slot) => (
+                <button key={slot.id} disabled={saving}
+                  onClick={async () => { setSaving(true); await onAssign(slot); setSaving(false); }}
+                  className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold disabled:opacity-40"
+                  style={{ borderColor: "#CFE7DC", color: "#173A2E", background: "#F6FBF8" }}>
+                  {slot.timeLabel} · {slot.venueName} · Cancha {slot.courtIndex}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {hasCurrentSchedule && (
+          <button disabled={saving} onClick={async () => { setSaving(true); await onClear(); setSaving(false); }}
+            className="w-full mt-2 py-2.5 rounded-xl text-xs font-bold border disabled:opacity-40"
+            style={{ borderColor: "#E6C0C0", color: "#B24343", background: "#FFF1F1" }}>
+            Borrar horario asignado
+          </button>
+        )}
+      </div>
     </div>
   );
 }
