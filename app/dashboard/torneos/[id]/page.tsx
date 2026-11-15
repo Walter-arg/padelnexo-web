@@ -1859,6 +1859,7 @@ export default function TorneoDetailPage() {
                   fixtureSetup={torneo?.fixtureSetup}
                   registrations={registrations}
                   showToast={showToast}
+                  tournament={torneo}
                 />
               )}
 
