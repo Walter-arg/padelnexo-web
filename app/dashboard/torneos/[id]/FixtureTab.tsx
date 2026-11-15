@@ -18,6 +18,7 @@ import {
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
+import { buildBracketPreview, applyBracketProgressions, type BracketPair } from "@/lib/tournamentBracket";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type FixSub = "configurar" | "automatico" | "manual";
@@ -952,6 +953,39 @@ export default function FixtureTab({
     setSavingAutoSchedule(false);
   }
 
+  const tournamentRuleSet: "fap" | "apa" = tournament?.tournamentRuleSet === "apa" || tournament?.ruleSet === "apa" ? "apa" : "fap";
+
+  async function handleGenerateBracket() {
+    if (!zones.length) {
+      showToast("Primero armá las zonas", false);
+      return;
+    }
+    setSavingAutoSchedule(true);
+    try {
+      const pairsByZoneId = new Map<string, BracketPair[]>(
+        zones.map((zone: any) => [
+          zone.id,
+          toArray(zone.registrationIds).map((id: string, idx: number) => ({
+            id, label: regMap[id] ? getPairLabel(regMap[id], idx) : `Pareja ${idx + 1}`,
+          })),
+        ])
+      );
+      const preview = buildBracketPreview(zones as ZonePlanningZone[], pairsByZoneId, tournamentRuleSet);
+      if (!preview) {
+        showToast("No hay un molde de llave para esta cantidad de parejas (se necesitan entre 6 y 32)", false);
+        return;
+      }
+      const progressed = applyBracketProgressions(preview);
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      fs.bracketPreview = progressed;
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast(hasBracket ? "Llave regenerada" : "Llave generada");
+    } catch {
+      showToast("Error al generar la llave", false);
+    }
+    setSavingAutoSchedule(false);
+  }
+
   async function saveBracketMatchResult(ri: number, mi: number, result: any, resultLabel: string) {
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
@@ -1397,12 +1431,24 @@ export default function FixtureTab({
         <div>
           {!hasBracket ? (
             <div className="text-center py-10 rounded-2xl border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-              <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>No hay llaves configuradas.</p>
-              <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>Se generarán desde la app una vez finalizadas las zonas.</p>
+              <p className="text-sm font-semibold mb-4" style={{ color: "#5F7D72" }}>No hay llaves configuradas.</p>
+              <button onClick={handleGenerateBracket} disabled={savingAutoSchedule || !zones.length}
+                className="py-3 px-6 rounded-2xl font-black text-sm text-white disabled:opacity-40 transition-opacity"
+                style={{ background: "#086847" }}>
+                {savingAutoSchedule ? "Generando..." : `GENERAR LLAVE ${tournamentRuleSet.toUpperCase()}`}
+              </button>
+              {!zones.length && (
+                <p className="text-xs mt-3" style={{ color: "#9BB8AE" }}>Primero armá las zonas.</p>
+              )}
             </div>
           ) : bracketLayout ? (
             <>
               <div className="flex items-center justify-end gap-2 mb-3">
+                <button onClick={handleGenerateBracket} disabled={savingAutoSchedule}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full border mr-auto disabled:opacity-40"
+                  style={{ borderColor: "#CFE7DC", color: "#086847" }}>
+                  {savingAutoSchedule ? "Regenerando..." : "Regenerar llave"}
+                </button>
                 <button onClick={() => setZoom(z => Math.max(0.3, parseFloat((z - 0.1).toFixed(1))))}
                   className="w-8 h-8 rounded-full border flex items-center justify-center"
                   style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
