@@ -119,18 +119,38 @@ function formatDayKey(dayKey: string): string {
   }
 }
 
-// ── Bracket data helpers ──────────────────────────────────────────────────────
-const getSideA = (m: any) => ({ id: m.pairAId ?? m.sideAId ?? "", label: m.pairALabel ?? m.sideALabel ?? "TBD" });
-const getSideB = (m: any) => ({ id: m.pairBId ?? m.sideBId ?? "", label: m.pairBLabel ?? m.sideBLabel ?? "TBD" });
-const getWinnerId = (m: any): string => m.result?.winnerId ?? m.winnerPairId ?? "";
+// ── Bracket/zona data helpers (ResultModal es compartido por los dos) ───────
+// Partido de llave real (tal cual la escribe la app): teamAId/teamAName/
+// teamALines/teamAIsBye (no pairAId/sideAId) y ganador como token relativo
+// "teamA"/"teamB" (no un id real, porque un lado puede depender todavia del
+// resultado de otro partido). Partido de zona (makeMatchObj): pairAId/
+// pairALabel, y ganador como id real en result.winnerRegistrationId.
+const getSideA = (m: any) => ({
+  id: m.teamAId ?? m.pairAId ?? "",
+  label: m.teamAIsBye ? "BYE" : m.teamAName || toArray(m.teamALines).join(" / ") || m.pairALabel || "TBD",
+  isBye: Boolean(m.teamAIsBye),
+});
+const getSideB = (m: any) => ({
+  id: m.teamBId ?? m.pairBId ?? "",
+  label: m.teamBIsBye ? "BYE" : m.teamBName || toArray(m.teamBLines).join(" / ") || m.pairBLabel || "TBD",
+  isBye: Boolean(m.teamBIsBye),
+});
+const getWinnerId = (m: any): string => {
+  if (m.result?.winnerRegistrationId) return m.result.winnerRegistrationId;
+  const w = m.result?.winner;
+  if (w === "teamA") return m.teamAId ?? m.pairAId ?? "";
+  if (w === "teamB") return m.teamBId ?? m.pairBId ?? "";
+  return "";
+};
 const isCompleted = (m: any): boolean => !!getWinnerId(m) || m.result?.walkover === true;
 const getSets = (m: any): { a: number; b: number }[] =>
-  toArray(m.result?.sets ?? m.sets).map((s: any) => ({ a: s.a ?? 0, b: s.b ?? 0 }));
+  toArray(m.result?.sets).map((s: any) => ({ a: Number(s.teamA) || 0, b: Number(s.teamB) || 0 }));
 const getScoreText = (m: any): string => {
   const r = m.result;
   if (!r) return "";
   if (r.walkover) return "Walkover";
-  return r.scoreText ?? getSets(m).map((s) => `${s.a}-${s.b}`).join(" ");
+  const sets = getSets(m);
+  return sets.length ? sets.map((s) => `${s.a}-${s.b}`).join(" ") : "";
 };
 
 function roundLabel(n: number) {
@@ -386,15 +406,16 @@ function StandingsModal({ zone, regMap, onClose }: {
     const idA = regIds[idxA], idB = regIds[idxB];
     if (!idA || !idB || !map[idA] || !map[idB]) continue;
     const result = (md as any)?.result;
-    if (!result?.winnerId) continue;
-    const w = result.winnerId;
+    if (!result?.winnerRegistrationId) continue;
+    const w = result.winnerRegistrationId;
     if (w === idA) { map[idA].pg++; map[idA].pj++; map[idB].pp++; map[idB].pj++; }
     else if (w === idB) { map[idB].pg++; map[idB].pj++; map[idA].pp++; map[idA].pj++; }
     else continue;
     const sets: any[] = Array.isArray(result.sets) ? result.sets : [];
     for (const s of sets) {
-      if (w === idA) { map[idA].sf += s.a ?? 0; map[idA].sc += s.b ?? 0; map[idB].sf += s.b ?? 0; map[idB].sc += s.a ?? 0; }
-      else { map[idB].sf += s.b ?? 0; map[idB].sc += s.a ?? 0; map[idA].sf += s.a ?? 0; map[idA].sc += s.b ?? 0; }
+      const a = Number(s.teamA) || 0, b = Number(s.teamB) || 0;
+      if (w === idA) { map[idA].sf += a; map[idA].sc += b; map[idB].sf += b; map[idB].sc += a; }
+      else { map[idB].sf += b; map[idB].sc += a; map[idA].sf += a; map[idA].sc += b; }
     }
   }
   const rows = Object.values(map).map(s => ({ ...s, dif: s.sf - s.sc }))
@@ -468,7 +489,7 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onS
   const regIds = toArray(zone.registrationIds);
   const matchKeys = getMatchRows(regIds.length);
   const matchSchedules: Record<string, any> = zone.matchSchedules ?? {};
-  const completedCount = matchKeys.filter(k => matchSchedules[k]?.result?.winnerId || matchSchedules[k]?.result?.walkover).length;
+  const completedCount = matchKeys.filter(k => matchSchedules[k]?.result?.winnerRegistrationId || matchSchedules[k]?.result?.walkover).length;
 
   return (
     <div className="rounded-[22px] border-2 overflow-hidden" style={{ background: "#FFFFFF", borderColor: "#A8CFBC" }}>
@@ -527,7 +548,7 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onS
                 {matchKeys.map(matchKey => {
                   const md = matchSchedules[matchKey] ?? {};
                   const result = md.result;
-                  const isDone = result?.winnerId || result?.walkover;
+                  const isDone = result?.winnerRegistrationId || result?.walkover;
                   const score = result?.scoreText ?? (result?.walkover ? "Walkover" : "");
                   const dayStr = md.dayKey ? formatDayKey(md.dayKey) : "—";
                   const matchObj = makeMatchObj(zone, matchKey, regMap);
@@ -931,12 +952,12 @@ export default function FixtureTab({
     setSavingAutoSchedule(false);
   }
 
-  async function saveBracketMatchResult(ri: number, mi: number, result: any) {
+  async function saveBracketMatchResult(ri: number, mi: number, result: any, resultLabel: string) {
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
       const rounds = fs.bracketPreview?.rounds ?? (Array.isArray(fs.bracketPreview) ? fs.bracketPreview : []);
       rounds[ri][mi].result = result;
-      rounds[ri][mi].status = "completed";
+      rounds[ri][mi].resultLabel = resultLabel;
       if (fs.bracketPreview?.rounds) fs.bracketPreview.rounds = rounds;
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Resultado guardado");
@@ -1465,7 +1486,13 @@ export default function FixtureTab({
           format={savedZonesFormat}
           onClose={() => setZoneResultModal(null)}
           onSave={async result => {
-            await saveZoneMatchResult(zoneResultModal.zoneId, zoneResultModal.matchKey, result);
+            const m = zoneResultModal.match;
+            const winner = result.winnerId === m.pairAId ? "teamA" : result.winnerId === m.pairBId ? "teamB" : "";
+            const sets = (result.sets ?? []).map((s: any) => ({ teamA: String(s.a ?? ""), teamB: String(s.b ?? "") }));
+            await saveZoneMatchResult(zoneResultModal.zoneId, zoneResultModal.matchKey, {
+              winnerRegistrationId: result.walkover ? "" : result.winnerId,
+              winner, winnerSource: "manual", walkover: result.walkover, sets, scoreText: result.scoreText,
+            });
             setZoneResultModal(null);
           }} />
       )}
@@ -1478,7 +1505,14 @@ export default function FixtureTab({
           format={savedBracketFormat}
           onClose={() => setBracketResultModal(null)}
           onSave={async result => {
-            await saveBracketMatchResult(bracketResultModal.ri, bracketResultModal.mi, result);
+            const m = bracketResultModal.match;
+            const winner = result.winnerId === m.teamAId ? "teamA" : result.winnerId === m.teamBId ? "teamB" : "";
+            const sets = (result.sets ?? []).map((s: any) => ({ teamA: String(s.a ?? ""), teamB: String(s.b ?? "") }));
+            await saveBracketMatchResult(
+              bracketResultModal.ri, bracketResultModal.mi,
+              { winner, winnerSource: "manual", walkover: result.walkover, sets },
+              result.scoreText
+            );
             setBracketResultModal(null);
           }} />
       )}

@@ -704,7 +704,7 @@ export function getPlanningMatchPairNumbers(zone: ZonePlanningZone, registration
     const openingParticipantIds = openingParts
       ? [registrationIds[Number(openingParts[1]) - 1], registrationIds[Number(openingParts[2]) - 1]]
       : [];
-    const winnerId = String(zone.matchSchedules?.[openingMatchLabel]?.result?.winnerId || "");
+    const winnerId = String(zone.matchSchedules?.[openingMatchLabel]?.result?.winnerRegistrationId || "");
     const winnerIndex = openingParticipantIds.findIndex((id) => String(id || "") === winnerId);
 
     if (!openingParts || winnerIndex < 0) return null;
