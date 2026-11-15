@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { resolveLeaguePaymentRounds } from "@/lib/leaguePayments";
 import { useRouter, usePathname } from "next/navigation";
 import {
   LogOut, ChevronDown, UserCircle, Settings, Building2,
@@ -44,7 +45,8 @@ export default function DashboardLayout({
   const [unreadMsgs, setUnreadMsgs]       = useState(0);
 
   // Notificaciones (cobros pendientes de verificar)
-  const [pendingPayments, setPendingPayments] = useState(0);
+  const [pendingPaymentsLigas, setPendingPaymentsLigas] = useState(0);
+  const [pendingPaymentsTorneos, setPendingPaymentsTorneos] = useState(0);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -61,7 +63,22 @@ export default function DashboardLayout({
         where("participants", "array-contains", u.uid)
       );
       const unsubConv = onSnapshot(convQ, (snap) => {
-        const convs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const convs = snap.docs
+          .map(d => {
+            const data: any = d.data();
+            const participants = Array.isArray(data.participants) ? data.participants : [];
+            const otherUserId = participants.find((p: string) => p !== u.uid) || "";
+            const hiddenFor = Array.isArray(data.hiddenFor) ? data.hiddenFor : [];
+            if (hiddenFor.includes(u.uid)) return null;
+            return {
+              id: d.id,
+              otherUserName: data.participantNames?.[otherUserId] || "Usuario eliminado",
+              lastMessage: data.lastMessageText || "Todavía no hay mensajes.",
+              unreadCountBy: data.unreadCountBy || {},
+              updatedAtMillis: data.updatedAt?.seconds ? data.updatedAt.seconds * 1000 : 0,
+            };
+          })
+          .filter(Boolean) as any[];
         const total = convs.reduce((sum: number, c: any) =>
           sum + Number(c.unreadCountBy?.[u.uid] || 0), 0
         );
@@ -69,7 +86,7 @@ export default function DashboardLayout({
         setConversations(
           convs
             .filter((c: any) => Number(c.unreadCountBy?.[u.uid] || 0) > 0)
-            .sort((a: any, b: any) => (b.lastMessageAt?.seconds ?? 0) - (a.lastMessageAt?.seconds ?? 0))
+            .sort((a: any, b: any) => b.updatedAtMillis - a.updatedAtMillis)
         );
       });
 
@@ -79,20 +96,41 @@ export default function DashboardLayout({
         where("organizerId", "==", u.uid),
         where("status", "==", "active")
       );
-      const unsubLigas = onSnapshot(ligasQ, async (ligasSnap) => {
-        let pending = 0;
-        await Promise.all(
-          ligasSnap.docs.map(async (ligaDoc) => {
-            const rpSnap = await import("firebase/firestore").then(({ getDocs, collection: col, query: q2, where: w }) =>
-              getDocs(q2(col(db, "leagues", ligaDoc.id, "roundPayments"), w("status", "in", ["pending_review", "pendingReview", "informo_transferencia", "in_review"])))
-            );
-            pending += rpSnap.size;
-          })
-        );
-        setPendingPayments(pending);
+      const unsubLigas = onSnapshot(ligasQ, (ligasSnap) => {
+        const pending = ligasSnap.docs.reduce((total, ligaDoc) => {
+          const liga = { id: ligaDoc.id, ...ligaDoc.data() };
+          const rounds = resolveLeaguePaymentRounds(liga);
+          const reviewCount = rounds.reduce(
+            (sum, round) =>
+              sum +
+              round.entries.filter(
+                (entry) => entry.paymentStatus === "informo_transferencia" || entry.paymentStatus === "in_review"
+              ).length,
+            0
+          );
+          return total + reviewCount;
+        }, 0);
+        setPendingPaymentsLigas(pending);
       });
 
-      return () => { unsubConv(); unsubLigas(); };
+      // Torneos del organizador → inscripciones con pago en revisión
+      const torneosQ = query(collection(db, "tournaments"), where("organizerId", "==", u.uid));
+      const unsubTorneos = onSnapshot(torneosQ, async (torneosSnap) => {
+        let pending = 0;
+        await Promise.all(
+          torneosSnap.docs.map(async (torneoDoc) => {
+            const { getDocs, collection: col } = await import("firebase/firestore");
+            const regsSnap = await getDocs(col(db, "tournaments", torneoDoc.id, "registrations"));
+            regsSnap.docs.forEach((regDoc) => {
+              const payments: any[] = regDoc.data().payments ?? [];
+              pending += payments.filter((p) => p.status === "in_review").length;
+            });
+          })
+        );
+        setPendingPaymentsTorneos(pending);
+      });
+
+      return () => { unsubConv(); unsubLigas(); unsubTorneos(); };
     });
     return unsub;
   }, [router]);
@@ -110,6 +148,7 @@ export default function DashboardLayout({
   const apellido = profile?.apellido || "";
   const logoUrl  = profile?.organizerLogoURL || profile?.organizerLogoUrl;
 
+  const pendingPayments = pendingPaymentsLigas + pendingPaymentsTorneos;
   const totalNotif = pendingPayments;
 
   return (

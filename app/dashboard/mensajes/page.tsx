@@ -2,15 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, query, where, getDocs, addDoc, orderBy, serverTimestamp, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  doc,
+  getDoc,
+  addDoc,
+  updateDoc,
+  orderBy,
+  serverTimestamp,
+  onSnapshot,
+  increment,
+  arrayRemove,
+} from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { MessageSquare, Send, ChevronRight, User as UserIcon } from "lucide-react";
+import { MessageSquare, Send } from "lucide-react";
 
 export default function MensajesPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [organizerName, setOrganizerName] = useState("Organizador");
   const [conversaciones, setConversaciones] = useState<any[]>([]);
   const [seleccionada, setSeleccionada] = useState<any | null>(null);
   const [mensajes, setMensajes] = useState<any[]>([]);
@@ -23,21 +37,57 @@ export default function MensajesPage() {
       if (!u) { router.push("/login"); return; }
       setUser(u);
 
+      try {
+        const profileSnap = await getDoc(doc(db, "users", u.uid));
+        if (profileSnap.exists()) {
+          const profile: any = profileSnap.data();
+          const nombre = [profile.nombre, profile.apellido].filter(Boolean).join(" ");
+          if (nombre) setOrganizerName(nombre);
+        }
+      } catch {}
+
       const q = query(
         collection(db, "conversations"),
-        where("organizerId", "==", u.uid)
+        where("participants", "array-contains", u.uid)
       );
-      const snap = await getDocs(q);
-      const convs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setConversaciones(convs);
-      setLoading(false);
+      const unsubConv = onSnapshot(q, (snap) => {
+        const convs = snap.docs
+          .map((d) => {
+            const data: any = d.data();
+            const participants = Array.isArray(data.participants) ? data.participants : [];
+            const otherUserId = participants.find((p: string) => p !== u.uid) || "";
+            const hiddenFor = Array.isArray(data.hiddenFor) ? data.hiddenFor : [];
+
+            if (hiddenFor.includes(u.uid)) return null;
+
+            const unreadCountBy = data.unreadCountBy || {};
+            const unreadBy = Array.isArray(data.unreadBy) ? data.unreadBy : [];
+            const unreadCount = Number(unreadCountBy[u.uid] || 0);
+
+            return {
+              id: d.id,
+              otherUserId,
+              userName: data.participantNames?.[otherUserId] || "Usuario eliminado",
+              lastMessage: data.lastMessageText || "Todavía no hay mensajes.",
+              updatedAtMillis: data.updatedAt?.seconds ? data.updatedAt.seconds * 1000 : 0,
+              hasUnread: unreadCount > 0 || unreadBy.includes(u.uid),
+            };
+          })
+          .filter(Boolean)
+          .sort((a: any, b: any) => b.updatedAtMillis - a.updatedAtMillis);
+
+        setConversaciones(convs as any[]);
+        setLoading(false);
+      });
+
+      return () => unsubConv();
     });
     return unsub;
   }, [router]);
 
   // Escuchar mensajes en tiempo real cuando se selecciona conversación
   useEffect(() => {
-    if (!seleccionada) return;
+    if (!seleccionada || !user) return;
     const unsub = onSnapshot(
       query(
         collection(db, "conversations", seleccionada.id, "messages"),
@@ -45,20 +95,40 @@ export default function MensajesPage() {
       ),
       (snap) => setMensajes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     );
+
+    // Marcar como leída al abrir la conversación.
+    updateDoc(doc(db, "conversations", seleccionada.id), {
+      [`unreadCountBy.${user.uid}`]: 0,
+      unreadBy: arrayRemove(user.uid),
+    }).catch(() => {});
+
     return unsub;
-  }, [seleccionada]);
+  }, [seleccionada, user]);
 
   async function enviarMensaje(e: React.FormEvent) {
     e.preventDefault();
     if (!texto.trim() || !seleccionada || !user) return;
     setEnviando(true);
+    const normalizedText = texto.trim();
     try {
       await addDoc(collection(db, "conversations", seleccionada.id, "messages"), {
-        text: texto.trim(),
+        text: normalizedText,
         senderId: user.uid,
-        senderRole: "organizer",
+        recipientId: seleccionada.otherUserId,
         createdAt: serverTimestamp(),
       });
+
+      await updateDoc(doc(db, "conversations", seleccionada.id), {
+        updatedAt: serverTimestamp(),
+        [`unreadCountBy.${seleccionada.otherUserId}`]: increment(1),
+        [`unreadCountBy.${user.uid}`]: 0,
+        unreadBy: [seleccionada.otherUserId],
+        lastMessageText: normalizedText,
+        lastMessageSenderId: user.uid,
+        [`participantNames.${user.uid}`]: organizerName,
+        hiddenFor: arrayRemove(user.uid, seleccionada.otherUserId),
+      });
+
       setTexto("");
     } finally {
       setEnviando(false);
@@ -71,11 +141,11 @@ export default function MensajesPage() {
     return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   }
 
-  function formatFecha(ts: any) {
-    if (!ts) return "";
-    const d = ts?.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
+  function formatFecha(millis: number) {
+    if (!millis) return "";
+    const d = new Date(millis);
     const hoy = new Date();
-    if (d.toDateString() === hoy.toDateString()) return formatHora(ts);
+    if (d.toDateString() === hoy.toDateString()) return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
     return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
   }
 
@@ -104,19 +174,22 @@ export default function MensajesPage() {
                   seleccionada?.id === conv.id ? "bg-pn-green text-white" : "bg-white border border-gray-100 hover:border-pn-green/30 hover:shadow-sm"
                 }`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-sm ${seleccionada?.id === conv.id ? "bg-white/20 text-white" : "bg-sky-50 text-sky-600"}`}>
-                  {(conv.userName ?? conv.jugadorNombre ?? "J")[0].toUpperCase()}
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-sm relative ${seleccionada?.id === conv.id ? "bg-white/20 text-white" : "bg-sky-50 text-sky-600"}`}>
+                  {conv.userName[0]?.toUpperCase()}
+                  {conv.hasUnread && seleccionada?.id !== conv.id && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-sky-400 rounded-full border-2 border-white" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`font-bold text-sm truncate ${seleccionada?.id === conv.id ? "text-white" : "text-pn-navy"}`}>
-                    {conv.userName ?? conv.jugadorNombre ?? "Jugador"}
+                    {conv.userName}
                   </div>
                   <div className={`text-xs truncate ${seleccionada?.id === conv.id ? "text-white/70" : "text-gray-400"}`}>
-                    {conv.lastMessage ?? "Sin mensajes"}
+                    {conv.lastMessage}
                   </div>
                 </div>
                 <div className={`text-xs flex-shrink-0 ${seleccionada?.id === conv.id ? "text-white/60" : "text-gray-400"}`}>
-                  {formatFecha(conv.lastMessageAt)}
+                  {formatFecha(conv.updatedAtMillis)}
                 </div>
               </button>
             ))}
@@ -137,12 +210,9 @@ export default function MensajesPage() {
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
                   <button onClick={() => setSeleccionada(null)} className="sm:hidden text-pn-green mr-1">←</button>
                   <div className="w-9 h-9 rounded-full bg-sky-50 flex items-center justify-center font-black text-sky-600 text-sm">
-                    {(seleccionada.userName ?? "J")[0].toUpperCase()}
+                    {seleccionada.userName[0]?.toUpperCase()}
                   </div>
-                  <div>
-                    <div className="font-bold text-pn-navy text-sm">{seleccionada.userName ?? "Jugador"}</div>
-                    {seleccionada.ligaNombre && <div className="text-xs text-gray-400">{seleccionada.ligaNombre}</div>}
-                  </div>
+                  <div className="font-bold text-pn-navy text-sm">{seleccionada.userName}</div>
                 </div>
 
                 {/* Mensajes */}
@@ -151,7 +221,7 @@ export default function MensajesPage() {
                     <p className="text-gray-400 text-xs text-center mt-8">Todavía no hay mensajes en esta conversación.</p>
                   )}
                   {mensajes.map((m) => {
-                    const esOrganizador = m.senderId === user?.uid || m.senderRole === "organizer";
+                    const esOrganizador = m.senderId === user?.uid;
                     return (
                       <div key={m.id} className={`flex ${esOrganizador ? "justify-end" : "justify-start"}`}>
                         <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm ${

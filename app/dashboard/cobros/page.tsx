@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
-  DollarSign, CheckCircle2, XCircle, Clock, Trophy, Filter, Eye, ZoomIn
+  resolveLeaguePaymentRounds,
+  serializeRoundPayments,
+  patchRoundPaymentEntry,
+} from "@/lib/leaguePayments";
+import {
+  DollarSign, CheckCircle2, XCircle, Clock, Filter, Eye
 } from "lucide-react";
 
 type Filtro = "todos" | "pending_review" | "unpaid" | "paid";
@@ -16,7 +21,6 @@ type Origen = "todos" | "liga" | "torneo";
 interface PagoItem {
   id: string;
   jugadorNombre: string;
-  jugadorId: string;
   origen: "liga" | "torneo";
   origenNombre: string;
   origenId: string;
@@ -24,21 +28,28 @@ interface PagoItem {
   monto?: number;
   status: string;
   comprobanteUrl?: string;
-  roundPaymentDocId?: string;
+  // Para ligas: donde aplicar el patch.
+  roundId?: string;
+  participantId?: string;
+  // Para torneos: donde aplicar el patch.
+  registrationId?: string;
+  playerIndex?: number;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "paid" || status === "approved")
+  if (status === "paid")
     return <span className="inline-flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full"><CheckCircle2 size={12} />Pagó</span>;
-  if (status === "pending_review" || status === "pendingReview")
+  if (status === "pending_review")
     return <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-500 bg-amber-50 px-2.5 py-1 rounded-full"><Clock size={12} />En revisión</span>;
-  if (status === "partial")
-    return <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-500 bg-blue-50 px-2.5 py-1 rounded-full"><Clock size={12} />Parcial</span>;
+  if (status === "rejected")
+    return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-500 bg-red-50 px-2.5 py-1 rounded-full"><XCircle size={12} />Rechazado</span>;
   return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-500 bg-red-50 px-2.5 py-1 rounded-full"><XCircle size={12} />Debe</span>;
 }
 
 export default function CobrosPage() {
   const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [organizerName, setOrganizerName] = useState("Organizador");
   const [pagos, setPagos] = useState<PagoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<Filtro>("todos");
@@ -49,6 +60,17 @@ export default function CobrosPage() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) { router.push("/login"); return; }
+      setUser(u);
+
+      try {
+        const profileSnap = await getDoc(doc(db, "users", u.uid));
+        if (profileSnap.exists()) {
+          const profile: any = profileSnap.data();
+          const nombre = [profile.nombre, profile.apellido].filter(Boolean).join(" ");
+          if (nombre) setOrganizerName(nombre);
+        }
+      } catch {}
+
       const items: PagoItem[] = [];
 
       // ── Ligas ────────────────────────────────────────────────────────
@@ -56,29 +78,36 @@ export default function CobrosPage() {
         query(collection(db, "leagues"), where("organizerId", "==", u.uid))
       );
       for (const ligaDoc of ligasSnap.docs) {
-        const liga = ligaDoc.data();
-        const rpSnap = await getDocs(collection(db, "leagues", ligaDoc.id, "roundPayments"));
-        for (const rpDoc of rpSnap.docs) {
-          const rp = rpDoc.data();
-          const payments: Record<string, any> = rp.payments ?? rp.playerPayments ?? {};
-          const roundNum = rp.roundNumber ?? rp.roundIndex ?? rpDoc.id;
-          for (const [playerId, pay] of Object.entries(payments)) {
-            const jugador = (liga.players ?? []).find((p: any) => (p.id ?? p.userId) === playerId);
-            const nombre = jugador
-              ? `${jugador.nombre ?? jugador.name ?? "Jugador"} ${jugador.apellido ?? ""}`
-              : `Jugador ${playerId.slice(0, 6)}`;
+        const liga: any = { id: ligaDoc.id, ...ligaDoc.data() };
+        const paymentRounds = resolveLeaguePaymentRounds(liga);
+
+        for (const round of paymentRounds) {
+          for (const entry of round.entries) {
+            // Una fecha que todavia no se jugo (y nunca tuvo ningun pago
+            // cargado) no tiene nada que cobrar todavia: se omite para no
+            // llenar la lista de obligaciones futuras.
+            const hasActivity = entry.paymentStatus !== "pendiente" || Boolean(entry.proofUrl);
+            if (entry.completedAtMillis <= 0 && !hasActivity) continue;
+
+            const status =
+              entry.paymentStatus === "pagado"
+                ? "paid"
+                : entry.paymentStatus === "informo_transferencia" || entry.paymentStatus === "in_review"
+                  ? "pending_review"
+                  : "unpaid";
+
             items.push({
-              id: `${ligaDoc.id}_${rpDoc.id}_${playerId}`,
-              jugadorNombre: nombre.trim(),
-              jugadorId: playerId,
+              id: `liga_${liga.id}_${round.roundId}_${entry.participantId}`,
+              jugadorNombre: entry.participantLabel,
               origen: "liga",
-              origenNombre: liga.nombre ?? "Liga",
-              origenId: ligaDoc.id,
-              concepto: `Fecha ${roundNum}`,
-              monto: liga.paymentConfig?.amount,
-              status: pay.status ?? "unpaid",
-              comprobanteUrl: pay.comprobanteUrl ?? pay.receiptUrl,
-              roundPaymentDocId: rpDoc.id,
+              origenNombre: liga.nombre || "Liga",
+              origenId: liga.id,
+              concepto: round.title,
+              monto: round.amountPerEntry || undefined,
+              status,
+              comprobanteUrl: entry.proofUrl || undefined,
+              roundId: round.roundId,
+              participantId: entry.participantId,
             });
           }
         }
@@ -89,22 +118,32 @@ export default function CobrosPage() {
         query(collection(db, "tournaments"), where("organizerId", "==", u.uid))
       );
       for (const tDoc of torneosSnap.docs) {
-        const torneo = tDoc.data();
-        const players: any[] = torneo.players ?? torneo.inscripciones ?? [];
-        for (const p of players) {
-          const pStatus = p.paymentStatus ?? p.inscripcionStatus ?? "unpaid";
-          const nombre = `${p.nombre ?? p.name ?? "Jugador"} ${p.apellido ?? ""}`.trim();
-          items.push({
-            id: `${tDoc.id}_${p.id ?? p.userId ?? nombre}`,
-            jugadorNombre: nombre,
-            jugadorId: p.id ?? p.userId ?? nombre,
-            origen: "torneo",
-            origenNombre: torneo.nombre ?? "Torneo",
-            origenId: tDoc.id,
-            concepto: "Inscripción",
-            monto: torneo.paymentConfig?.amount,
-            status: pStatus,
-            comprobanteUrl: p.comprobanteUrl ?? p.receiptUrl,
+        const torneo: any = tDoc.data();
+        const regsSnap = await getDocs(collection(db, "tournaments", tDoc.id, "registrations"));
+
+        for (const regDoc of regsSnap.docs) {
+          const reg: any = regDoc.data();
+          if (reg.status === "rejected") continue;
+
+          const payments: any[] = Array.isArray(reg.payments) ? reg.payments : [];
+
+          payments.forEach((pay, playerIndex) => {
+            const status =
+              pay.status === "approved" ? "paid" : pay.status === "in_review" ? "pending_review" : pay.status === "rejected" ? "rejected" : "unpaid";
+
+            items.push({
+              id: `torneo_${tDoc.id}_${regDoc.id}_${playerIndex}`,
+              jugadorNombre: pay.playerName || `Jugador ${playerIndex + 1}`,
+              origen: "torneo",
+              origenNombre: torneo.nombre || torneo.name || "Torneo",
+              origenId: tDoc.id,
+              concepto: "Inscripción",
+              monto: pay.amount || torneo.entryFee || undefined,
+              status,
+              comprobanteUrl: pay.receiptUrl || undefined,
+              registrationId: regDoc.id,
+              playerIndex,
+            });
           });
         }
       }
@@ -116,16 +155,45 @@ export default function CobrosPage() {
   }, [router]);
 
   async function aprobar(pago: PagoItem) {
+    if (!user) return;
     setProcesando(pago.id);
     try {
-      if (pago.origen === "liga" && pago.roundPaymentDocId) {
-        const rpRef = doc(db, "leagues", pago.origenId, "roundPayments", pago.roundPaymentDocId);
-        await updateDoc(rpRef, { [`payments.${pago.jugadorId}.status`]: "paid" });
+      if (pago.origen === "liga" && pago.roundId && pago.participantId) {
+        const leagueRef = doc(db, "leagues", pago.origenId);
+        const leagueSnap = await getDoc(leagueRef);
+        if (!leagueSnap.exists()) return;
+        const liga: any = { id: leagueSnap.id, ...leagueSnap.data() };
+        const draft = resolveLeaguePaymentRounds(liga);
+        const patched = patchRoundPaymentEntry(
+          draft,
+          pago.roundId,
+          pago.participantId,
+          {
+            paymentStatus: "pagado",
+            paymentMethod: "efectivo",
+            confirmedAtMillis: Date.now(),
+            confirmedBy: user.uid,
+            confirmedByName: organizerName,
+            rejectedAtMillis: 0,
+            rejectedBy: "",
+            rejectedByName: "",
+          },
+          { id: user.uid, name: organizerName }
+        );
+        await updateDoc(leagueRef, { roundPayments: serializeRoundPayments(patched), updatedAt: serverTimestamp() });
       }
-      if (pago.origen === "torneo") {
-        const tRef = doc(db, "tournaments", pago.origenId);
-        // Actualizar en el array de players es complejo; se marca como referencia
+
+      if (pago.origen === "torneo" && pago.registrationId && pago.playerIndex !== undefined) {
+        const regRef = doc(db, "tournaments", pago.origenId, "registrations", pago.registrationId);
+        const regSnap = await getDoc(regRef);
+        if (!regSnap.exists()) return;
+        const reg: any = regSnap.data();
+        const payments = (reg.payments ?? []).map((p: any, i: number) =>
+          i === pago.playerIndex ? { ...p, status: "approved", reviewedAt: Date.now(), reviewedBy: user.uid, reviewedByName: organizerName } : p
+        );
+        await updateDoc(regRef, { payments, updatedAt: serverTimestamp() });
       }
+
       setPagos(prev => prev.map(p => p.id === pago.id ? { ...p, status: "paid" } : p));
     } finally {
       setProcesando(null);
@@ -133,13 +201,48 @@ export default function CobrosPage() {
   }
 
   async function rechazar(pago: PagoItem) {
+    if (!user) return;
     setProcesando(pago.id);
     try {
-      if (pago.origen === "liga" && pago.roundPaymentDocId) {
-        const rpRef = doc(db, "leagues", pago.origenId, "roundPayments", pago.roundPaymentDocId);
-        await updateDoc(rpRef, { [`payments.${pago.jugadorId}.status`]: "unpaid" });
+      if (pago.origen === "liga" && pago.roundId && pago.participantId) {
+        const leagueRef = doc(db, "leagues", pago.origenId);
+        const leagueSnap = await getDoc(leagueRef);
+        if (!leagueSnap.exists()) return;
+        const liga: any = { id: leagueSnap.id, ...leagueSnap.data() };
+        const draft = resolveLeaguePaymentRounds(liga);
+        const patched = patchRoundPaymentEntry(
+          draft,
+          pago.roundId,
+          pago.participantId,
+          {
+            paymentStatus: "pendiente",
+            paymentMethod: "",
+            proofUrl: "",
+            confirmedAtMillis: 0,
+            confirmedBy: "",
+            confirmedByName: "",
+            rejectedAtMillis: Date.now(),
+            rejectedBy: user.uid,
+            rejectedByName: organizerName,
+          },
+          { id: user.uid, name: organizerName }
+        );
+        await updateDoc(leagueRef, { roundPayments: serializeRoundPayments(patched), updatedAt: serverTimestamp() });
+        setPagos(prev => prev.map(p => p.id === pago.id ? { ...p, status: "unpaid" } : p));
+        return;
       }
-      setPagos(prev => prev.map(p => p.id === pago.id ? { ...p, status: "unpaid" } : p));
+
+      if (pago.origen === "torneo" && pago.registrationId && pago.playerIndex !== undefined) {
+        const regRef = doc(db, "tournaments", pago.origenId, "registrations", pago.registrationId);
+        const regSnap = await getDoc(regRef);
+        if (!regSnap.exists()) return;
+        const reg: any = regSnap.data();
+        const payments = (reg.payments ?? []).map((p: any, i: number) =>
+          i === pago.playerIndex ? { ...p, status: "rejected", reviewedAt: Date.now(), reviewedBy: user.uid, reviewedByName: organizerName } : p
+        );
+        await updateDoc(regRef, { payments, updatedAt: serverTimestamp() });
+        setPagos(prev => prev.map(p => p.id === pago.id ? { ...p, status: "rejected" } : p));
+      }
     } finally {
       setProcesando(null);
     }
@@ -147,17 +250,16 @@ export default function CobrosPage() {
 
   const filtrados = pagos.filter(p => {
     const matchStatus = filtroStatus === "todos" || p.status === filtroStatus ||
-      (filtroStatus === "paid" && p.status === "approved") ||
-      (filtroStatus === "pending_review" && p.status === "pendingReview");
+      (filtroStatus === "unpaid" && p.status === "rejected");
     const matchOrigen = filtroOrigen === "todos" || p.origen === filtroOrigen;
     return matchStatus && matchOrigen;
   });
 
-  const totalPago = pagos.filter(p => p.status === "paid" || p.status === "approved").length;
-  const totalPendReview = pagos.filter(p => p.status === "pending_review" || p.status === "pendingReview").length;
-  const totalDebe = pagos.filter(p => p.status === "unpaid").length;
+  const totalPago = pagos.filter(p => p.status === "paid").length;
+  const totalPendReview = pagos.filter(p => p.status === "pending_review").length;
+  const totalDebe = pagos.filter(p => p.status === "unpaid" || p.status === "rejected").length;
   const montoTotal = pagos
-    .filter(p => (p.status === "paid" || p.status === "approved") && p.monto)
+    .filter(p => p.status === "paid" && p.monto)
     .reduce((acc, p) => acc + (p.monto ?? 0), 0);
 
   return (
@@ -233,7 +335,6 @@ export default function CobrosPage() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {/* Ver comprobante */}
                   {pago.comprobanteUrl && (
                     <button
                       onClick={() => setComprobanteVer(pago.comprobanteUrl!)}
@@ -245,8 +346,7 @@ export default function CobrosPage() {
 
                   <StatusBadge status={pago.status} />
 
-                  {/* Botones aprobar/rechazar solo si está en revisión */}
-                  {(pago.status === "pending_review" || pago.status === "pendingReview") && (
+                  {(pago.status === "pending_review") && (
                     <>
                       <button
                         onClick={() => aprobar(pago)}
@@ -263,6 +363,16 @@ export default function CobrosPage() {
                         Rechazar
                       </button>
                     </>
+                  )}
+
+                  {pago.status === "unpaid" && (
+                    <button
+                      onClick={() => aprobar(pago)}
+                      disabled={isProcesando}
+                      className="text-xs bg-green-500 hover:bg-green-600 text-white font-bold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50"
+                    >
+                      {isProcesando ? "..." : "Marcar pagado"}
+                    </button>
                   )}
                 </div>
               </div>
