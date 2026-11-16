@@ -123,6 +123,42 @@ function createRoundMatch(match: { teamA: TeamData; teamB: TeamData }, ri: numbe
   };
 }
 
+type TeamSide = "teamA" | "teamB";
+type FixtureSwapSelection = { roundId: string; matchId: string; side: TeamSide };
+
+function isMatchCompleted(match: MatchData): boolean {
+  return Boolean(match.result?.winner);
+}
+
+// Intercambia las parejas de dos partidos de la MISMA fecha (misma ronda).
+// "selection"/"target" identifican partido + lado (teamA/teamB) a cambiar.
+function buildFixtureWithSwappedTeams(
+  fixture: FixtureData,
+  roundId: string,
+  selection: { matchId: string; side: TeamSide },
+  target: { matchId: string; side: TeamSide }
+): FixtureData {
+  return {
+    ...fixture,
+    rounds: fixture.rounds.map(round => {
+      if (round.id !== roundId) return round;
+      const selectedMatch = round.matches.find(m => m.id === selection.matchId);
+      const targetMatch = round.matches.find(m => m.id === target.matchId);
+      if (!selectedMatch || !targetMatch) return round;
+      const selectedTeam = selectedMatch[selection.side];
+      const targetTeam = targetMatch[target.side];
+      return {
+        ...round,
+        matches: round.matches.map(m => {
+          if (m.id === selection.matchId) return { ...m, [selection.side]: targetTeam };
+          if (m.id === target.matchId) return { ...m, [target.side]: selectedTeam };
+          return m;
+        }),
+      };
+    }),
+  };
+}
+
 function rotateList<T>(arr: T[], by: number): T[] {
   if (!arr.length) return arr;
   const n = ((by % arr.length) + arr.length) % arr.length;
@@ -618,12 +654,15 @@ function GenerateModal({ league, onClose, onGenerate }: { league: any; onClose: 
 }
 
 // ── MatchRow ───────────────────────────────────────────────────────────────
-function MatchRow({ match, roundStatus, canEdit, onResultClick, onActionsClick }: {
+function MatchRow({ match, roundStatus, canEdit, onResultClick, onActionsClick, editFixtureMode, selectedSide, onTeamTap }: {
   match: MatchData;
   roundStatus: RoundStatus;
   canEdit: boolean;
   onResultClick: () => void;
   onActionsClick: () => void;
+  editFixtureMode?: boolean;
+  selectedSide?: TeamSide | null;
+  onTeamTap?: (side: TeamSide) => void;
 }) {
   const res = match.result;
   const hasRes = !!res?.winner && res.winner !== "";
@@ -680,9 +719,19 @@ function MatchRow({ match, roundStatus, canEdit, onResultClick, onActionsClick }
 
       {/* PAREJAS */}
       <div className="flex flex-col gap-1 px-1">
-        {renderTeamPlayers(match.teamA, "teamA")}
+        {editFixtureMode ? (
+          <button type="button" onClick={() => onTeamTap?.("teamA")}
+            className={`text-left rounded-lg px-1 py-0.5 border transition-colors ${selectedSide === "teamA" ? "bg-[#D4ECE8] border-[#1F6D69]" : "border-dashed border-[#B9D9D4] hover:border-[#1F6D69]"}`}>
+            {renderTeamPlayers(match.teamA, "teamA")}
+          </button>
+        ) : renderTeamPlayers(match.teamA, "teamA")}
         <div className="text-[8px] font-black text-[#5F7D72] text-center">—</div>
-        {renderTeamPlayers(match.teamB, "teamB")}
+        {editFixtureMode ? (
+          <button type="button" onClick={() => onTeamTap?.("teamB")}
+            className={`text-left rounded-lg px-1 py-0.5 border transition-colors ${selectedSide === "teamB" ? "bg-[#D4ECE8] border-[#1F6D69]" : "border-dashed border-[#B9D9D4] hover:border-[#1F6D69]"}`}>
+            {renderTeamPlayers(match.teamB, "teamB")}
+          </button>
+        ) : renderTeamPlayers(match.teamB, "teamB")}
       </div>
 
       {/* DIA */}
@@ -716,12 +765,15 @@ function MatchRow({ match, roundStatus, canEdit, onResultClick, onActionsClick }
 }
 
 // ── RoundBlock ─────────────────────────────────────────────────────────────
-function RoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensionClick }: {
+function RoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensionClick, editFixtureMode, fixtureSwapSelection, onTeamTap }: {
   round: RoundData;
   canEdit: boolean;
   onResultClick: (matchId: string) => void;
   onActionsClick: (matchId: string) => void;
   onSuspensionClick: () => void;
+  editFixtureMode?: boolean;
+  fixtureSwapSelection?: FixtureSwapSelection | null;
+  onTeamTap?: (matchId: string, side: TeamSide) => void;
 }) {
   const status = getRoundStatus(round);
   const style = STATUS_STYLES[status];
@@ -767,6 +819,13 @@ function RoundBlock({ round, canEdit, onResultClick, onActionsClick, onSuspensio
                 canEdit={canEdit && status !== "suspended"}
                 onResultClick={() => onResultClick(m.id)}
                 onActionsClick={() => onActionsClick(m.id)}
+                editFixtureMode={editFixtureMode}
+                selectedSide={
+                  fixtureSwapSelection && fixtureSwapSelection.roundId === round.id && fixtureSwapSelection.matchId === m.id
+                    ? fixtureSwapSelection.side
+                    : null
+                }
+                onTeamTap={side => onTeamTap?.(m.id, side)}
               />
             ))
         }
@@ -803,6 +862,8 @@ export default function FixturePage() {
   const [confirmRegenOpen, setConfirmRegenOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [goToPaymentsPrompt, setGoToPaymentsPrompt] = useState(false);
+  const [editFixtureMode, setEditFixtureMode] = useState(false);
+  const [fixtureSwapSelection, setFixtureSwapSelection] = useState<FixtureSwapSelection | null>(null);
 
   // Registered players for replacement search
   const [registeredPlayers, setRegisteredPlayers] = useState<any[]>([]);
@@ -939,6 +1000,35 @@ export default function FixturePage() {
     showToast("Fixture eliminado.");
   }
 
+  function handleFixtureTeamTap(roundId: string, matchId: string, side: TeamSide) {
+    const match = getMatch(roundId, matchId);
+    if (!match) return;
+    if (isMatchCompleted(match)) {
+      showToast("Este partido ya tiene resultado", false);
+      return;
+    }
+
+    if (!fixtureSwapSelection) {
+      setFixtureSwapSelection({ roundId, matchId, side });
+      return;
+    }
+
+    if (fixtureSwapSelection.roundId !== roundId) {
+      showToast("Solo podés intercambiar parejas dentro de la misma fecha", false);
+      setFixtureSwapSelection({ roundId, matchId, side });
+      return;
+    }
+
+    if (fixtureSwapSelection.matchId === matchId && fixtureSwapSelection.side === side) {
+      setFixtureSwapSelection(null);
+      return;
+    }
+
+    setFixtureDraft(prev => buildFixtureWithSwappedTeams(prev, roundId, fixtureSwapSelection, { matchId, side }));
+    setFixtureSwapSelection(null);
+    showToast("Parejas intercambiadas. Presioná GUARDAR CAMBIOS.");
+  }
+
   async function handleRegenerateFixture() {
     setConfirmRegenOpen(false);
     try {
@@ -1020,6 +1110,16 @@ export default function FixturePage() {
           </div>
         )}
 
+        {/* Editar fixture: banner explicativo */}
+        {hasFixture && canEdit && editFixtureMode && (
+          <div className="bg-[#E6F3F1] border border-[#1F6D69] rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
+            <ArrowLeftRight size={16} className="text-[#1F6D69] flex-shrink-0" />
+            <span className="text-sm font-bold text-[#1F6D69]">
+              Tocá una pareja y después la otra con la que quieras que se enfrente, dentro de la misma fecha. Al terminar, no te olvides de tocar GUARDAR CAMBIOS.
+            </span>
+          </div>
+        )}
+
         {/* Rounds */}
         {hasFixture && (
           <div className="flex flex-col gap-3">
@@ -1031,6 +1131,9 @@ export default function FixturePage() {
                 onResultClick={matchId => setResultTarget({ roundId: round.id, matchId })}
                 onActionsClick={matchId => setActionsTarget({ roundId: round.id, matchId })}
                 onSuspensionClick={() => setSuspensionTarget(round.id)}
+                editFixtureMode={canEdit && editFixtureMode}
+                fixtureSwapSelection={fixtureSwapSelection}
+                onTeamTap={(matchId, side) => handleFixtureTeamTap(round.id, matchId, side)}
               />
             ))}
           </div>
@@ -1046,6 +1149,10 @@ export default function FixturePage() {
               <button onClick={() => setConfirmRegenOpen(true)}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[#F2C4C4] text-sm font-black text-[#994646] hover:bg-[#FFF1F1] transition-colors">
                 <RefreshCw size={14} />Regenerar fixture
+              </button>
+              <button onClick={() => { setEditFixtureMode(m => !m); setFixtureSwapSelection(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-black transition-colors ${editFixtureMode ? "bg-[#1F6D69] text-white border-[#1F6D69]" : "border-[#B9D9D4] text-[#1F6D69] hover:bg-[#E6F3F1]"}`}>
+                <ArrowLeftRight size={14} />{editFixtureMode ? "Listo, terminar" : "Editar fixture"}
               </button>
               <button onClick={() => setConfirmDeleteOpen(true)}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#D64545] text-white text-sm font-black hover:bg-[#B83030] transition-colors">
