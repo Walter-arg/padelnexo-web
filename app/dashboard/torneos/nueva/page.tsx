@@ -151,6 +151,9 @@ function TorneoNuevaInner() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate]     = useState("");
 
+  // Reglamento (se precarga con el ultimo reglamento usado por el organizador)
+  const [rules, setRules] = useState("");
+
   // Sync multiConfigs length with quantity
   useEffect(() => {
     const qty = Math.max(2, parseInt(quantity) || 2);
@@ -174,6 +177,10 @@ function TorneoNuevaInner() {
         setSelectedVenues([ud.complejos[0].nombre]);
       }
 
+      if (!editId) {
+        setRules(ud?.defaultTournamentRules ?? "");
+      }
+
       if (editId) {
         const snap = await getDoc(doc(db, "tournaments", editId));
         if (snap.exists()) {
@@ -184,6 +191,7 @@ function TorneoNuevaInner() {
           setPairConfirmation(d.pairConfirmationMode ?? "manual");
           setEntryFeeStr(d.entryFee ? fmtMoney(d.entryFee) : "");
           setPaymentAlias(d.paymentAlias ?? "");
+          setRules(d.rules ?? "");
           setStartDate(d.startDateMillis ? new Date(d.startDateMillis).toISOString().slice(0, 10) : "");
           setEndDate(d.endDateMillis     ? new Date(d.endDateMillis).toISOString().slice(0, 10)   : "");
           setSelectedVenues((d.venues ?? []).map((v: any) => v.name));
@@ -275,6 +283,7 @@ function TorneoNuevaInner() {
       organizerLogoUrl: userData?.logoUrl ?? "",
       coverImage,
       description: "",
+      rules,
       tournamentRuleSet,
       status: "draft",
       registrationStatus: "closed",

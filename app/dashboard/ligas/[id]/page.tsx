@@ -17,15 +17,18 @@ import {
 } from "lucide-react";
 
 // ── Reglas de la liga ────────────────────────────────────────────────────────
+// Reconoce **negrita** (el boton "N" del editor) y tambien *negrita* (la
+// convencion de WhatsApp), para que un texto pegado desde ahi ya se vea
+// formateado sin tener que retocarlo.
 function parseRulesSegments(text: string = ""): { bold: boolean; text: string }[] {
   const segments: { bold: boolean; text: string }[] = [];
-  const regex = /\*\*([\s\S]+?)\*\*/g;
+  const regex = /\*\*([\s\S]+?)\*\*|\*([^*\n]+?)\*/g;
   let lastIndex = 0;
   let match = regex.exec(text);
 
   while (match) {
     if (match.index > lastIndex) segments.push({ bold: false, text: text.slice(lastIndex, match.index) });
-    segments.push({ bold: true, text: match[1] });
+    segments.push({ bold: true, text: (match[1] !== undefined ? match[1] : match[2]) ?? "" });
     lastIndex = match.index + match[0].length;
     match = regex.exec(text);
   }

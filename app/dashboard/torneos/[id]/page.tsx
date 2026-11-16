@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   doc, collection, onSnapshot, updateDoc, addDoc, getDoc, getDocs, deleteDoc,
   serverTimestamp, query, orderBy,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import FixtureTab from "./FixtureTab";
@@ -14,7 +15,7 @@ import {
   ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
-  Link2, Phone, MessageSquare,
+  Link2, Phone, MessageSquare, Bold, ImageIcon,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -65,6 +66,36 @@ function StatusBadge({ status, meta }: { status: string; meta: Record<string, an
 function formatDate(ms?: number) {
   if (!ms) return "";
   return new Date(ms).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// ── Reglamento del torneo ────────────────────────────────────────────────────
+// Reconoce **negrita** (el boton del editor) y tambien *negrita* (la
+// convencion de WhatsApp), para que un texto pegado desde ahi ya se vea
+// formateado sin tener que retocarlo.
+function parseRulesSegments(text: string = ""): { bold: boolean; text: string }[] {
+  const segments: { bold: boolean; text: string }[] = [];
+  const regex = /\*\*([\s\S]+?)\*\*|\*([^*\n]+?)\*/g;
+  let lastIndex = 0;
+  let match = regex.exec(text);
+
+  while (match) {
+    if (match.index > lastIndex) segments.push({ bold: false, text: text.slice(lastIndex, match.index) });
+    segments.push({ bold: true, text: (match[1] !== undefined ? match[1] : match[2]) ?? "" });
+    lastIndex = match.index + match[0].length;
+    match = regex.exec(text);
+  }
+  if (lastIndex < text.length) segments.push({ bold: false, text: text.slice(lastIndex) });
+  return segments;
+}
+
+function RulesText({ text, className }: { text: string; className?: string }) {
+  return (
+    <p className={className} style={{ whiteSpace: "pre-wrap" }}>
+      {parseRulesSegments(text).map((seg, i) => (
+        <span key={i} className={seg.bold ? "font-black" : undefined}>{seg.text}</span>
+      ))}
+    </p>
+  );
 }
 
 type Tab = "inscripciones" | "fixture" | "pagos" | "gestion";
@@ -764,6 +795,16 @@ export default function TorneoDetailPage() {
   const [runnerUpId, setRunnerUpId] = useState("");
   const [savingAction, setSavingAction] = useState(false);
 
+  // Reglamento
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState("");
+  const [savingRules, setSavingRules] = useState(false);
+  const rulesTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Afiche / flyer
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const coverFileRef = useRef<HTMLInputElement>(null);
+
   // Notificaciones
   const [notifTitle,    setNotifTitle]    = useState("");
   const [notifBody,     setNotifBody]     = useState("");
@@ -878,6 +919,85 @@ export default function TorneoDetailPage() {
     await updateDoc(doc(db, "tournaments", torneoId), { championPairId: championId, runnerUpPairId: runnerUpId, updatedAt: serverTimestamp() });
     setSavingAction(false);
     showToast("Resultado final guardado.");
+  }
+
+  function openRulesModal() {
+    setRulesDraft(torneo?.rules ?? "");
+    setRulesModalOpen(true);
+  }
+
+  function toggleRulesBold() {
+    const el = rulesTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const text = rulesDraft;
+
+    if (start === end) {
+      const next = `${text.slice(0, start)}****${text.slice(start)}`;
+      setRulesDraft(next);
+      requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + 2, start + 2); });
+      return;
+    }
+
+    const selected = text.slice(start, end);
+    const isBold = selected.length >= 4 && selected.startsWith("**") && selected.endsWith("**");
+    let next: string, nextStart: number, nextEnd: number;
+
+    if (isBold) {
+      const inner = selected.slice(2, -2);
+      next = `${text.slice(0, start)}${inner}${text.slice(end)}`;
+      nextStart = start; nextEnd = start + inner.length;
+    } else {
+      next = `${text.slice(0, start)}**${selected}**${text.slice(end)}`;
+      nextStart = start; nextEnd = end + 4;
+    }
+
+    setRulesDraft(next);
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(nextStart, nextEnd); });
+  }
+
+  async function saveRules() {
+    if (savingRules) return;
+    setSavingRules(true);
+    try {
+      await updateDoc(doc(db, "tournaments", torneoId), { rules: rulesDraft, updatedAt: serverTimestamp() });
+      const organizerId = torneo?.organizerId || torneo?.createdBy || "";
+      if (organizerId) {
+        await updateDoc(doc(db, "users", organizerId), { defaultTournamentRules: rulesDraft }).catch(() => {});
+      }
+      setTorneo((p: any) => ({ ...p, rules: rulesDraft }));
+      setRulesModalOpen(false);
+      showToast("Reglamento guardado.");
+    } finally {
+      setSavingRules(false);
+    }
+  }
+
+  async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCover(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const sRef = storageRef(storage, `tournaments/covers/${torneoId}/${Date.now()}.${ext}`);
+      const snap = await uploadBytes(sRef, file);
+      const url = await getDownloadURL(snap.ref);
+      await updateDoc(doc(db, "tournaments", torneoId), { coverImage: url, updatedAt: serverTimestamp() });
+      setTorneo((p: any) => ({ ...p, coverImage: url }));
+      showToast("Afiche actualizado.");
+    } catch {
+      showToast("Error al subir el afiche.", false);
+    } finally {
+      setUploadingCover(false);
+      if (coverFileRef.current) coverFileRef.current.value = "";
+    }
+  }
+
+  async function handleRemoveCover() {
+    await updateDoc(doc(db, "tournaments", torneoId), { coverImage: "", updatedAt: serverTimestamp() });
+    setTorneo((p: any) => ({ ...p, coverImage: "" }));
+    showToast("Afiche eliminado.");
   }
 
   async function handleSendNotification() {
@@ -1054,6 +1174,53 @@ export default function TorneoDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }} onClick={() => setPosterOpen(false)}>
           <img src={torneo.coverImage} alt="Afiche" className="max-h-[90vh] max-w-full rounded-2xl" onClick={e => e.stopPropagation()} />
           <button className="absolute top-4 right-4 text-white" onClick={() => setPosterOpen(false)}><X size={24} /></button>
+        </div>
+      )}
+
+      {rulesModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={() => setRulesModalOpen(false)}>
+          <div className="bg-white rounded-[22px] p-6 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-lg" style={{ color: "#086847" }}>Reglamento del torneo</h3>
+              <button onClick={() => setRulesModalOpen(false)}><X size={16} style={{ color: "#5F7D72" }} /></button>
+            </div>
+
+            <p className="text-xs font-semibold mb-3" style={{ color: "#5F7D72" }}>
+              Escribí o pegá el reglamento (podés pegarlo directo desde WhatsApp, con emojis y todo). Los jugadores lo van a poder leer antes de inscribirse, pero no modificarlo.
+            </p>
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={toggleRulesBold} title="Negrita"
+                className="w-8 h-8 flex items-center justify-center rounded-lg border hover:opacity-80 transition-opacity"
+                style={{ borderColor: "#CFE7DC", background: "#E9FFF0" }}>
+                <Bold size={14} style={{ color: "#086847" }} />
+              </button>
+              <span className="text-xs" style={{ color: "#9BB8AE" }}>Seleccioná un texto y tocá el botón para resaltarlo.</span>
+            </div>
+            <textarea
+              ref={rulesTextareaRef}
+              value={rulesDraft}
+              onChange={e => setRulesDraft(e.target.value)}
+              placeholder="Ej: El torneo se juega al mejor de 3 sets. Las inasistencias sin aviso..."
+              className="w-full min-h-[180px] border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none"
+              style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+            />
+            {rulesDraft && (
+              <div className="mt-3 rounded-xl p-3 border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                <p className="text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: "#9BB8AE" }}>Vista previa</p>
+                <RulesText text={rulesDraft} className="text-sm" />
+              </div>
+            )}
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setRulesModalOpen(false)}
+                className="flex-1 py-3 rounded-xl text-sm font-black border" style={{ background: "#ECF8F2", borderColor: "#CFE7DC", color: "#173A2E" }}>
+                Cancelar
+              </button>
+              <button onClick={saveRules} disabled={savingRules || rulesDraft === (torneo?.rules ?? "")}
+                className="flex-1 py-3 rounded-xl text-sm font-black text-white disabled:opacity-40" style={{ background: "#0B8457" }}>
+                {savingRules ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1594,6 +1761,50 @@ export default function TorneoDetailPage() {
               ═══════════════════════════════════════════════════════ */}
               {tab === "gestion" && (
                 <div className="flex flex-col gap-4 max-w-lg">
+                  {/* Afiche / flyer */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Afiche del torneo</p>
+                    {torneo.coverImage ? (
+                      <div className="flex items-center gap-3">
+                        <img src={torneo.coverImage} alt="Afiche" className="w-20 h-20 rounded-xl object-cover flex-shrink-0 border" style={{ borderColor: "#CFE7DC" }} />
+                        <div className="flex flex-col gap-2 flex-1">
+                          <button onClick={() => coverFileRef.current?.click()} disabled={uploadingCover}
+                            className="py-2 rounded-xl text-xs font-bold border disabled:opacity-50" style={{ borderColor: "#CFE7DC", color: "#086847" }}>
+                            {uploadingCover ? "Subiendo…" : "Cambiar afiche"}
+                          </button>
+                          <button onClick={handleRemoveCover} disabled={uploadingCover}
+                            className="py-2 rounded-xl text-xs font-bold border disabled:opacity-50" style={{ borderColor: "#F1C8C8", color: "#B24343" }}>
+                            Quitar afiche
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => coverFileRef.current?.click()} disabled={uploadingCover}
+                        className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed disabled:opacity-50"
+                        style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
+                        <ImageIcon size={18} />
+                        <span className="text-sm font-bold">{uploadingCover ? "Subiendo imagen…" : "Subir afiche o flyer"}</span>
+                      </button>
+                    )}
+                    <input ref={coverFileRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+                  </div>
+
+                  {/* Reglamento */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Reglamento del torneo</p>
+                    {torneo.rules ? (
+                      <div className="rounded-xl p-3 mb-3" style={{ background: "#F6FBF8" }}>
+                        <RulesText text={torneo.rules} className="text-sm" />
+                      </div>
+                    ) : (
+                      <p className="text-xs mb-3" style={{ color: "#9BB8AE" }}>Todavía no cargaste el reglamento de este torneo.</p>
+                    )}
+                    <button onClick={openRulesModal}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#086847" }}>
+                      {torneo.rules ? "Editar reglamento" : "Cargar reglamento"}
+                    </button>
+                  </div>
+
                   {/* Estado */}
                   <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
                     <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Estado del torneo</p>

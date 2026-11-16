@@ -10,13 +10,6 @@ const GET_PUBLIC_TOURNAMENT_INFO_URL =
 const SUBMIT_PUBLIC_TOURNAMENT_REGISTRATION_URL =
   "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/submitPublicTournamentRegistration";
 
-export const PUBLIC_QUICK_SLOTS: { key: string; label: string }[] = [
-  { key: "morning", label: "Mañana" },
-  { key: "afternoon", label: "Tarde" },
-  { key: "night", label: "Noche" },
-  { key: "late_night", label: "Madrugada" },
-];
-
 export type PublicTournamentInfo = {
   id: string;
   name: string;
@@ -29,12 +22,16 @@ export type PublicTournamentInfo = {
   organizerName: string;
   coverImage: string;
   organizerLogoUrl: string;
+  rules: string;
   status: string;
   open: boolean;
   reason: string;
 };
 
-export type PublicAvailability = Record<string, { quickSlots: string[]; customSlots: never[] }>;
+export type PublicAvailability = Record<
+  string,
+  { quickSlots: string[]; customSlots: { from: string; to: string }[] }
+>;
 
 export function buildPublicDayOptions(
   startDateMillis?: number,
