@@ -987,8 +987,9 @@ export default function TorneoDetailPage() {
       await updateDoc(doc(db, "tournaments", torneoId), { coverImage: url, updatedAt: serverTimestamp() });
       setTorneo((p: any) => ({ ...p, coverImage: url }));
       showToast("Afiche actualizado.");
-    } catch {
-      showToast("Error al subir el afiche.", false);
+    } catch (err: any) {
+      console.error("handleCoverUpload failed", err);
+      showToast(`Error al subir el afiche: ${err?.code || err?.message || "desconocido"}`, false);
     } finally {
       setUploadingCover(false);
       if (coverFileRef.current) coverFileRef.current.value = "";
