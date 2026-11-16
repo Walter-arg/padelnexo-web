@@ -1297,10 +1297,10 @@ export default function TorneoDetailPage() {
             {torneo.coverImage && (
               <button
                 onClick={() => setPosterOpen(true)}
-                className="w-full mb-4 rounded-2xl overflow-hidden"
-                style={{ height: 140 }}
+                className="w-full mb-4 rounded-2xl overflow-hidden flex items-center justify-center"
+                style={{ height: 140, background: "#0F2D22" }}
               >
-                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-cover" />
+                <img src={torneo.coverImage} alt="Afiche" className="w-full h-full object-contain" />
               </button>
             )}
 

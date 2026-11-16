@@ -172,8 +172,9 @@ export default function PublicTournamentRegistrationPage() {
           ) : (
             <>
               {info.coverImage && (
-                <div className="-mx-6 -mt-6 mb-5 overflow-hidden rounded-t-[22px]">
-                  <img src={info.coverImage} alt="" className="w-full object-cover" style={{ maxHeight: 220 }} />
+                <div className="-mx-6 -mt-6 mb-5 overflow-hidden rounded-t-[22px] flex items-center justify-center"
+                  style={{ height: 240, background: "#0F2D22" }}>
+                  <img src={info.coverImage} alt="" className="w-full h-full object-contain" />
                 </div>
               )}
 
