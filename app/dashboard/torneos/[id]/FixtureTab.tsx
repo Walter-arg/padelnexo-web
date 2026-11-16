@@ -18,7 +18,7 @@ import {
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
-import { buildBracketPreview, applyBracketProgressions, type BracketPair } from "@/lib/tournamentBracket";
+import { buildBracketPreview, applyBracketProgressions, assignSchedulesToBracketMatches, syncBracketWithZones, type BracketPair } from "@/lib/tournamentBracket";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type FixSub = "configurar" | "automatico" | "manual";
@@ -26,7 +26,7 @@ type MatchFmt = "third_set" | "super_tiebreak";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CARD_W = 258;
-const CARD_H = 150;
+const CARD_H = 172;
 const COL_STEP = 282;
 const B_PAD = 16;
 const B_HDR = 34;
@@ -773,6 +773,7 @@ export default function FixtureTab({
   const [standingsModal, setStandingsModal] = useState<any>(null);
   const [bracketResultModal, setBracketResultModal] = useState<{ match: any; ri: number; mi: number } | null>(null);
   const [scheduleModal, setScheduleModal] = useState<{ zoneId: string; matchKey: string } | null>(null);
+  const [bracketScheduleModal, setBracketScheduleModal] = useState<{ ri: number; mi: number } | null>(null);
   const [savingAutoSchedule, setSavingAutoSchedule] = useState(false);
 
   // ── Computed ────────────────────────────────────────────────────────────────
@@ -906,6 +907,22 @@ export default function FixtureTab({
         zone.matchSchedules[matchKey].result = result;
         zone.matchSchedules[matchKey].resultText = result.scoreText;
         fs.zonePlanning.zones = zoneList;
+
+        // Si ya existe una llave, se resincroniza con el resultado nuevo
+        // (igual que hace la app automaticamente al cambiar un resultado de zona).
+        if (fs.bracketPreview) {
+          const pairsByZoneId = new Map<string, BracketPair[]>(
+            zoneList.map((z: any) => [
+              z.id,
+              toArray(z.registrationIds).map((id: string, idx: number) => ({
+                id, label: regMap[id] ? getPairLabel(regMap[id], idx) : `Pareja ${idx + 1}`,
+              })),
+            ])
+          );
+          const synced = syncBracketWithZones(fs.bracketPreview, zoneList as ZonePlanningZone[], pairsByZoneId, tournamentRuleSet);
+          if (synced) fs.bracketPreview = synced;
+        }
+
         await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
         showToast("Resultado guardado");
       }
@@ -982,6 +999,54 @@ export default function FixtureTab({
       showToast(hasBracket ? "Llave regenerada" : "Llave generada");
     } catch {
       showToast("Error al generar la llave", false);
+    }
+    setSavingAutoSchedule(false);
+  }
+
+  const zoneSchedulesForBracket = useMemo(() => zoneVenueSchedules.filter((s) => s.useForBracket), [zoneVenueSchedules]);
+
+  async function saveBracketMatchSchedule(ri: number, mi: number, schedule: { dayKey: string; startTime: string; venueName: string; courtIndex: number } | null) {
+    try {
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const rounds = fs.bracketPreview?.rounds ?? [];
+      const match = rounds[ri]?.matches?.[mi];
+      if (!match) return;
+      if (schedule) {
+        match.scheduledDayKey = schedule.dayKey;
+        match.scheduledTime = schedule.startTime;
+        match.courtLabel = `${schedule.venueName} · Cancha ${schedule.courtIndex}`;
+        const dayLabel = tournamentDayOptions.find((d) => d.key === schedule.dayKey)?.shortLabel || schedule.dayKey;
+        match.scheduleLabel = `${dayLabel} · ${schedule.startTime} hs`;
+      } else {
+        match.scheduledDayKey = "";
+        match.scheduledTime = "";
+        match.courtLabel = "Cancha pendiente";
+        match.scheduleLabel = "Horario pendiente";
+      }
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast(schedule ? "Horario asignado" : "Horario borrado");
+    } catch {
+      showToast("Error al guardar el horario", false);
+    }
+  }
+
+  async function handleAutoScheduleBracket() {
+    if (!fixtureSetup?.bracketPreview) return;
+    if (!zoneSchedulesForBracket.length) {
+      showToast("Primero cargá horarios de cancha marcados para llaves en Configurar", false);
+      return;
+    }
+    setSavingAutoSchedule(true);
+    try {
+      const { nextBracketPreview, unassignedCount } = assignSchedulesToBracketMatches(
+        fixtureSetup.bracketPreview, zoneSchedulesForBracket, tournamentDayOptions, matchDurationMinutes
+      );
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      fs.bracketPreview = nextBracketPreview;
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
+    } catch {
+      showToast("Error al asignar horarios", false);
     }
     setSavingAutoSchedule(false);
   }
@@ -1443,6 +1508,11 @@ export default function FixtureTab({
             </div>
           ) : bracketLayout ? (
             <>
+              <button onClick={handleAutoScheduleBracket} disabled={savingAutoSchedule}
+                className="w-full mb-3 py-2.5 rounded-xl font-black text-xs border disabled:opacity-40"
+                style={{ borderColor: "#086847", color: "#086847", background: "#EEF8F1" }}>
+                {savingAutoSchedule ? "Asignando..." : "ASIGNAR HORARIO/CANCHA A LA LLAVE"}
+              </button>
               <div className="flex items-center justify-end gap-2 mb-3">
                 <button onClick={handleGenerateBracket} disabled={savingAutoSchedule}
                   className="text-xs font-bold px-3 py-1.5 rounded-full border mr-auto disabled:opacity-40"
@@ -1510,6 +1580,13 @@ export default function FixtureTab({
                                     <span style={{ flex: 1, fontSize: 12, fontWeight: w === b.id ? 800 : 500, color: w === b.id ? "#0B8457" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.label}</span>
                                     {completed && matchSets.length > 0 && <span style={{ fontSize: 12, fontWeight: 900, color: w === b.id ? "#0B8457" : "#9BB8AE", flexShrink: 0 }}>{matchSets.map(s => s.b).join(" ")}</span>}
                                   </div>
+                                  {/* Horario / cancha */}
+                                  {!match.teamAIsBye && !match.teamBIsBye && (
+                                    <button onClick={() => setBracketScheduleModal({ ri, mi })}
+                                      style={{ height: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, borderTop: "1px solid #F0F7F4", background: "#FAFCFB", flexShrink: 0, fontSize: 9, fontWeight: 700, color: "#5F7D72" }}>
+                                      {match.scheduleLabel || "Horario pendiente"}{match.courtLabel && match.courtLabel !== "Cancha pendiente" ? ` · ${match.courtLabel}` : ""}
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -1589,6 +1666,38 @@ export default function FixtureTab({
           />
         );
       })()}
+      {bracketScheduleModal && (() => {
+        const match = fixtureSetup?.bracketPreview?.rounds?.[bracketScheduleModal.ri]?.matches?.[bracketScheduleModal.mi];
+        if (!match) return null;
+        const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForBracket, matchDurationMinutes);
+        const occupiedKeys = new Set(
+          toArray(fixtureSetup?.bracketPreview?.rounds).flatMap((r: any) =>
+            toArray(r.matches)
+              .filter((m: any) => m.scheduledDayKey && m.scheduledTime && m.courtLabel && m.courtLabel !== "Cancha pendiente")
+              .map((m: any) => `${m.scheduledDayKey}|${m.scheduledTime}|${m.courtLabel}`)
+          )
+        );
+        const freeSlots = allSlots.filter((slot) => !occupiedKeys.has(`${slot.dayKey}|${formatMinutesToTime(slot.startMinutes)}|${slot.venueName} · Cancha ${slot.courtIndex}`));
+        return (
+          <ScheduleMatchModal
+            matchKey="llave"
+            freeSlots={freeSlots}
+            tournamentDayOptions={tournamentDayOptions}
+            hasCurrentSchedule={Boolean(match.scheduledDayKey && match.scheduledTime)}
+            onClose={() => setBracketScheduleModal(null)}
+            onClear={async () => {
+              await saveBracketMatchSchedule(bracketScheduleModal.ri, bracketScheduleModal.mi, null);
+              setBracketScheduleModal(null);
+            }}
+            onAssign={async (slot) => {
+              await saveBracketMatchSchedule(bracketScheduleModal.ri, bracketScheduleModal.mi, {
+                dayKey: slot.dayKey, startTime: formatMinutesToTime(slot.startMinutes), venueName: slot.venueName, courtIndex: slot.courtIndex,
+              });
+              setBracketScheduleModal(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -1601,7 +1710,7 @@ function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurr
   hasCurrentSchedule: boolean;
   onClose: () => void;
   onClear: () => Promise<void>;
-  onAssign: (slot: { dayKey: string; startMinutes: number; venueId: string; courtIndex: number }) => Promise<void>;
+  onAssign: (slot: { dayKey: string; startMinutes: number; venueId: string; venueName: string; courtIndex: number }) => Promise<void>;
 }) {
   const dayKeysWithSlots = Array.from(new Set(freeSlots.map((s) => s.dayKey)));
   const [day, setDay] = useState<string>(dayKeysWithSlots[0] ?? "");

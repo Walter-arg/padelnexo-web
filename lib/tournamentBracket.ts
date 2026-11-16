@@ -10,7 +10,17 @@
 // camino generico): FAP/APA siempre declaran teamASourceMatchId/
 // teamBSourceMatchId de forma explicita.
 
-import { buildPlanningMatchLabels, getPlanningMatchPairNumbers, getZoneQualifiersCount, type ZonePlanningZone } from "./tournamentZones";
+import {
+  buildPlanningMatchLabels,
+  getPlanningMatchPairNumbers,
+  getZoneQualifiersCount,
+  buildZoneMatchSchedulingSlots,
+  parseTimeToMinutes,
+  formatMinutesToTime,
+  ZONE_MATCH_DURATION_MINUTES,
+  type ZonePlanningZone,
+  type ZoneVenueSchedule,
+} from "./tournamentZones";
 
 export type BracketPair = { id: string; label: string };
 
@@ -47,6 +57,7 @@ export type BracketMatch = {
   scheduledDayKey: string;
   scheduledTime: string;
   scheduleLabel: string;
+  distributionPending?: boolean;
   result: { winnerSource: string; winner: string; sets: any[] };
 };
 
@@ -968,4 +979,159 @@ export function applyBracketProgressions(bracketPreview: BracketPreview): Bracke
   }
 
   return { ...bracketPreview, rounds };
+}
+
+// ── Horario/cancha para partidos de llave ─────────────────────────────────
+// Igual que para zonas, pero con una regla extra: ninguna ronda puede
+// empezar antes de que termine la anterior (prevRoundMaxEnd*). Para
+// semifinales (penultima ronda) busca una ventana con canchas suficientes
+// para jugarlas todas en simultaneo; para el resto, primera cancha libre.
+export function assignSchedulesToBracketMatches(
+  bracketPreview: BracketPreview,
+  venueSchedules: ZoneVenueSchedule[],
+  tournamentDayOptions: { key: string; shortLabel: string }[],
+  matchDurationMinutes = ZONE_MATCH_DURATION_MINUTES
+): { nextBracketPreview: BracketPreview; unassignedCount: number } {
+  const bracketSchedules = venueSchedules.filter((s) => s.useForBracket);
+  const allSlots = buildZoneMatchSchedulingSlots(bracketSchedules, matchDurationMinutes);
+  const usedSlotIds = new Set<string>();
+  let unassignedCount = 0;
+  let prevRoundMaxEndDayKey = "";
+  let prevRoundMaxEndMinutes = 0;
+
+  const rounds = bracketPreview.rounds.map((round, roundIndex) => {
+    const roundMinDayKey = prevRoundMaxEndDayKey;
+    const roundMinStartMinutes = prevRoundMaxEndMinutes;
+    let thisRoundMaxEndDayKey = "";
+    let thisRoundMaxEndMinutes = 0;
+
+    const eligibleSlots = allSlots.filter(
+      (slot) =>
+        !usedSlotIds.has(slot.id) &&
+        (!roundMinDayKey || slot.dayKey > roundMinDayKey || (slot.dayKey === roundMinDayKey && slot.startMinutes >= roundMinStartMinutes))
+    );
+
+    const timeWindows: (typeof allSlots)[number][][] = [];
+    eligibleSlots.forEach((slot) => {
+      const last = timeWindows[timeWindows.length - 1];
+      if (last && last[0].dayKey === slot.dayKey && last[0].startMinutes === slot.startMinutes) {
+        last.push(slot);
+      } else {
+        timeWindows.push([slot]);
+      }
+    });
+
+    const isSemisRound = roundIndex === bracketPreview.rounds.length - 2;
+    const numPlayable = round.matches.filter((m) => !m.teamAIsBye && !m.teamBIsBye).length;
+    const simultaneousWindow = isSemisRound ? timeWindows.find((w) => w.length >= numPlayable) || null : null;
+
+    const assignedSlots = new Map<number, (typeof allSlots)[number]>();
+    let windowIndex = 0;
+    let windowCourtOffset = 0;
+
+    round.matches.forEach((match, index) => {
+      if (match.teamAIsBye || match.teamBIsBye) return;
+
+      let slot: (typeof allSlots)[number] | null = null;
+
+      if (simultaneousWindow) {
+        if (windowCourtOffset < simultaneousWindow.length) {
+          slot = simultaneousWindow[windowCourtOffset];
+          windowCourtOffset += 1;
+        }
+      } else {
+        while (windowIndex < timeWindows.length) {
+          if (windowCourtOffset < timeWindows[windowIndex].length) {
+            slot = timeWindows[windowIndex][windowCourtOffset];
+            windowCourtOffset += 1;
+            break;
+          }
+          windowIndex += 1;
+          windowCourtOffset = 0;
+        }
+      }
+
+      if (!slot) {
+        unassignedCount += 1;
+        return;
+      }
+
+      assignedSlots.set(index, slot);
+      usedSlotIds.add(slot.id);
+      const slotEnd = slot.startMinutes + matchDurationMinutes;
+      if (!thisRoundMaxEndDayKey || slot.dayKey > thisRoundMaxEndDayKey || (slot.dayKey === thisRoundMaxEndDayKey && slotEnd > thisRoundMaxEndMinutes)) {
+        thisRoundMaxEndDayKey = slot.dayKey;
+        thisRoundMaxEndMinutes = slotEnd;
+      }
+    });
+
+    const nextMatches = round.matches.map((match, index) => {
+      if (match.teamAIsBye || match.teamBIsBye) {
+        return { ...match, distributionPending: false, courtLabel: "Cancha pendiente", scheduleLabel: "Horario pendiente", scheduledDayKey: "", scheduledTime: "" };
+      }
+
+      const slot = assignedSlots.get(index);
+
+      if (!slot) {
+        return { ...match, distributionPending: true, courtLabel: "Cancha pendiente", scheduleLabel: "Horario pendiente", scheduledDayKey: "", scheduledTime: "" };
+      }
+
+      const dayLabel = tournamentDayOptions.find((d) => d.key === slot.dayKey)?.shortLabel || slot.dayKey;
+
+      return {
+        ...match,
+        distributionPending: false,
+        courtLabel: `${slot.venueName} · Cancha ${slot.courtIndex}`,
+        scheduleLabel: `${dayLabel} · ${formatMinutesToTime(slot.startMinutes)} hs`,
+        scheduledDayKey: slot.dayKey,
+        scheduledTime: formatMinutesToTime(slot.startMinutes),
+      };
+    });
+
+    if (thisRoundMaxEndDayKey) {
+      prevRoundMaxEndDayKey = thisRoundMaxEndDayKey;
+      prevRoundMaxEndMinutes = thisRoundMaxEndMinutes;
+    }
+
+    return { ...round, matches: nextMatches };
+  });
+
+  return { nextBracketPreview: { ...bracketPreview, rounds }, unassignedCount };
+}
+
+// ── Sincronizacion automatica ──────────────────────────────────────────────
+// Igual que syncBracketPreviewQualifiedEntries en la app: cuando cambia un
+// resultado de zona despues de armada la llave, se reconstruye entera (los
+// ids de partido son deterministicos, ej. "apa-qf-1"/"fap-p57") y se
+// reinyectan por id los campos que ya se habian cargado (resultado,
+// horario/cancha) desde la llave vieja, para no perderlos.
+export function syncBracketWithZones(
+  previousBracket: BracketPreview,
+  zones: ZonePlanningZone[],
+  pairsByZoneId: Map<string, BracketPair[]>,
+  ruleSet: "fap" | "apa"
+): BracketPreview | null {
+  const nextBracket = buildBracketPreview(zones, pairsByZoneId, ruleSet);
+  if (!nextBracket) return null;
+
+  const previousById = new Map(previousBracket.rounds.flatMap((r) => r.matches).map((m) => [m.id, m]));
+
+  const mergedRounds = nextBracket.rounds.map((round) => ({
+    ...round,
+    matches: round.matches.map((match) => {
+      const previousMatch = previousById.get(match.id);
+      if (!previousMatch) return match;
+      return {
+        ...match,
+        courtLabel: previousMatch.courtLabel || match.courtLabel,
+        scheduledDayKey: previousMatch.scheduledDayKey || match.scheduledDayKey,
+        scheduledTime: previousMatch.scheduledTime || match.scheduledTime,
+        scheduleLabel: previousMatch.scheduleLabel || match.scheduleLabel,
+        result: previousMatch.result?.winner || previousMatch.result?.sets?.length ? previousMatch.result : match.result,
+        resultLabel: previousMatch.result?.winner ? previousMatch.resultLabel : match.resultLabel,
+      };
+    }),
+  }));
+
+  return applyBracketProgressions({ ...nextBracket, rounds: mergedRounds });
 }
