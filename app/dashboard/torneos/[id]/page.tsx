@@ -42,68 +42,6 @@ const PAY_STATUS_META: Record<string, { label: string; tint: string; border: str
   pending:   { label: "Pendiente",          tint: "#F3F5F7", border: "#D4DBE2", accent: "#667482" },
 };
 
-const BRACKET_ROUND_COLORS = ["#AEEBFF", "#6FCBFF", "#2E8FE8", "#0B4FB3"];
-
-// ── Bracket layout ───────────────────────────────────────────────────────────
-const B_W = 240, B_H = 120, B_COL = 264, B_GAP = 8, B_HDR = 34, B_PAD = 16;
-
-function bracketRoundColor(ri: number, total: number): string {
-  if (total <= 1) return BRACKET_ROUND_COLORS[3];
-  const idx = Math.round((ri / (total - 1)) * (BRACKET_ROUND_COLORS.length - 1));
-  return BRACKET_ROUND_COLORS[Math.min(idx, BRACKET_ROUND_COLORS.length - 1)];
-}
-function bracketRoundLabel(n: number) {
-  if (n === 1) return "Final";
-  if (n === 2) return "Semifinales";
-  if (n === 4) return "Cuartos";
-  if (n === 8) return "Octavos";
-  if (n === 16) return "16avos";
-  return `Ronda (${n})`;
-}
-function hexAlpha(hex: string, a: number) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${a})`;
-}
-function buildBracketLayout(rounds: any[][]) {
-  const pos: { x: number; y: number }[][] = [];
-  for (let ri = 0; ri < rounds.length; ri++) {
-    pos[ri] = [];
-    const x = B_PAD + ri * B_COL;
-    if (ri === 0) {
-      rounds[ri].forEach((_, mi) => { pos[ri][mi] = { x, y: B_PAD + B_HDR + B_GAP + mi * (B_H + B_GAP) }; });
-    } else {
-      rounds[ri].forEach((_, mi) => {
-        const sA = pos[ri - 1]?.[mi * 2], sB = pos[ri - 1]?.[mi * 2 + 1];
-        const y = sA && sB ? (sA.y + sB.y + B_H) / 2 - B_H / 2 : sA ? sA.y : B_PAD + B_HDR + B_GAP;
-        pos[ri][mi] = { x, y };
-      });
-    }
-  }
-  const bw = B_PAD * 2 + rounds.length * B_COL - (B_COL - B_W);
-  const maxY = pos.flat().reduce((m, p) => Math.max(m, p.y), 0);
-  const bh = maxY + B_H + B_PAD;
-  const lines: { x1: number; y1: number; x2: number; y2: number }[] = [];
-  for (let ri = 1; ri < rounds.length; ri++) {
-    rounds[ri].forEach((_, mi) => {
-      const cur = pos[ri][mi], sA = pos[ri - 1]?.[mi * 2], sB = pos[ri - 1]?.[mi * 2 + 1];
-      const midX = cur.x - (B_COL - B_W) / 2, curCY = cur.y + B_H / 2;
-      if (sA && sB) {
-        const aCY = sA.y + B_H / 2, bCY = sB.y + B_H / 2;
-        lines.push({ x1: sA.x + B_W, y1: aCY,   x2: midX,  y2: aCY   });
-        lines.push({ x1: sB.x + B_W, y1: bCY,   x2: midX,  y2: bCY   });
-        lines.push({ x1: midX,        y1: aCY,   x2: midX,  y2: bCY   });
-        lines.push({ x1: midX,        y1: curCY, x2: cur.x, y2: curCY });
-      } else if (sA) {
-        const aCY = sA.y + B_H / 2;
-        lines.push({ x1: sA.x + B_W, y1: aCY, x2: cur.x, y2: aCY });
-        if (Math.abs(aCY - curCY) > 1) lines.push({ x1: cur.x, y1: aCY, x2: cur.x, y2: curCY });
-      }
-    });
-  }
-  return { pos, bw, bh, lines };
-}
 const TITLE_COLORS = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
 function getTitleColor(seed: string): string {
   let h = 0;
@@ -130,145 +68,9 @@ function formatDate(ms?: number) {
 
 type Tab = "inscripciones" | "fixture" | "pagos" | "gestion";
 
-// ── Modal resultado ─────────────────────────────────────────────────────────
-function MatchResultModal({ match, onClose, onSave }: {
-  match: any;
-  onClose: () => void;
-  onSave: (result: { winnerSide: string; sets: { sideA: number; sideB: number }[]; scoreText: string }) => Promise<void>;
-}) {
-  const [winnerSide, setWinnerSide] = useState<string>(match.winnerPairId ? (match.sideARef === match.winnerPairId ? "sideA" : "sideB") : "");
-  const [sets, setSets] = useState<{ sideA: string; sideB: string }[]>(
-    match.sets?.length ? match.sets.map((s: any) => ({ sideA: String(s.sideA ?? ""), sideB: String(s.sideB ?? "") }))
-      : [{ sideA: "", sideB: "" }, { sideA: "", sideB: "" }]
-  );
-  const [scoreText, setScoreText] = useState(match.scoreText ?? "");
-  const [saving, setSaving] = useState(false);
-  const isWO = winnerSide === "walkover";
-
-  async function handleSave() {
-    if (!winnerSide) return;
-    setSaving(true);
-    const filteredSets = isWO ? [] : sets
-      .filter(s => s.sideA !== "" || s.sideB !== "")
-      .map(s => ({ sideA: parseInt(s.sideA) || 0, sideB: parseInt(s.sideB) || 0 }));
-    await onSave({ winnerSide, sets: filteredSets, scoreText: isWO ? "Walkover" : scoreText });
-    setSaving(false);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
-      <div className="w-full max-w-sm rounded-[20px] p-6 shadow-xl" style={{ background: "#FFFFFF" }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-black text-base" style={{ color: "#173A2E" }}>Resultado del partido</h3>
-          <button onClick={onClose}><X size={18} style={{ color: "#5F7D72" }} /></button>
-        </div>
-
-        <p className="text-xs font-semibold mb-3" style={{ color: "#5F7D72" }}>¿Quién ganó?</p>
-
-        {/* Selector de ganador */}
-        <div className="flex gap-2 mb-2">
-          {[
-            { side: "sideA", label: match.sideALabel ?? "Pareja A" },
-            { side: "sideB", label: match.sideBLabel ?? "Pareja B" },
-          ].map(({ side, label }) => (
-            <button
-              key={side}
-              onClick={() => setWinnerSide(side)}
-              className="flex-1 rounded-xl py-3 px-2 text-sm font-bold border transition-all text-center"
-              style={winnerSide === side
-                ? { background: "#0B8457", color: "#FFFFFF", borderColor: "#0B8457" }
-                : { background: "#F6FBF8", color: "#173A2E", borderColor: "#CFE7DC" }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <button
-          onClick={() => setWinnerSide("walkover")}
-          className="w-full rounded-xl py-2 text-xs font-bold border mb-4 transition-all"
-          style={winnerSide === "walkover"
-            ? { background: "#667482", color: "#FFFFFF", borderColor: "#667482" }
-            : { background: "#F3F5F7", color: "#667482", borderColor: "#D4DBE2" }}
-        >
-          Walkover
-        </button>
-
-        {/* Sets */}
-        {!isWO && (
-          <div className="mb-4">
-            <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Sets</p>
-            {sets.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 mb-2">
-                <span className="text-xs w-12" style={{ color: "#5F7D72" }}>Set {i + 1}</span>
-                <input
-                  type="number" min={0} max={7} value={s.sideA}
-                  onChange={e => setSets(prev => prev.map((p, j) => j === i ? { ...p, sideA: e.target.value } : p))}
-                  className="w-14 text-center border rounded-lg py-1.5 text-sm font-bold"
-                  style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-                  placeholder="0"
-                />
-                <span className="text-xs font-black" style={{ color: "#5F7D72" }}>:</span>
-                <input
-                  type="number" min={0} max={7} value={s.sideB}
-                  onChange={e => setSets(prev => prev.map((p, j) => j === i ? { ...p, sideB: e.target.value } : p))}
-                  className="w-14 text-center border rounded-lg py-1.5 text-sm font-bold"
-                  style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-                  placeholder="0"
-                />
-                {sets.length > 1 && (
-                  <button onClick={() => setSets(prev => prev.filter((_, j) => j !== i))}>
-                    <X size={14} style={{ color: "#B24343" }} />
-                  </button>
-                )}
-              </div>
-            ))}
-            {sets.length < 3 && (
-              <button
-                onClick={() => setSets(prev => [...prev, { sideA: "", sideB: "" }])}
-                className="text-xs font-bold flex items-center gap-1"
-                style={{ color: "#0B8457" }}
-              >
-                <Plus size={12} /> Agregar set
-              </button>
-            )}
-          </div>
-        )}
-
-        {!isWO && (
-          <div className="mb-4">
-            <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Score (texto libre)</label>
-            <input
-              value={scoreText}
-              onChange={e => setScoreText(e.target.value)}
-              placeholder="ej: 6-4 7-5"
-              className="w-full border rounded-xl px-3 py-2 text-sm"
-              style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-            />
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-bold border" style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!winnerSide || saving}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-colors disabled:opacity-50"
-            style={{ background: "#0B8457" }}
-          >
-            {saving ? "Guardando…" : "Guardar"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Modal inscripción ───────────────────────────────────────────────────────
-function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDelete }: {
+function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
   torneoId: string;
-  grupos: any[];
   initial?: any;
   onClose: () => void;
   onSaved: () => void;
@@ -277,7 +79,6 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDele
   const [p1Name, setP1Name] = useState(initial?.player1Name ?? "");
   const [p2Name, setP2Name] = useState(initial?.player2Name ?? "");
   const [status, setStatus] = useState(initial?.status ?? "pending");
-  const [groupId, setGroupId] = useState(initial?.groupId ?? "");
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -287,7 +88,6 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDele
       player2Name: p2Name.trim(),
       pairLabel: `${p1Name.trim()} / ${p2Name.trim()}`,
       status,
-      groupId,
       updatedAt: serverTimestamp(),
     };
     if (initial?.id) {
@@ -335,16 +135,6 @@ function RegistrationModal({ torneoId, grupos, initial, onClose, onSaved, onDele
               <option value="rejected">Rechazada</option>
             </select>
           </div>
-          {grupos.length > 0 && (
-            <div>
-              <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Grupo asignado</label>
-              <select value={groupId} onChange={e => setGroupId(e.target.value)}
-                className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }}>
-                <option value="">Sin grupo</option>
-                {grupos.map(g => <option key={g.id} value={g.id}>Zona {g.name ?? g.nombre}</option>)}
-              </select>
-            </div>
-          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -930,127 +720,6 @@ function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
   );
 }
 
-// ── Bracket components ───────────────────────────────────────────────────────
-function BracketTeamRow({ label, isBye, isWinner, isLoser }: {
-  label?: string; isBye?: boolean; isWinner?: boolean; isLoser?: boolean;
-}) {
-  return (
-    <div style={{
-      height: 42, display: "flex", alignItems: "center", padding: "0 8px", gap: 6,
-      background: isWinner ? "#E8F6F6" : "#FFFFFF",
-      borderLeft: `3px solid ${isWinner ? "#1F6F78" : "transparent"}`,
-      opacity: isLoser ? 0.45 : 1, flexShrink: 0,
-    }}>
-      {isBye ? (
-        <span style={{ fontSize: 13, fontWeight: 900, color: "#086847", textTransform: "uppercase", width: "100%", textAlign: "center" }}>BYE</span>
-      ) : label ? (
-        <>
-          <div style={{ width: 22, height: 22, borderRadius: 11, background: isWinner ? "#C8E8E6" : "#EFF2F4", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <span style={{ fontSize: 9, fontWeight: 900, color: isWinner ? "#1F6F78" : "#5F7D72" }}>{label[0].toUpperCase()}</span>
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 900, color: isWinner ? "#086847" : "#173A2E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{label}</span>
-          {isWinner && <span style={{ fontSize: 8, fontWeight: 900, color: "#FFFFFF", background: "#0B8457", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>✓</span>}
-        </>
-      ) : (
-        <span style={{ fontSize: 10, fontStyle: "italic", color: "#9AB5AB", paddingLeft: 2 }}>Por definir</span>
-      )}
-    </div>
-  );
-}
-
-function BracketMatchCard({ match, color, style, onResultClick }: {
-  match: any; color: string; style: React.CSSProperties; onResultClick: () => void;
-}) {
-  const done   = match.status === "completed";
-  const aWon   = done && match.winnerPairId && match.winnerPairId === match.sideARef;
-  const bWon   = done && match.winnerPairId && match.winnerPairId === match.sideBRef;
-  const aIsBye = match.sideAType === "bye";
-  const bIsBye = match.sideBType === "bye";
-  const canEnter = match.sideAType === "pair" && match.sideBType === "pair";
-  const hasBoth  = (match.sideALabel || aIsBye) && (match.sideBLabel || bIsBye);
-  const score    = done ? (match.scoreText || match.sets?.map((s: any) => `${s.sideA}-${s.sideB}`).join(" ") || "•") : null;
-
-  return (
-    <div style={{ ...style, width: B_W, height: B_H, borderRadius: 12, border: `1.5px solid ${hexAlpha(color, 0.38)}`, background: hexAlpha(color, 0.12), overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-      <BracketTeamRow label={match.sideALabel} isBye={aIsBye} isWinner={!!aWon} isLoser={!!bWon} />
-      <div style={{ height: 1, background: "#CFE7DC", flexShrink: 0 }} />
-      <BracketTeamRow label={match.sideBLabel} isBye={bIsBye} isWinner={!!bWon} isLoser={!!aWon} />
-      <div style={{ height: 1, background: "#CFE7DC", flexShrink: 0 }} />
-      <div style={{ flex: 1, background: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px", gap: 6 }}>
-        {done ? (
-          <>
-            <span style={{ fontSize: 11, fontWeight: 900, color: "#173A2E" }}>{score}</span>
-            <button onClick={onResultClick} style={{ fontSize: 10, fontWeight: 700, color: "#086847", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Editar</button>
-          </>
-        ) : canEnter ? (
-          <button onClick={onResultClick} style={{ fontSize: 10, fontWeight: 900, color: "#244A66", background: "#EEF4FA", border: "1px solid #B8CCE0", borderRadius: 20, padding: "3px 10px", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.3px" }}>
-            Cargar resultado
-          </button>
-        ) : (
-          <span style={{ fontSize: 10, color: "#9AB5AB", fontStyle: "italic" }}>
-            {hasBoth ? "Esperando resultado" : "Esperando clasificados"}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BracketBoard({ rounds, onMatchClick, printScale, onPrint }: {
-  rounds: any[][]; onMatchClick: (m: any) => void; printScale?: number; onPrint?: (bw: number) => void;
-}) {
-  if (!rounds.length) return null;
-  const { pos, bw, bh, lines } = buildBracketLayout(rounds);
-  const scale = printScale ?? 1;
-
-  return (
-    <div>
-      {onPrint && (
-        <div data-print-hide className="flex justify-end mb-3">
-          <button
-            onClick={() => onPrint(bw)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-70"
-            style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
-          >
-            <Printer size={14} /> Imprimir bracket
-          </button>
-        </div>
-      )}
-      <div className="print-bracket-wrap -mx-4 sm:mx-0" style={{ overflowX: "auto", overflowY: "visible", paddingBottom: 16 }}>
-      <div style={{ position: "relative", width: bw * scale, height: bh * scale, minWidth: bw * scale }}><div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: bw, height: bh, position: "relative" }}>
-        <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }} width={bw} height={bh}>
-          {lines.map((l, i) => (
-            <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#B6CBD9" strokeWidth={2} strokeLinecap="round" />
-          ))}
-        </svg>
-
-        {rounds.map((roundMatches, ri) => {
-          const color  = bracketRoundColor(ri, rounds.length);
-          const isDark = color === "#2E8FE8" || color === "#0B4FB3";
-          const label  = bracketRoundLabel(roundMatches.length);
-          const p0     = pos[ri][0];
-          return (
-            <div key={ri}>
-              <div style={{ position: "absolute", left: p0.x, top: B_PAD, width: B_W, height: B_HDR, background: color, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ color: isDark ? "#FFFFFF" : "#173A2E", fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.5px" }}>{label}</span>
-              </div>
-              {roundMatches.map((match, mi) => (
-                <BracketMatchCard
-                  key={match.id}
-                  match={match}
-                  color={color}
-                  style={{ position: "absolute", left: pos[ri][mi].x, top: pos[ri][mi].y }}
-                  onResultClick={() => onMatchClick(match)}
-                />
-              ))}
-            </div>
-          );
-        })}
-      </div></div></div>
-    </div>
-  );
-}
-
 // ── Página principal ────────────────────────────────────────────────────────
 export default function TorneoDetailPage() {
   const router = useRouter();
@@ -1059,16 +728,12 @@ export default function TorneoDetailPage() {
 
   const [torneo, setTorneo]               = useState<any>(null);
   const [registrations, setRegistrations] = useState<any[]>([]);
-  const [grupos, setGrupos]               = useState<any[]>([]);
-  const [matches, setMatches]             = useState<any[]>([]);
   const [players, setPlayers]             = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
   const [tab, setTab]                     = useState<Tab>("inscripciones");
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
-  const [bracketScale, setBracketScale]   = useState(1);
 
   // Modales
-  const [matchModal, setMatchModal]       = useState<any | null>(null);
   const [newPairOpen, setNewPairOpen]     = useState(false);
   const [regModal, setRegModal]           = useState<{ open: boolean; initial?: any }>({ open: false });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -1127,94 +792,15 @@ export default function TorneoDetailPage() {
         (snap) => setRegistrations(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       );
 
-      const unsubGroups = onSnapshot(
-        collection(db, "tournaments", torneoId, "groups"),
-        (snap) => setGrupos(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-      );
-
-      const unsubMatches = onSnapshot(
-        query(collection(db, "tournaments", torneoId, "matches"), orderBy("roundOrder", "asc")),
-        (snap) => setMatches(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-      );
-
       const unsubNotifs = onSnapshot(
         query(collection(db, "tournaments", torneoId, "notifications"), orderBy("sentAt", "desc")),
         (snap) => setNotifHistory(snap.docs.slice(0, 5).map(d => ({ id: d.id, ...d.data() })))
       );
 
-      return () => { unsubTorneo(); unsubRegs(); unsubGroups(); unsubMatches(); unsubNotifs(); };
+      return () => { unsubTorneo(); unsubRegs(); unsubNotifs(); };
     });
     return unsubAuth;
   }, [torneoId, router]);
-
-  // ── Guardar resultado de partido ────────────────────────────────────────
-  async function handleSaveMatchResult(match: any, { winnerSide, sets, scoreText }: any) {
-    const isWO = winnerSide === "walkover";
-    const winnerPairId = isWO ? "" : winnerSide === "sideA" ? (match.sideARef ?? "") : (match.sideBRef ?? "");
-    const winnerLabel  = winnerSide === "sideA" ? match.sideALabel : winnerSide === "sideB" ? match.sideBLabel : "Walkover";
-
-    await updateDoc(doc(db, "tournaments", torneoId, "matches", match.id), {
-      status: "completed",
-      winnerPairId,
-      scoreText,
-      sets,
-      completedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    // Propagar ganador al siguiente partido
-    if (match.nextMatchId && winnerPairId) {
-      const slot = match.nextMatchSlot ?? "sideA";
-      const nextRef = doc(db, "tournaments", torneoId, "matches", match.nextMatchId);
-      await updateDoc(nextRef, {
-        [`${slot}Ref`]:   winnerPairId,
-        [`${slot}Label`]: winnerLabel,
-        [`${slot}Type`]:  "pair",
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    // Recalcular standings del grupo si aplica
-    if (match.groupId) {
-      const groupMatches = [...matches.filter(m => m.groupId === match.groupId)].map(m =>
-        m.id === match.id ? { ...m, status: "completed", winnerPairId, sets, scoreText } : m
-      );
-      const group = grupos.find(g => g.id === match.groupId);
-      if (group) {
-        const standingsMap: Record<string, any> = {};
-        const ensureEntry = (pairId: string, pairLabel: string) => {
-          if (!standingsMap[pairId]) standingsMap[pairId] = { pairId, pairLabel, played: 0, won: 0, lost: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0, points: 0 };
-        };
-        for (const m of groupMatches) {
-          if (m.status !== "completed" || !m.winnerPairId) continue;
-          const loserId = m.winnerPairId === (m.sideARef ?? "") ? (m.sideBRef ?? "") : (m.sideARef ?? "");
-          const loserLabel = m.winnerPairId === (m.sideARef ?? "") ? m.sideBLabel : m.sideALabel;
-          ensureEntry(m.winnerPairId, m.sideARef === m.winnerPairId ? m.sideALabel : m.sideBLabel);
-          ensureEntry(loserId, loserLabel);
-          standingsMap[m.winnerPairId].played++; standingsMap[m.winnerPairId].won++; standingsMap[m.winnerPairId].points += 2;
-          standingsMap[loserId].played++; standingsMap[loserId].lost++; standingsMap[loserId].points += 1;
-          (m.sets ?? []).forEach((s: any) => {
-            if (m.winnerPairId === (m.sideARef ?? "")) {
-              standingsMap[m.winnerPairId].setsWon += s.sideA ?? 0; standingsMap[m.winnerPairId].setsLost += s.sideB ?? 0;
-              standingsMap[loserId].setsWon += s.sideB ?? 0; standingsMap[loserId].setsLost += s.sideA ?? 0;
-            } else {
-              standingsMap[m.winnerPairId].setsWon += s.sideB ?? 0; standingsMap[m.winnerPairId].setsLost += s.sideA ?? 0;
-              standingsMap[loserId].setsWon += s.sideA ?? 0; standingsMap[loserId].setsLost += s.sideB ?? 0;
-            }
-          });
-        }
-        const newStandings = Object.values(standingsMap).sort((a: any, b: any) =>
-          b.points - a.points || (b.setsWon - b.setsLost) - (a.setsWon - a.setsLost) || (b.gamesWon - b.gamesLost) - (a.gamesWon - a.gamesLost)
-        ).map((s: any, i) => ({ ...s, position: i + 1, qualified: i < (group.qualifiedCount ?? 2) }));
-        await updateDoc(doc(db, "tournaments", torneoId, "groups", match.groupId), {
-          standings: newStandings, updatedAt: serverTimestamp(),
-        });
-      }
-    }
-
-    setMatchModal(null);
-    showToast("Resultado guardado.");
-  }
 
   // ── Confirmar pareja ────────────────────────────────────────────────────
   async function confirmRegistration(regId: string) {
@@ -1329,15 +915,6 @@ export default function TorneoDetailPage() {
     setSendingNotif(false);
   }
 
-  function handlePrintBracket(boardWidth: number) {
-    const scale = Math.min(1, 700 / boardWidth);
-    setBracketScale(scale);
-    setTimeout(() => {
-      window.print();
-      window.onafterprint = () => setBracketScale(1);
-    }, 80);
-  }
-
   function handlePrintList() {
     window.print();
   }
@@ -1358,10 +935,9 @@ export default function TorneoDetailPage() {
   );
 
   const titleColor = getTitleColor(torneo.name ?? torneo.nombre ?? "");
-  const groupMatches = grupos.length > 0 ? matches.filter(m => m.stage === "groups" || m.groupId) : [];
-  const bracketMatches = matches.filter(m => ["final","semifinal","quarterfinal","knockout"].includes(m.stage));
-  const hasBracket = bracketMatches.length > 0;
-  const hasGrupos = grupos.length > 0 || groupMatches.length > 0;
+  const realZones = torneo.fixtureSetup?.zonePlanning?.zones ?? [];
+  const hasGrupos = realZones.length > 0;
+  const hasBracket = (torneo.fixtureSetup?.bracketPreview?.rounds ?? []).length > 0;
 
   const modules: { id: Tab; label: string; description: string; icon: any; color: string; lightBg: string; lightText: string }[] = [
     {
@@ -1403,17 +979,6 @@ export default function TorneoDetailPage() {
   ];
 
   const activeModule = modules.find(m => m.id === tab) ?? modules[0];
-
-  // Agrupar bracket por ronda
-  const bracketByRound: Record<number, any[]> = {};
-  for (const m of bracketMatches) {
-    const r = m.roundOrder ?? 0;
-    if (!bracketByRound[r]) bracketByRound[r] = [];
-    bracketByRound[r].push(m);
-  }
-  const bracketRounds = Object.entries(bracketByRound)
-    .sort(([a], [b]) => Number(a) - Number(b))
-    .map(([, ms]) => [...ms].sort((a: any, b: any) => (a.matchOrder ?? 0) - (b.matchOrder ?? 0)));
 
   const confirmedRegs = registrations.filter(r => r.status === "confirmed");
 
@@ -1478,13 +1043,6 @@ export default function TorneoDetailPage() {
       )}
 
       {/* Modales */}
-      {matchModal && (
-        <MatchResultModal
-          match={matchModal}
-          onClose={() => setMatchModal(null)}
-          onSave={(r) => handleSaveMatchResult(matchModal, r)}
-        />
-      )}
       {newPairOpen && (
         <NewPairDrawer
           torneoId={torneoId} players={players}
@@ -1494,7 +1052,7 @@ export default function TorneoDetailPage() {
       )}
       {regModal.open && (
         <RegistrationModal
-          torneoId={torneoId} grupos={grupos} initial={regModal.initial}
+          torneoId={torneoId} initial={regModal.initial}
           onClose={() => setRegModal({ open: false })}
           onSaved={() => { setRegModal({ open: false }); showToast("Inscripción guardada."); }}
           onDelete={regModal.initial?.id ? () => { setRegModal({ open: false }); setDeleteConfirm(regModal.initial!.id); } : undefined}
@@ -1735,7 +1293,7 @@ export default function TorneoDetailPage() {
                             <td>{reg.player1Name ?? "—"}</td>
                             <td>{reg.player2Name ?? "—"}</td>
                             <td>{REG_STATUS_META[reg.status]?.label ?? reg.status}</td>
-                            <td>{grupos.find(g => g.id === reg.groupId)?.name ?? grupos.find(g => g.id === reg.groupId)?.nombre ?? "—"}</td>
+                            <td>{realZones.find((z: any) => (z.registrationIds ?? []).includes(reg.id))?.label ?? "—"}</td>
                           </tr>
                         ))}
                       </tbody>
