@@ -14,6 +14,7 @@ import {
   ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
+  Link2, Phone, MessageSquare,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -79,6 +80,8 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
   const [p1Name, setP1Name] = useState(initial?.player1Name ?? "");
   const [p2Name, setP2Name] = useState(initial?.player2Name ?? "");
   const [status, setStatus] = useState(initial?.status ?? "pending");
+  const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -88,6 +91,8 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
       player2Name: p2Name.trim(),
       pairLabel: `${p1Name.trim()} / ${p2Name.trim()}`,
       status,
+      contactPhone: contactPhone.trim(),
+      notes: notes.trim(),
       updatedAt: serverTimestamp(),
     };
     if (initial?.id) {
@@ -134,6 +139,16 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
               <option value="confirmed">Confirmada</option>
               <option value="rejected">Rechazada</option>
             </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Teléfono de contacto</label>
+            <input value={contactPhone} onChange={e => setContactPhone(e.target.value)}
+              className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} placeholder="Ej: 11 2345-6789" />
+          </div>
+          <div>
+            <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Observaciones</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              className="w-full border rounded-xl px-3 py-2 text-sm resize-none" style={{ borderColor: "#CFE7DC" }} placeholder="Notas para el armado del torneo" />
           </div>
         </div>
 
@@ -1263,9 +1278,20 @@ export default function TorneoDetailPage() {
                 <div>
                   {/* Botón principal */}
                   <button data-print-hide onClick={() => setNewPairOpen(true)}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl font-black uppercase text-white mb-4 transition-opacity hover:opacity-90"
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl font-black uppercase text-white mb-2.5 transition-opacity hover:opacity-90"
                     style={{ background: "#086847", minHeight: 52, fontSize: 14, letterSpacing: "0.5px" }}>
                     <Users size={18} /> Inscribir nueva pareja
+                  </button>
+
+                  {/* Link de inscripción pública */}
+                  <button data-print-hide
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/inscripcion/${torneoId}`);
+                      showToast("Link copiado. Compartilo con los jugadores.");
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl font-bold mb-4 border transition-opacity hover:opacity-80"
+                    style={{ minHeight: 44, fontSize: 13, borderColor: "#CFE7DC", color: "#086847", background: "#F0F7F4" }}>
+                    <Link2 size={15} /> Copiar link de inscripción
                   </button>
 
                   {/* Imprimir + conteo */}
@@ -1380,6 +1406,28 @@ export default function TorneoDetailPage() {
                                 </button>
                               </div>
                             </div>
+
+                            {/* Origen por link + teléfono/observaciones */}
+                            {(reg.registrationSource === "public_link" || reg.contactPhone || reg.notes) && (
+                              <div className="flex flex-col gap-1 mb-2 px-1">
+                                {reg.registrationSource === "public_link" && (
+                                  <span className="inline-flex items-center gap-1 self-start text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
+                                    style={{ background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
+                                    <Link2 size={10} /> Inscripto vía link
+                                  </span>
+                                )}
+                                {reg.contactPhone && (
+                                  <span className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#5F7D72" }}>
+                                    <Phone size={12} /> {reg.contactPhone}
+                                  </span>
+                                )}
+                                {reg.notes && (
+                                  <span className="flex items-start gap-1.5 text-xs font-semibold rounded-lg px-2 py-1.5" style={{ color: "#5F7D72", background: "#F6FBF8" }}>
+                                    <MessageSquare size={12} className="mt-0.5 flex-shrink-0" /> {reg.notes}
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
                             {/* Acciones extra condicionales */}
                             {(reg.withdrawalStatus === "requested" || (reg.status !== "confirmed" && reg.withdrawalStatus !== "requested" && reg.withdrawalStatus !== "confirmed")) && (
