@@ -976,11 +976,12 @@ export default function TorneoDetailPage() {
 
   async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    const uid = auth.currentUser?.uid;
+    if (!file || !uid) return;
     setUploadingCover(true);
     try {
       const ext = file.name.split(".").pop();
-      const sRef = storageRef(storage, `tournaments/covers/${torneoId}/${Date.now()}.${ext}`);
+      const sRef = storageRef(storage, `tournaments/covers/${uid}/${Date.now()}.${ext}`);
       const snap = await uploadBytes(sRef, file);
       const url = await getDownloadURL(snap.ref);
       await updateDoc(doc(db, "tournaments", torneoId), { coverImage: url, updatedAt: serverTimestamp() });
