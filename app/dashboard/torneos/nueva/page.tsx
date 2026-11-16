@@ -420,6 +420,7 @@ function TorneoNuevaInner() {
               <span>
                 <span className="block text-sm font-black" style={{ color: "#173A2E" }}>{uploading ? "Subiendo imagen…" : "Subir afiche o flyer"}</span>
                 <span className="block text-xs mt-0.5" style={{ color: "#5F7D72" }}>JPG, PNG, WEBP — opcional</span>
+                <span className="block text-xs mt-0.5" style={{ color: "#9BB8AE" }}>Recomendado: ~1080×1350px, hasta 2MB. Funciona cualquier proporción, se muestra completo sin recortar.</span>
               </span>
             </button>
           )}

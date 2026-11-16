@@ -1789,6 +1789,9 @@ export default function TorneoDetailPage() {
                       </button>
                     )}
                     <input ref={coverFileRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+                    <p className="text-[11px] mt-2" style={{ color: "#9BB8AE" }}>
+                      Recomendado: ~1080×1350px (JPG o PNG, hasta 2MB). Funciona cualquier proporción, vertical u horizontal, se muestra completo sin recortar.
+                    </p>
                   </div>
 
                   {/* Reglamento */}
