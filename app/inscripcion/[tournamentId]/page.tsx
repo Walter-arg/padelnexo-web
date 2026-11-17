@@ -140,7 +140,7 @@ export default function PublicTournamentRegistrationPage() {
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2 mb-5">
           <Trophy size={22} style={{ color: "#0B8457" }} />
-          <span className="font-black text-lg" style={{ color: "#173A2E" }}>PadelNexo</span>
+          <span className="font-black text-lg" style={{ color: "#173A2E" }}>Inscripción</span>
         </div>
 
         <div className="rounded-[22px] shadow-sm border p-6" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
