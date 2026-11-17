@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
+import { sendPushNotification } from "@/lib/pushNotifications";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import FixtureTab from "./FixtureTab";
@@ -97,8 +98,9 @@ async function sendTournamentWelcomeMessage(recipientId: string, recipientName: 
   const sender = auth.currentUser;
   if (!sender) return;
 
+  const conversationId = [sender.uid, recipientId].sort().join("__");
+
   try {
-    const conversationId = [sender.uid, recipientId].sort().join("__");
     const convRef = doc(db, "conversations", conversationId);
     const msgsRef = collection(db, "conversations", conversationId, "messages");
     await setDoc(convRef, {
@@ -115,7 +117,15 @@ async function sendTournamentWelcomeMessage(recipientId: string, recipientName: 
     });
   } catch {
     // No bloqueamos la accion principal (confirmar/agregar pareja) si falla el aviso.
+    return;
   }
+
+  await sendPushNotification({
+    recipientId,
+    title: sender.displayName || "Nuevo mensaje",
+    body: text,
+    data: { type: "chat_message", conversationId, senderId: sender.uid },
+  });
 }
 
 // ── Reglamento del torneo ────────────────────────────────────────────────────
