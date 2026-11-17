@@ -100,6 +100,17 @@ export default function TorneosPage() {
 
   return (
     <DashboardLayout title="Torneos" wide>
+      {/* Ranking */}
+      <div className="flex justify-center mb-4">
+        <a
+          href="/dashboard/torneos/ranking"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold border transition-opacity hover:opacity-80"
+          style={{ borderColor: "#CFE7DC", color: "#086847", background: "#FFFFFF" }}
+        >
+          <Trophy size={15} /> Ranking
+        </a>
+      </div>
+
       {/* Header + filtros en una sola fila */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div className="flex items-center gap-1">

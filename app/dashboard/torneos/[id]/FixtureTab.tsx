@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
 import { X, Plus, Minus, ChevronDown, ChevronUp, Zap, Clock, Check, MapPin, Trash2 } from "lucide-react";
 import {
   normalizeZoneVenueSchedules,
@@ -1055,11 +1056,19 @@ export default function FixtureTab({
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
       const rounds = fs.bracketPreview?.rounds ?? (Array.isArray(fs.bracketPreview) ? fs.bracketPreview : []);
-      rounds[ri][mi].result = result;
-      rounds[ri][mi].resultLabel = resultLabel;
+      const roundEntry = rounds[ri];
+      const matches = Array.isArray(roundEntry) ? roundEntry : roundEntry?.matches;
+      if (matches && matches[mi]) {
+        matches[mi].result = result;
+        matches[mi].resultLabel = resultLabel;
+      }
       if (fs.bracketPreview?.rounds) fs.bracketPreview.rounds = rounds;
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Resultado guardado");
+
+      if (ri === rounds.length - 1) {
+        upsertTournamentRankingEntry({ ...tournament, fixtureSetup: fs }, registrations).catch(() => null);
+      }
     } catch {
       showToast("Error al guardar el resultado", false);
     }
