@@ -20,6 +20,7 @@ export type PublicTournamentInfo = {
   maxPairs: number;
   registeredCount: number;
   organizerName: string;
+  venueName: string;
   coverImage: string;
   organizerLogoUrl: string;
   rules: string;

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { CheckCircle2, Loader2, Trophy, Users, AlertCircle, FileText, X, Plus } from "lucide-react";
+import { CheckCircle2, Loader2, Trophy, Users, AlertCircle, FileText, X, Plus, Building2 } from "lucide-react";
 import {
   buildPublicDayOptions,
   fetchPublicTournamentInfo,
@@ -186,6 +186,11 @@ export default function PublicTournamentRegistrationPage() {
                   ) : null}
                   <h1 className="font-black text-xl leading-tight" style={{ color: "#173A2E" }}>{info.name}</h1>
                 </div>
+                {info.venueName && (
+                  <p className="text-sm font-bold mt-1 flex items-center gap-1.5" style={{ color: "#2F8FCF" }}>
+                    <Building2 size={14} /> {info.venueName}
+                  </p>
+                )}
                 <p className="text-sm font-semibold mt-1" style={{ color: "#5F7D72" }}>
                   {formatDateRange(info.startDateMillis, info.endDateMillis)}
                   {info.compositionLabel ? ` · ${info.compositionLabel}` : ""}
