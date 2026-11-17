@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
-  Link2, Phone, MessageSquare, Bold, ImageIcon,
+  Link2, Phone, MessageSquare, Bold, ImageIcon, Building2,
 } from "lucide-react";
 
 // ── Paleta / helpers ────────────────────────────────────────────────────────
@@ -1391,9 +1391,16 @@ export default function TorneoDetailPage() {
 
             {/* Nombre */}
             <p className="text-[10px] font-black uppercase mb-1" style={{ color: "#086847", letterSpacing: "1px" }}>TORNEO</p>
-            <h2 className="font-black text-xl leading-tight mb-3" style={{ color: titleColor, letterSpacing: "0.2px" }}>
+            <h2 className="font-black text-xl leading-tight mb-1" style={{ color: titleColor, letterSpacing: "0.2px" }}>
               {torneo.name ?? torneo.nombre}
             </h2>
+
+            {/* Club / complejo */}
+            {(torneo.venues?.[0]?.name ?? torneo.complejo?.nombre) && (
+              <p className="text-sm font-bold mb-3 flex items-center gap-1.5" style={{ color: "#2F8FCF" }}>
+                <Building2 size={14} /> {torneo.venues?.[0]?.name ?? torneo.complejo?.nombre}
+              </p>
+            )}
 
             {/* Status badge */}
             <div className="mb-5">
@@ -1475,6 +1482,11 @@ export default function TorneoDetailPage() {
                 <h2 className="font-black text-base truncate leading-tight mb-1" style={{ color: titleColor, letterSpacing: "0.2px" }}>
                   {torneo.name ?? torneo.nombre}
                 </h2>
+                {(torneo.venues?.[0]?.name ?? torneo.complejo?.nombre) && (
+                  <p className="text-xs font-bold truncate mb-1 flex items-center gap-1" style={{ color: "#2F8FCF" }}>
+                    <Building2 size={11} /> {torneo.venues?.[0]?.name ?? torneo.complejo?.nombre}
+                  </p>
+                )}
                 <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
               </div>
             </div>

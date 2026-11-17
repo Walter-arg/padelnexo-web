@@ -13,7 +13,7 @@ import {
   MapPin, Clock, ChevronLeft, ChevronDown, Trophy,
   Contact, CalendarDays, Wallet, Check, MoreVertical,
   MessageSquare, Smartphone, Banknote, Search, Plus, AlertCircle, SlidersHorizontal,
-  FileText, Bold,
+  FileText, Bold, Building2,
 } from "lucide-react";
 
 // ── Reglas de la liga ────────────────────────────────────────────────────────
@@ -1799,6 +1799,13 @@ export default function LigaDetailPage() {
             {/* Nombre */}
             <h1 className="font-black text-pn-navy text-xl text-center leading-tight mb-1">{liga.nombre}</h1>
 
+            {/* Club / complejo */}
+            {liga.complejo?.nombre && liga.complejo.nombre !== "Complejo sin definir" && (
+              <p className="text-sm font-bold text-center mb-3 flex items-center justify-center gap-1.5" style={{ color: "#2F8FCF" }}>
+                <Building2 size={14} /> {liga.complejo.nombre}
+              </p>
+            )}
+
             {/* Badges */}
             <div className="flex flex-wrap justify-center gap-1.5 mb-5">
               {liga.categoria && (
@@ -1894,6 +1901,11 @@ export default function LigaDetailPage() {
             }
             <div className="flex-1 min-w-0">
               <h1 className="font-black text-pn-navy text-base leading-tight truncate">{liga.nombre}</h1>
+              {liga.complejo?.nombre && liga.complejo.nombre !== "Complejo sin definir" && (
+                <p className="text-xs font-bold truncate flex items-center gap-1 mt-0.5" style={{ color: "#2F8FCF" }}>
+                  <Building2 size={11} /> {liga.complejo.nombre}
+                </p>
+              )}
               <div className="flex flex-wrap gap-1 mt-1">
                 {liga.categoria && <span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">{liga.categoria}</span>}
                 <span className="text-xs bg-slate-100 text-gray-500 font-semibold px-2 py-0.5 rounded-full">{liga.sexo}</span>
