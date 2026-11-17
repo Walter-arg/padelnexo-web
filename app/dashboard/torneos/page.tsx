@@ -20,12 +20,9 @@ const STATUS_META: Record<string, { label: string; tint: string; border: string;
   cancelled:            { label: "Cancelado",              tint: "#FFF0F0", border: "#E7B8B8", accent: "#B24343" },
 };
 
-const TITLE_COLORS = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
-function getTitleColor(seed: string): string {
-  let h = 0;
-  for (const c of (seed ?? "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return TITLE_COLORS[h % TITLE_COLORS.length];
-}
+// Color unico y acorde a la marca para el titulo del torneo (antes rotaba
+// entre varios colores sin relacion con la paleta de la app).
+const TOURNAMENT_TITLE_COLOR = "#1FAB89";
 
 function StatusBadge({ status }: { status: string }) {
   const m = STATUS_META[status] ?? STATUS_META.draft;
@@ -198,7 +195,7 @@ export default function TorneosPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((t) => {
-            const titleColor = getTitleColor(t.name ?? t.nombre ?? "");
+            const titleColor = TOURNAMENT_TITLE_COLOR;
             const confirmedCount = t.confirmedRegistrationsCount ?? t.registrationsCount ?? (t.players?.length ?? t.inscripciones?.length ?? 0);
             const maxPairs = t.maxPairs ?? 0;
             const startDate = formatDate(t.startDateMillis);
@@ -223,8 +220,8 @@ export default function TorneosPage() {
                 {/* Nombre */}
                 <p className="text-[11px] font-black uppercase mb-0.5 text-center" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
                 <h2
-                  className="font-bold leading-tight mb-3 text-center"
-                  style={{ fontFamily: "Georgia, serif", fontSize: 18, color: titleColor }}
+                  className="font-black leading-tight mb-3 text-center"
+                  style={{ fontSize: 18, color: titleColor, letterSpacing: "0.2px" }}
                 >
                   {t.name ?? t.nombre ?? "Sin nombre"}
                 </h2>

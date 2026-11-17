@@ -45,12 +45,9 @@ const PAY_STATUS_META: Record<string, { label: string; tint: string; border: str
   pending:   { label: "Pendiente",          tint: "#F3F5F7", border: "#D4DBE2", accent: "#667482" },
 };
 
-const TITLE_COLORS = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
-function getTitleColor(seed: string): string {
-  let h = 0;
-  for (const c of (seed ?? "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return TITLE_COLORS[h % TITLE_COLORS.length];
-}
+// Color unico y acorde a la marca para el titulo del torneo (antes rotaba
+// entre varios colores sin relacion con la paleta de la app).
+const TOURNAMENT_TITLE_COLOR = "#1FAB89";
 
 function StatusBadge({ status, meta }: { status: string; meta: Record<string, any> }) {
   const m = meta[status] ?? meta[Object.keys(meta)[0]];
@@ -1153,7 +1150,7 @@ export default function TorneoDetailPage() {
     </DashboardLayout>
   );
 
-  const titleColor = getTitleColor(torneo.name ?? torneo.nombre ?? "");
+  const titleColor = TOURNAMENT_TITLE_COLOR;
   const realZones = torneo.fixtureSetup?.zonePlanning?.zones ?? [];
   const hasGrupos = realZones.length > 0;
   const hasBracket = (torneo.fixtureSetup?.bracketPreview?.rounds ?? []).length > 0;
@@ -1234,7 +1231,7 @@ export default function TorneoDetailPage() {
       {/* ── Print header (oculto en pantalla) ────────────────────────── */}
       <div className="print-header" style={{ borderBottom: "2px solid #173A2E", paddingBottom: 10, marginBottom: 16 }}>
         <p style={{ fontSize: 10, fontWeight: 900, color: "#5F7D72", textTransform: "uppercase", letterSpacing: "1px", margin: 0 }}>TORNEO · PADELNEXO</p>
-        <h1 style={{ fontSize: 24, fontWeight: 900, color: "#173A2E", margin: "4px 0 6px", fontFamily: "Georgia, serif" }}>{torneoName}</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 900, color: "#173A2E", margin: "4px 0 6px", letterSpacing: "0.2px" }}>{torneoName}</h1>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#5F7D72" }}>
           {printCategory && <span>🏅 {printCategory}</span>}
           {printDate     && <span>📅 {printDate}</span>}
@@ -1394,7 +1391,7 @@ export default function TorneoDetailPage() {
 
             {/* Nombre */}
             <p className="text-[10px] font-black uppercase mb-1" style={{ color: "#086847", letterSpacing: "1px" }}>TORNEO</p>
-            <h2 className="font-bold text-xl leading-tight mb-3" style={{ fontFamily: "Georgia, serif", color: titleColor }}>
+            <h2 className="font-black text-xl leading-tight mb-3" style={{ color: titleColor, letterSpacing: "0.2px" }}>
               {torneo.name ?? torneo.nombre}
             </h2>
 
@@ -1475,7 +1472,7 @@ export default function TorneoDetailPage() {
                 <Trophy size={16} style={{ color: "#0B8457" }} />
               </div>
               <div className="flex-1 min-w-0">
-                <h2 className="font-bold text-base truncate leading-tight mb-1" style={{ fontFamily: "Georgia, serif", color: titleColor }}>
+                <h2 className="font-black text-base truncate leading-tight mb-1" style={{ color: titleColor, letterSpacing: "0.2px" }}>
                   {torneo.name ?? torneo.nombre}
                 </h2>
                 <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
