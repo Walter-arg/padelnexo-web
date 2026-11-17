@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   doc, collection, onSnapshot, updateDoc, addDoc, getDoc, getDocs, deleteDoc,
-  serverTimestamp, query, orderBy,
+  serverTimestamp, query, orderBy, setDoc, increment,
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
@@ -66,6 +66,56 @@ function StatusBadge({ status, meta }: { status: string; meta: Record<string, an
 function formatDate(ms?: number) {
   if (!ms) return "";
   return new Date(ms).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// ── Aviso automatico al jugador por mensajeria interna ───────────────────────
+// Mismo texto que usa la app (tournamentsService.buildTournamentWelcomeMessage)
+// para que el jugador reciba el mismo aviso sin importar si el organizador
+// confirma/agrega la pareja desde la app o desde la web.
+function formatTournamentDaysLabel(startMs?: number, endMs?: number): string {
+  const start = Number(startMs || 0);
+  const end = Number(endMs || 0);
+  const fmt = (v: number) => new Date(v).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+  if (start && end && end !== start) return `${fmt(start)} al ${fmt(end)}`;
+  if (start) return fmt(start);
+  return "a confirmar";
+}
+
+function buildTournamentWelcomeMessage(
+  torneoName: string, startMs: number, endMs: number, organizerName: string, hasAvailability: boolean
+): string {
+  const days = formatTournamentDaysLabel(startMs, endMs);
+  let text = `🎾 ¡Ya estás inscripto al torneo "${torneoName || "el torneo"}"!\n📅 Se juega los días ${days}, organizado por ${organizerName || "el organizador"}. ¡Mucha suerte!`;
+  if (!hasAvailability) {
+    text += `\n\n⏰ Recordá cargar tus horarios disponibles para jugar, así el organizador puede armar mejor las zonas.`;
+  }
+  return text;
+}
+
+async function sendTournamentWelcomeMessage(recipientId: string, recipientName: string, text: string) {
+  if (!recipientId) return;
+  const sender = auth.currentUser;
+  if (!sender) return;
+
+  try {
+    const conversationId = [sender.uid, recipientId].sort().join("__");
+    const convRef = doc(db, "conversations", conversationId);
+    const msgsRef = collection(db, "conversations", conversationId, "messages");
+    await setDoc(convRef, {
+      participants: [sender.uid, recipientId].sort(),
+      participantNames: { [sender.uid]: sender.displayName || "Organizador", [recipientId]: recipientName || "Jugador" },
+      unreadBy: [recipientId], lastMessageText: text, lastMessageSenderId: sender.uid,
+      updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
+    }, { merge: true });
+    await addDoc(msgsRef, { text, senderId: sender.uid, recipientId, createdAt: serverTimestamp() });
+    await updateDoc(convRef, {
+      updatedAt: serverTimestamp(), [`unreadCountBy.${recipientId}`]: increment(1),
+      [`unreadCountBy.${sender.uid}`]: 0, unreadBy: [recipientId],
+      lastMessageText: text, lastMessageSenderId: sender.uid,
+    });
+  } catch {
+    // No bloqueamos la accion principal (confirmar/agregar pareja) si falla el aviso.
+  }
 }
 
 // ── Reglamento del torneo ────────────────────────────────────────────────────
@@ -450,8 +500,9 @@ function PlayerProfileModal({ player, regName, onClose }: {
 }
 
 // ── NewPairDrawer ────────────────────────────────────────────────────────────
-function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
+function NewPairDrawer({ torneoId, tournament, players, onClose, onSaved }: {
   torneoId: string;
+  tournament: any;
   players: any[];
   onClose: () => void;
   onSaved: () => void;
@@ -553,6 +604,10 @@ function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
     setError("");
     setSubmitting(true);
     try {
+      const welcomeText = buildTournamentWelcomeMessage(
+        tournament?.name, tournament?.startDateMillis, tournament?.endDateMillis, tournament?.organizerName, false
+      );
+
       for (const pair of pendingPairs) {
         await addDoc(collection(db, "tournaments", torneoId, "registrations"), {
           player1Id: pair.player1.id,
@@ -570,6 +625,11 @@ function NewPairDrawer({ torneoId, players, onClose, onSaved }: {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+
+        await Promise.all([
+          sendTournamentWelcomeMessage(pair.player1.id, pair.player1.name, welcomeText),
+          sendTournamentWelcomeMessage(pair.player2.id, pair.player2.name, welcomeText),
+        ]);
       }
       onSaved();
     } catch (e: any) {
@@ -864,6 +924,18 @@ export default function TorneoDetailPage() {
       status: "confirmed", confirmedAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
     showToast("Pareja confirmada.");
+
+    const reg = registrations.find((r: any) => r.id === regId);
+    if (reg) {
+      const hasAvailability = Object.keys(reg.availability ?? {}).length > 0;
+      const text = buildTournamentWelcomeMessage(
+        torneo?.name, torneo?.startDateMillis, torneo?.endDateMillis, torneo?.organizerName, hasAvailability
+      );
+      await Promise.all([
+        sendTournamentWelcomeMessage(reg.player1Id || reg.player1UserId, reg.player1Name, text),
+        sendTournamentWelcomeMessage(reg.player2Id || reg.player2UserId, reg.player2Name, text),
+      ]);
+    }
   }
 
   // ── Eliminar inscripción ────────────────────────────────────────────────
@@ -1235,7 +1307,7 @@ export default function TorneoDetailPage() {
       {/* Modales */}
       {newPairOpen && (
         <NewPairDrawer
-          torneoId={torneoId} players={players}
+          torneoId={torneoId} tournament={torneo} players={players}
           onClose={() => setNewPairOpen(false)}
           onSaved={() => { setNewPairOpen(false); showToast("Pareja inscripta exitosamente."); }}
         />
