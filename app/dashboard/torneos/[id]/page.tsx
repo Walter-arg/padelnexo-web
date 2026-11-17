@@ -1181,38 +1181,44 @@ export default function TorneoDetailPage() {
 
       {rulesModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={() => setRulesModalOpen(false)}>
-          <div className="bg-white rounded-[22px] p-6 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-[22px] w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+            {/* Header fijo */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
               <h3 className="font-black text-lg" style={{ color: "#086847" }}>Reglamento del torneo</h3>
               <button onClick={() => setRulesModalOpen(false)}><X size={16} style={{ color: "#5F7D72" }} /></button>
             </div>
 
-            <p className="text-xs font-semibold mb-3" style={{ color: "#5F7D72" }}>
-              Escribí o pegá el reglamento (podés pegarlo directo desde WhatsApp, con emojis y todo). Los jugadores lo van a poder leer antes de inscribirse, pero no modificarlo.
-            </p>
-            <div className="flex items-center gap-2 mb-2">
-              <button onClick={toggleRulesBold} title="Negrita"
-                className="w-8 h-8 flex items-center justify-center rounded-lg border hover:opacity-80 transition-opacity"
-                style={{ borderColor: "#CFE7DC", background: "#E9FFF0" }}>
-                <Bold size={14} style={{ color: "#086847" }} />
-              </button>
-              <span className="text-xs" style={{ color: "#9BB8AE" }}>Seleccioná un texto y tocá el botón para resaltarlo.</span>
-            </div>
-            <textarea
-              ref={rulesTextareaRef}
-              value={rulesDraft}
-              onChange={e => setRulesDraft(e.target.value)}
-              placeholder="Ej: El torneo se juega al mejor de 3 sets. Las inasistencias sin aviso..."
-              className="w-full min-h-[180px] border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none"
-              style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
-            />
-            {rulesDraft && (
-              <div className="mt-3 rounded-xl p-3 border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                <p className="text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: "#9BB8AE" }}>Vista previa</p>
-                <RulesText text={rulesDraft} className="text-sm" />
+            {/* Cuerpo con scroll propio */}
+            <div className="overflow-y-auto flex-1 min-h-0 px-6">
+              <p className="text-xs font-semibold mb-3" style={{ color: "#5F7D72" }}>
+                Escribí o pegá el reglamento (podés pegarlo directo desde WhatsApp, con emojis y todo). Los jugadores lo van a poder leer antes de inscribirse, pero no modificarlo.
+              </p>
+              <div className="flex items-center gap-2 mb-2">
+                <button onClick={toggleRulesBold} title="Negrita"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border hover:opacity-80 transition-opacity flex-shrink-0"
+                  style={{ borderColor: "#CFE7DC", background: "#E9FFF0" }}>
+                  <Bold size={14} style={{ color: "#086847" }} />
+                </button>
+                <span className="text-xs" style={{ color: "#9BB8AE" }}>Seleccioná un texto y tocá el botón para resaltarlo.</span>
               </div>
-            )}
-            <div className="flex gap-3 mt-4">
+              <textarea
+                ref={rulesTextareaRef}
+                value={rulesDraft}
+                onChange={e => setRulesDraft(e.target.value)}
+                placeholder="Ej: El torneo se juega al mejor de 3 sets. Las inasistencias sin aviso..."
+                className="w-full min-h-[180px] border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none"
+                style={{ borderColor: "#CFE7DC", color: "#173A2E" }}
+              />
+              {rulesDraft && (
+                <div className="mt-3 mb-4 rounded-xl p-3 border" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                  <p className="text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: "#9BB8AE" }}>Vista previa (solo lectura)</p>
+                  <RulesText text={rulesDraft} className="text-sm" />
+                </div>
+              )}
+            </div>
+
+            {/* Footer fijo, siempre visible */}
+            <div className="flex gap-3 px-6 pt-4 pb-6 flex-shrink-0" style={{ borderTop: "1px solid #F0F7F4" }}>
               <button onClick={() => setRulesModalOpen(false)}
                 className="flex-1 py-3 rounded-xl text-sm font-black border" style={{ background: "#ECF8F2", borderColor: "#CFE7DC", color: "#173A2E" }}>
                 Cancelar

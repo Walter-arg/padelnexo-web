@@ -2937,57 +2937,64 @@ export default function LigaDetailPage() {
       )}
       {rulesModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onClick={()=>setRulesModalOpen(false)}>
-          <div className="bg-white rounded-[22px] p-6 w-full max-w-lg shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-[22px] w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: "85vh" }} onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
               <h3 className="font-black text-[#086847] text-lg">Reglas de la liga</h3>
               <button onClick={()=>setRulesModalOpen(false)}><X size={16} className="text-[#5F7D72]"/></button>
             </div>
 
-            {fxCanEdit ? (
-              <>
-                <p className="text-xs text-[#5F7D72] font-semibold mb-3">
-                  Escribí o pegá las reglas de tu liga. Los jugadores las van a ver, pero no van a poder modificarlas.
-                </p>
-                <div className="flex items-center gap-2 mb-2">
-                  <button
-                    onClick={toggleRulesBold}
-                    title="Negrita"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#CFE7DC] bg-[#E9FFF0] hover:bg-[#DDF6EF] transition-colors"
-                  >
-                    <Bold size={14} className="text-[#086847]"/>
-                  </button>
-                  <span className="text-xs text-gray-400">Seleccioná un texto y tocá el botón para resaltarlo.</span>
-                </div>
-                <textarea
-                  ref={rulesTextareaRef}
-                  value={rulesDraft}
-                  onChange={e=>setRulesDraft(e.target.value)}
-                  placeholder="Ej: Los partidos se juegan en el horario asignado. Las inasistencias sin aviso..."
-                  className="w-full min-h-[180px] border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-pn-navy focus:outline-none focus:border-pn-green resize-none"
-                />
-                {rulesDraft && (
-                  <div className="mt-3 bg-[#F6FBF8] border border-[#CFE7DC] rounded-xl p-3">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1.5">Vista previa</p>
-                    <RulesText text={rulesDraft} className="text-sm text-[#173A2E]"/>
+            <div className="overflow-y-auto flex-1 min-h-0 px-6">
+              {fxCanEdit ? (
+                <>
+                  <p className="text-xs text-[#5F7D72] font-semibold mb-3">
+                    Escribí o pegá las reglas de tu liga. Los jugadores las van a ver, pero no van a poder modificarlas.
+                  </p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      onClick={toggleRulesBold}
+                      title="Negrita"
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#CFE7DC] bg-[#E9FFF0] hover:bg-[#DDF6EF] transition-colors flex-shrink-0"
+                    >
+                      <Bold size={14} className="text-[#086847]"/>
+                    </button>
+                    <span className="text-xs text-gray-400">Seleccioná un texto y tocá el botón para resaltarlo.</span>
                   </div>
-                )}
-                <div className="flex gap-3 mt-4">
-                  <button onClick={()=>setRulesModalOpen(false)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
-                  <button
-                    onClick={saveRules}
-                    disabled={savingRules || rulesDraft === (liga?.rules ?? "")}
-                    className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-40"
-                  >
-                    {savingRules ? "Guardando..." : "Guardar"}
-                  </button>
+                  <textarea
+                    ref={rulesTextareaRef}
+                    value={rulesDraft}
+                    onChange={e=>setRulesDraft(e.target.value)}
+                    placeholder="Ej: Los partidos se juegan en el horario asignado. Las inasistencias sin aviso..."
+                    className="w-full min-h-[180px] border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-pn-navy focus:outline-none focus:border-pn-green resize-none"
+                  />
+                  {rulesDraft && (
+                    <div className="mt-3 mb-4 bg-[#F6FBF8] border border-[#CFE7DC] rounded-xl p-3">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1.5">Vista previa (solo lectura)</p>
+                      <RulesText text={rulesDraft} className="text-sm text-[#173A2E]"/>
+                    </div>
+                  )}
+                </>
+              ) : liga?.rules ? (
+                <div className="pb-6">
+                  <RulesText text={liga.rules} className="text-sm text-[#173A2E]"/>
                 </div>
-              </>
-            ) : liga?.rules ? (
-              <RulesText text={liga.rules} className="text-sm text-[#173A2E]"/>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-8 text-center">
-                <FileText size={28} className="text-gray-300"/>
-                <p className="text-sm text-gray-400 font-semibold">El organizador todavía no cargó las reglas de esta liga.</p>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <FileText size={28} className="text-gray-300"/>
+                  <p className="text-sm text-gray-400 font-semibold">El organizador todavía no cargó las reglas de esta liga.</p>
+                </div>
+              )}
+            </div>
+
+            {fxCanEdit && (
+              <div className="flex gap-3 px-6 pt-4 pb-6 flex-shrink-0" style={{ borderTop: "1px solid #F0F7F4" }}>
+                <button onClick={()=>setRulesModalOpen(false)} className="flex-1 py-3 rounded-xl bg-[#ECF8F2] border border-[#CFE7DC] text-sm font-black text-[#173A2E]">Cancelar</button>
+                <button
+                  onClick={saveRules}
+                  disabled={savingRules || rulesDraft === (liga?.rules ?? "")}
+                  className="flex-1 py-3 rounded-xl bg-[#0B8457] text-white text-sm font-black disabled:opacity-40"
+                >
+                  {savingRules ? "Guardando..." : "Guardar"}
+                </button>
               </div>
             )}
           </div>
