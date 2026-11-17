@@ -858,6 +858,7 @@ export default function TorneoDetailPage() {
   const [minPairs, setMinPairs]   = useState(2);
   const [maxPairs, setMaxPairs]   = useState(0);
   const [showOccupancy, setShowOccupancy] = useState(false);
+  const [pairLimitsEnabled, setPairLimitsEnabled] = useState(true);
   const [championId, setChampionId] = useState("");
   const [runnerUpId, setRunnerUpId] = useState("");
   const [savingAction, setSavingAction] = useState(false);
@@ -904,6 +905,7 @@ export default function TorneoDetailPage() {
           setMinPairs(d.minPairs ?? 2);
           setMaxPairs(d.maxPairs ?? 0);
           setShowOccupancy(d.showOccupancyCard ?? false);
+          setPairLimitsEnabled(d.pairLimitsEnabled !== false);
           setChampionId(d.championPairId ?? "");
           setRunnerUpId(d.runnerUpPairId ?? "");
         }
@@ -988,7 +990,7 @@ export default function TorneoDetailPage() {
 
   async function handleSaveCupos() {
     setSavingAction(true);
-    await updateDoc(doc(db, "tournaments", torneoId), { minPairs, maxPairs, showOccupancyCard: showOccupancy, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "tournaments", torneoId), { minPairs, maxPairs, showOccupancyCard: showOccupancy, pairLimitsEnabled, updatedAt: serverTimestamp() });
     setSavingAction(false);
     showToast("Cupos guardados.");
   }
@@ -1463,7 +1465,7 @@ export default function TorneoDetailPage() {
               </div>
               <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>
                 {registrations.length} inscripto{registrations.length !== 1 ? "s" : ""}
-                {(torneo.maxPairs ?? 0) > 0 ? ` / ${torneo.maxPairs}` : ""}
+                {torneo.pairLimitsEnabled !== false && (torneo.maxPairs ?? 0) > 0 ? ` / ${torneo.maxPairs}` : ""}
               </span>
             </div>
           </div>
@@ -1955,15 +1957,27 @@ export default function TorneoDetailPage() {
                   {/* Cupos */}
                   <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
                     <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Cupos de parejas</p>
-                    <div className="flex gap-3 mb-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>Limitar cantidad de parejas</span>
+                      <button
+                        onClick={() => setPairLimitsEnabled(!pairLimitsEnabled)}
+                        className="relative flex-shrink-0 rounded-full transition-all"
+                        style={{ width: 46, height: 26, background: pairLimitsEnabled ? "#0B8457" : "#CFE7DC" }}
+                      >
+                        <span className="absolute top-[3px] rounded-full bg-white transition-all" style={{ width: 20, height: 20, left: pairLimitsEnabled ? 23 : 3 }} />
+                      </button>
+                    </div>
+                    <div className="flex gap-3 mb-3" style={!pairLimitsEnabled ? { opacity: 0.4 } : undefined}>
                       <div className="flex-1">
                         <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Mínimo</label>
-                        <input type="number" min={2} value={minPairs} onChange={e => setMinPairs(Number(e.target.value))}
+                        <input type="number" min={2} value={minPairs} disabled={!pairLimitsEnabled}
+                          onChange={e => setMinPairs(Number(e.target.value))}
                           className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
                       </div>
                       <div className="flex-1">
                         <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Máximo</label>
-                        <input type="number" min={2} value={maxPairs} onChange={e => setMaxPairs(Number(e.target.value))}
+                        <input type="number" min={2} value={maxPairs} disabled={!pairLimitsEnabled}
+                          onChange={e => setMaxPairs(Number(e.target.value))}
                           className="w-full border rounded-xl px-3 py-2 text-sm" style={{ borderColor: "#CFE7DC" }} />
                       </div>
                     </div>
