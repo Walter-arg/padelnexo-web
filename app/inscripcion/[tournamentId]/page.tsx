@@ -6,10 +6,20 @@ import { CheckCircle2, Loader2, Trophy, Users, AlertCircle, FileText, X, Plus, B
 import {
   buildPublicDayOptions,
   fetchPublicTournamentInfo,
+  getValidFirstCategoryOptions,
+  getValidSecondCategoryOptions,
+  isSumFixedRule,
   submitPublicTournamentRegistration,
   type PublicAvailability,
   type PublicTournamentInfo,
 } from "@/lib/publicRegistration";
+
+type CategoryMode = "single" | "sum_fixed" | "sum_open";
+
+function getCategoryMode(info: PublicTournamentInfo | null): CategoryMode {
+  if (!info || info.categoryFormat !== "suma") return "single";
+  return isSumFixedRule(info.sumRule) ? "sum_fixed" : "sum_open";
+}
 
 function formatDateRange(startMs: number, endMs: number) {
   if (!startMs) return "";
@@ -59,6 +69,8 @@ export default function PublicTournamentRegistrationPage() {
 
   const [player1Name, setPlayer1Name] = useState("");
   const [player2Name, setPlayer2Name] = useState("");
+  const [player1Category, setPlayer1Category] = useState("");
+  const [player2Category, setPlayer2Category] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -91,6 +103,22 @@ export default function PublicTournamentRegistrationPage() {
   }, [tournamentId]);
 
   const dayOptions = info ? buildPublicDayOptions(info.startDateMillis, info.endDateMillis) : [];
+  const categoryMode = getCategoryMode(info);
+  const sumFixedOptions = info
+    ? [info.fixedCategoryA, info.fixedCategoryB].filter(Boolean).map((value) => ({ label: value, value }))
+    : [];
+  const player1CategoryOptions =
+    categoryMode === "sum_fixed"
+      ? sumFixedOptions
+      : player2Category
+      ? getValidSecondCategoryOptions(info?.sumTarget || 0, player2Category)
+      : getValidFirstCategoryOptions(info?.sumTarget || 0);
+  const player2CategoryOptions =
+    categoryMode === "sum_fixed"
+      ? sumFixedOptions
+      : player1Category
+      ? getValidSecondCategoryOptions(info?.sumTarget || 0, player1Category)
+      : getValidFirstCategoryOptions(info?.sumTarget || 0);
 
   function addSlot() {
     if (!newDay || !newFrom || !newTo) { setSlotError("Completá todos los campos."); return; }
@@ -109,6 +137,11 @@ export default function PublicTournamentRegistrationPage() {
       return;
     }
 
+    if (categoryMode !== "single" && (!player1Category || !player2Category)) {
+      setSubmitError("Seleccioná la categoría de cada jugador.");
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError("");
 
@@ -123,6 +156,8 @@ export default function PublicTournamentRegistrationPage() {
         tournamentId,
         player1Name: player1Name.trim(),
         player2Name: player2Name.trim(),
+        player1Category: categoryMode === "single" ? info?.fixedCategoryA || "" : player1Category,
+        player2Category: categoryMode === "single" ? info?.fixedCategoryA || "" : player2Category,
         contactPhone: contactPhone.trim(),
         notes: notes.trim(),
         availability,
@@ -217,12 +252,36 @@ export default function PublicTournamentRegistrationPage() {
                     className="w-full border rounded-xl px-3 py-2.5 text-sm" style={{ borderColor: "#CFE7DC" }}
                     placeholder="Nombre y apellido" />
                 </div>
+                {categoryMode !== "single" && (
+                  <div>
+                    <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Tu categoría</label>
+                    <select value={player1Category} onChange={(e) => setPlayer1Category(e.target.value)}
+                      className="w-full border rounded-xl px-3 py-2.5 text-sm bg-white" style={{ borderColor: "#CFE7DC" }}>
+                      <option value="">Seleccionar categoría</option>
+                      {player1CategoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Nombre y apellido de tu compañero/a</label>
                   <input value={player2Name} onChange={(e) => setPlayer2Name(e.target.value)}
                     className="w-full border rounded-xl px-3 py-2.5 text-sm" style={{ borderColor: "#CFE7DC" }}
                     placeholder="Nombre y apellido" />
                 </div>
+                {categoryMode !== "single" && (
+                  <div>
+                    <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Categoría de tu compañero/a</label>
+                    <select value={player2Category} onChange={(e) => setPlayer2Category(e.target.value)}
+                      className="w-full border rounded-xl px-3 py-2.5 text-sm bg-white" style={{ borderColor: "#CFE7DC" }}>
+                      <option value="">Seleccionar categoría</option>
+                      {player2CategoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Teléfono de contacto</label>
                   <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)}

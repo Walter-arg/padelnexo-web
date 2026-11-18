@@ -1675,13 +1675,18 @@ export default function TorneoDetailPage() {
                               </div>
                             </div>
 
-                            {/* Origen por link + teléfono/observaciones */}
-                            {(reg.registrationSource === "public_link" || reg.contactPhone || reg.notes) && (
+                            {/* Origen por link + categoria + teléfono/observaciones */}
+                            {(reg.registrationSource === "public_link" || reg.player1Category || reg.player2Category || reg.contactPhone || reg.notes) && (
                               <div className="flex flex-col gap-1 mb-2 px-1">
                                 {reg.registrationSource === "public_link" && (
                                   <span className="inline-flex items-center gap-1 self-start text-[10px] font-black uppercase px-2 py-0.5 rounded-full border"
                                     style={{ background: "#EBF2FF", borderColor: "#A8C6F0", color: "#4A78C0" }}>
                                     <Link2 size={10} /> Inscripto vía link
+                                  </span>
+                                )}
+                                {(reg.player1Category || reg.player2Category) && (
+                                  <span className="text-xs font-semibold" style={{ color: "#5F7D72" }}>
+                                    Categorías: {[reg.player1Category, reg.player2Category].filter(Boolean).join(" / ") || "A confirmar"}
                                   </span>
                                 )}
                                 {reg.contactPhone && (

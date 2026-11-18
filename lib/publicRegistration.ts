@@ -16,6 +16,11 @@ export type PublicTournamentInfo = {
   startDateMillis: number;
   endDateMillis: number;
   compositionLabel: string;
+  categoryFormat: string;
+  sumRule: string;
+  sumTarget: number;
+  fixedCategoryA: string;
+  fixedCategoryB: string;
   entryFee: number;
   maxPairs: number;
   registeredCount: number;
@@ -33,6 +38,39 @@ export type PublicAvailability = Record<
   string,
   { quickSlots: string[]; customSlots: { from: string; to: string }[] }
 >;
+
+// Mismas categorias y mismo orden que usa la app y el alta de torneos en la
+// web (app/dashboard/torneos/nueva), para que un torneo "suma" filtre las
+// combinaciones validas igual en los dos lugares.
+export const CATEGORY_OPTIONS = [
+  { label: "9na", value: "9na", num: 9 },
+  { label: "8va", value: "8va", num: 8 },
+  { label: "7ma", value: "7ma", num: 7 },
+  { label: "6ta", value: "6ta", num: 6 },
+  { label: "5ta", value: "5ta", num: 5 },
+  { label: "4ta", value: "4ta", num: 4 },
+  { label: "3ra", value: "3ra", num: 3 },
+  { label: "2da", value: "2da", num: 2 },
+  { label: "1era", value: "1era", num: 1 },
+];
+
+export function isSumFixedRule(sumRule: string) {
+  return sumRule === "fixed" || sumRule === "sum_fixed";
+}
+
+export function getValidFirstCategoryOptions(sumTarget: number) {
+  if (!sumTarget) return CATEGORY_OPTIONS;
+  return CATEGORY_OPTIONS.filter((option) =>
+    CATEGORY_OPTIONS.some((candidate) => candidate.num === sumTarget - option.num)
+  );
+}
+
+export function getValidSecondCategoryOptions(sumTarget: number, firstCategory: string) {
+  if (!sumTarget || !firstCategory) return getValidFirstCategoryOptions(sumTarget);
+  const first = CATEGORY_OPTIONS.find((option) => option.value === firstCategory);
+  if (!first) return getValidFirstCategoryOptions(sumTarget);
+  return CATEGORY_OPTIONS.filter((option) => option.num === sumTarget - first.num);
+}
 
 export function buildPublicDayOptions(
   startDateMillis?: number,
@@ -77,6 +115,8 @@ export async function submitPublicTournamentRegistration(payload: {
   tournamentId: string;
   player1Name: string;
   player2Name: string;
+  player1Category?: string;
+  player2Category?: string;
   contactPhone: string;
   notes: string;
   availability: PublicAvailability;
