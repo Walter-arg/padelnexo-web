@@ -992,16 +992,16 @@ export default function TorneoDetailPage() {
 
   async function handleSaveCupos() {
     setSavingAction(true);
-    await updateDoc(doc(db, "tournaments", torneoId), { minPairs, maxPairs, showOccupancyCard: showOccupancy, pairLimitsEnabled, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "tournaments", torneoId), {
+      minPairs,
+      maxPairs,
+      showOccupancyCard: showOccupancy,
+      pairLimitsEnabled,
+      availabilityRequired,
+      updatedAt: serverTimestamp(),
+    });
     setSavingAction(false);
-    showToast("Cupos guardados.");
-  }
-
-  async function handleSaveAvailabilityRequired() {
-    setSavingAction(true);
-    await updateDoc(doc(db, "tournaments", torneoId), { availabilityRequired, updatedAt: serverTimestamp() });
-    setSavingAction(false);
-    showToast("Disponibilidad guardada.");
+    showToast("Cupos y disponibilidad guardados.");
   }
 
   async function handleSaveChampion() {
@@ -2005,11 +2005,6 @@ export default function TorneoDetailPage() {
                         <span className="absolute top-[3px] rounded-full bg-white transition-all" style={{ width: 20, height: 20, left: showOccupancy ? 23 : 3 }} />
                       </button>
                     </div>
-                    <button onClick={handleSaveCupos} disabled={savingAction}
-                      className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                      style={{ background: "#0B8457" }}>
-                      {savingAction ? "Guardando…" : "Guardar cupos"}
-                    </button>
                   </div>
 
                   {/* Disponibilidad */}
@@ -2030,10 +2025,10 @@ export default function TorneoDetailPage() {
                         ? "El jugador no va a poder enviar su inscripción (desde la app o el link público) sin cargar al menos un horario."
                         : "El jugador puede inscribirse sin cargar disponibilidad."}
                     </p>
-                    <button onClick={handleSaveAvailabilityRequired} disabled={savingAction}
+                    <button onClick={handleSaveCupos} disabled={savingAction}
                       className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                       style={{ background: "#0B8457" }}>
-                      {savingAction ? "Guardando…" : "Guardar"}
+                      {savingAction ? "Guardando…" : "Guardar cambios"}
                     </button>
                   </div>
 
