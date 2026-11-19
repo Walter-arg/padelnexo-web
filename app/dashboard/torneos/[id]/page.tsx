@@ -859,6 +859,7 @@ export default function TorneoDetailPage() {
   const [maxPairs, setMaxPairs]   = useState(0);
   const [showOccupancy, setShowOccupancy] = useState(false);
   const [pairLimitsEnabled, setPairLimitsEnabled] = useState(true);
+  const [availabilityRequired, setAvailabilityRequired] = useState(false);
   const [championId, setChampionId] = useState("");
   const [runnerUpId, setRunnerUpId] = useState("");
   const [savingAction, setSavingAction] = useState(false);
@@ -906,6 +907,7 @@ export default function TorneoDetailPage() {
           setMaxPairs(d.maxPairs ?? 0);
           setShowOccupancy(d.showOccupancyCard ?? false);
           setPairLimitsEnabled(d.pairLimitsEnabled !== false);
+          setAvailabilityRequired(Boolean(d.availabilityRequired));
           setChampionId(d.championPairId ?? "");
           setRunnerUpId(d.runnerUpPairId ?? "");
         }
@@ -993,6 +995,13 @@ export default function TorneoDetailPage() {
     await updateDoc(doc(db, "tournaments", torneoId), { minPairs, maxPairs, showOccupancyCard: showOccupancy, pairLimitsEnabled, updatedAt: serverTimestamp() });
     setSavingAction(false);
     showToast("Cupos guardados.");
+  }
+
+  async function handleSaveAvailabilityRequired() {
+    setSavingAction(true);
+    await updateDoc(doc(db, "tournaments", torneoId), { availabilityRequired, updatedAt: serverTimestamp() });
+    setSavingAction(false);
+    showToast("Disponibilidad guardada.");
   }
 
   async function handleSaveChampion() {
@@ -2000,6 +2009,31 @@ export default function TorneoDetailPage() {
                       className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                       style={{ background: "#0B8457" }}>
                       {savingAction ? "Guardando…" : "Guardar cupos"}
+                    </button>
+                  </div>
+
+                  {/* Disponibilidad */}
+                  <div className="rounded-2xl border p-4" style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                    <p className="font-black text-sm mb-3" style={{ color: "#173A2E" }}>Disponibilidad</p>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>Disponibilidad obligatoria</span>
+                      <button
+                        onClick={() => setAvailabilityRequired(!availabilityRequired)}
+                        className="relative flex-shrink-0 rounded-full transition-all"
+                        style={{ width: 46, height: 26, background: availabilityRequired ? "#0B8457" : "#CFE7DC" }}
+                      >
+                        <span className="absolute top-[3px] rounded-full bg-white transition-all" style={{ width: 20, height: 20, left: availabilityRequired ? 23 : 3 }} />
+                      </button>
+                    </div>
+                    <p className="text-xs font-semibold mb-3" style={{ color: "#5F7D72" }}>
+                      {availabilityRequired
+                        ? "El jugador no va a poder enviar su inscripción (desde la app o el link público) sin cargar al menos un horario."
+                        : "El jugador puede inscribirse sin cargar disponibilidad."}
+                    </p>
+                    <button onClick={handleSaveAvailabilityRequired} disabled={savingAction}
+                      className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                      style={{ background: "#0B8457" }}>
+                      {savingAction ? "Guardando…" : "Guardar"}
                     </button>
                   </div>
 

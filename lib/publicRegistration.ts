@@ -21,6 +21,7 @@ export type PublicTournamentInfo = {
   sumTarget: number;
   fixedCategoryA: string;
   fixedCategoryB: string;
+  availabilityRequired: boolean;
   entryFee: number;
   maxPairs: number;
   registeredCount: number;
