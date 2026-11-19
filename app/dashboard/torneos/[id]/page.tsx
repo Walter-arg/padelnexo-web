@@ -80,17 +80,20 @@ function formatTournamentDaysLabel(startMs?: number, endMs?: number): string {
 }
 
 function buildTournamentWelcomeMessage(
-  torneoName: string, startMs: number, endMs: number, organizerName: string, hasAvailability: boolean
+  torneoName: string, startMs: number, endMs: number, clubLabel: string, hasAvailability: boolean, playerName?: string
 ): string {
   const days = formatTournamentDaysLabel(startMs, endMs);
-  let text = `🎾 ¡Ya estás inscripto al torneo "${torneoName || "el torneo"}"!\n📅 Se juega los días ${days}, organizado por ${organizerName || "el organizador"}. ¡Mucha suerte!`;
+  const greeting = playerName ? `Hola ${playerName}, ` : "";
+  let text = `🎾 ${greeting}¡ya estás inscripto al torneo "${torneoName || "el torneo"}"!\n📅 Se juega los días ${days}, organizado por ${clubLabel || "el club organizador"}. ¡Mucha suerte!`;
   if (!hasAvailability) {
     text += `\n\n⏰ Recordá cargar tus horarios disponibles para jugar, así el organizador puede armar mejor las zonas.`;
   }
   return text;
 }
 
-async function sendTournamentWelcomeMessage(recipientId: string, recipientName: string, text: string) {
+async function sendTournamentWelcomeMessage(
+  recipientId: string, recipientName: string, text: string, pushTitle?: string
+) {
   if (!recipientId) return;
   const sender = auth.currentUser;
   if (!sender) return;
@@ -119,7 +122,7 @@ async function sendTournamentWelcomeMessage(recipientId: string, recipientName: 
 
   await sendPushNotification({
     recipientId,
-    title: sender.displayName || "Nuevo mensaje",
+    title: pushTitle || sender.displayName || "Nuevo mensaje",
     body: text,
     data: { type: "chat_message", conversationId, senderId: sender.uid },
   });
@@ -611,9 +614,7 @@ function NewPairDrawer({ torneoId, tournament, players, onClose, onSaved }: {
     setError("");
     setSubmitting(true);
     try {
-      const welcomeText = buildTournamentWelcomeMessage(
-        tournament?.name, tournament?.startDateMillis, tournament?.endDateMillis, tournament?.organizerName, false
-      );
+      const clubLabel = tournament?.venues?.[0]?.name ?? tournament?.complejo?.nombre ?? "";
 
       for (const pair of pendingPairs) {
         await addDoc(collection(db, "tournaments", torneoId, "registrations"), {
@@ -634,8 +635,16 @@ function NewPairDrawer({ torneoId, tournament, players, onClose, onSaved }: {
         });
 
         await Promise.all([
-          sendTournamentWelcomeMessage(pair.player1.id, pair.player1.name, welcomeText),
-          sendTournamentWelcomeMessage(pair.player2.id, pair.player2.name, welcomeText),
+          sendTournamentWelcomeMessage(
+            pair.player1.id, pair.player1.name,
+            buildTournamentWelcomeMessage(tournament?.name, tournament?.startDateMillis, tournament?.endDateMillis, clubLabel, false, pair.player1.name),
+            clubLabel
+          ),
+          sendTournamentWelcomeMessage(
+            pair.player2.id, pair.player2.name,
+            buildTournamentWelcomeMessage(tournament?.name, tournament?.startDateMillis, tournament?.endDateMillis, clubLabel, false, pair.player2.name),
+            clubLabel
+          ),
         ]);
       }
       onSaved();
@@ -939,12 +948,18 @@ export default function TorneoDetailPage() {
     const reg = registrations.find((r: any) => r.id === regId);
     if (reg) {
       const hasAvailability = Object.keys(reg.availability ?? {}).length > 0;
-      const text = buildTournamentWelcomeMessage(
-        torneo?.name, torneo?.startDateMillis, torneo?.endDateMillis, torneo?.organizerName, hasAvailability
-      );
+      const clubLabel = torneo?.venues?.[0]?.name ?? torneo?.complejo?.nombre ?? "";
       await Promise.all([
-        sendTournamentWelcomeMessage(reg.player1Id || reg.player1UserId, reg.player1Name, text),
-        sendTournamentWelcomeMessage(reg.player2Id || reg.player2UserId, reg.player2Name, text),
+        sendTournamentWelcomeMessage(
+          reg.player1Id || reg.player1UserId, reg.player1Name,
+          buildTournamentWelcomeMessage(torneo?.name, torneo?.startDateMillis, torneo?.endDateMillis, clubLabel, hasAvailability, reg.player1Name),
+          clubLabel
+        ),
+        sendTournamentWelcomeMessage(
+          reg.player2Id || reg.player2UserId, reg.player2Name,
+          buildTournamentWelcomeMessage(torneo?.name, torneo?.startDateMillis, torneo?.endDateMillis, clubLabel, hasAvailability, reg.player2Name),
+          clubLabel
+        ),
       ]);
     }
   }

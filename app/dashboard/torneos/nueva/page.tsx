@@ -7,7 +7,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { ChevronLeft, Loader2, ImageIcon } from "lucide-react";
+import { ChevronLeft, Loader2, ImageIcon, Info } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type CategoryMode = "single" | "sum_fixed" | "sum_open";
@@ -439,6 +439,21 @@ function TorneoNuevaInner() {
               onSelect={v => setTournamentRuleSet(v as "fap" | "apa")}
               withSubtitle
             />
+            <details className="rounded-xl border px-3 py-2" style={{ background: "#F7FBF8", borderColor: "#DCE9E1" }}>
+              <summary className="flex items-center gap-1.5 text-xs font-bold cursor-pointer select-none" style={{ color: "#086847" }}>
+                <Info size={13} /> ¿Cómo se arman las zonas y llaves?
+              </summary>
+              <div className="mt-2 flex flex-col gap-2 text-xs leading-relaxed" style={{ color: "#5F7D72" }}>
+                <p>
+                  <span className="font-black" style={{ color: "#173A2E" }}>Torneo FAP: </span>
+                  de cada zona de 4 parejas avanzan 3 a la fase eliminatoria. Al clasificar más parejas por zona, el cuadro final es más grande y el torneo tiene más partidos y fechas, ideal si querés que casi todos jueguen más de una ronda eliminatoria.
+                </p>
+                <p>
+                  <span className="font-black" style={{ color: "#173A2E" }}>Torneo APA: </span>
+                  de cada zona de 4 parejas avanzan solo 2 a la fase eliminatoria. El cuadro final es más chico, por lo que el torneo se resuelve en menos partidos y fechas, ideal para torneos más cortos o con menos días de juego.
+                </p>
+              </div>
+            </details>
           </Card>
         )}
 
