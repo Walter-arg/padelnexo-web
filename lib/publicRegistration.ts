@@ -10,9 +10,16 @@ const GET_PUBLIC_TOURNAMENT_INFO_URL =
 const SUBMIT_PUBLIC_TOURNAMENT_REGISTRATION_URL =
   "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/submitPublicTournamentRegistration";
 
+export type PublicTournamentCategoryOption = {
+  id: string;
+  label: string;
+};
+
 export type PublicTournamentInfo = {
   id: string;
   name: string;
+  baseName: string;
+  categories: PublicTournamentCategoryOption[];
   startDateMillis: number;
   endDateMillis: number;
   compositionLabel: string;

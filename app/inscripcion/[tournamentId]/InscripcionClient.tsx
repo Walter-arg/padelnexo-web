@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Trophy, Users, AlertCircle, FileText, X, Plus, Building2 } from "lucide-react";
 import {
   buildPublicDayOptions,
@@ -58,10 +59,12 @@ function RulesText({ text }: { text: string }) {
 type AvailSlot = { dateKey: string; dayLabel: string; from: string; to: string };
 
 export default function InscripcionClient({ tournamentId }: { tournamentId: string }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [info, setInfo] = useState<PublicTournamentInfo | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [pendingCategoryId, setPendingCategoryId] = useState("");
 
   const [player1Name, setPlayer1Name] = useState("");
   const [player2Name, setPlayer2Name] = useState("");
@@ -87,7 +90,7 @@ export default function InscripcionClient({ tournamentId }: { tournamentId: stri
       try {
         setLoading(true);
         const data = await fetchPublicTournamentInfo(tournamentId);
-        setInfo(data);
+        setInfo({ ...data, categories: data.categories ?? [] });
         const days = buildPublicDayOptions(data.startDateMillis, data.endDateMillis);
         if (days[0]) setNewDay(days[0].key);
       } catch (error: any) {
@@ -125,6 +128,21 @@ export default function InscripcionClient({ tournamentId }: { tournamentId: stri
     setSlotError("");
     setNewFrom("18:00");
     setNewTo("21:00");
+  }
+
+  const hasUnsavedChanges = Boolean(
+    player1Name.trim() || player2Name.trim() || contactPhone.trim() || notes.trim() || slots.length
+  );
+
+  function handleCategoryChange(nextTournamentId: string) {
+    if (!nextTournamentId || nextTournamentId === tournamentId) return;
+
+    if (hasUnsavedChanges) {
+      setPendingCategoryId(nextTournamentId);
+      return;
+    }
+
+    router.replace(`/inscripcion/${nextTournamentId}`);
   }
 
   async function handleSubmit() {
@@ -220,7 +238,7 @@ export default function InscripcionClient({ tournamentId }: { tournamentId: stri
                     <img src={info.organizerLogoUrl} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border"
                       style={{ borderColor: "#D5EADF" }} />
                   ) : null}
-                  <h1 className="font-black text-xl leading-tight" style={{ color: "#173A2E" }}>{info.name}</h1>
+                  <h1 className="font-black text-xl leading-tight" style={{ color: "#173A2E" }}>{info.baseName || info.name}</h1>
                 </div>
                 {info.venueName && (
                   <p className="text-sm font-bold mt-1 flex items-center gap-1.5" style={{ color: "#2F8FCF" }}>
@@ -229,8 +247,23 @@ export default function InscripcionClient({ tournamentId }: { tournamentId: stri
                 )}
                 <p className="text-sm font-semibold mt-1" style={{ color: "#5F7D72" }}>
                   {formatDateRange(info.startDateMillis, info.endDateMillis)}
-                  {info.compositionLabel ? ` · ${info.compositionLabel}` : ""}
+                  {info.categories.length <= 1 && info.compositionLabel ? ` · ${info.compositionLabel}` : ""}
                 </p>
+                {info.categories.length > 1 && (
+                  <div className="mt-2">
+                    <label className="text-xs font-bold block mb-1" style={{ color: "#5F7D72" }}>Categoría</label>
+                    <select
+                      value={info.id}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
+                      className="w-full border rounded-xl px-3 py-2.5 text-sm font-bold bg-white"
+                      style={{ borderColor: "#BED4F7", color: "#086847", background: "#EEF5FF" }}
+                    >
+                      {info.categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mt-2 text-xs font-bold" style={{ color: "#5F7D72" }}>
                   <Users size={14} />
                   {info.registeredCount}{info.maxPairs > 0 ? ` / ${info.maxPairs}` : ""} parejas inscriptas
@@ -384,6 +417,37 @@ export default function InscripcionClient({ tournamentId }: { tournamentId: stri
           )}
         </div>
       </div>
+
+      {pendingCategoryId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setPendingCategoryId("")}>
+          <div className="w-full max-w-sm rounded-[22px] p-6 shadow-xl" style={{ background: "#FFFFFF" }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-black text-base mb-2" style={{ color: "#173A2E" }}>Tenés datos sin enviar</h3>
+            <p className="text-sm mb-4" style={{ color: "#5F7D72" }}>
+              Si cambiás de categoría ahora vas a perder los datos que ya completaste en el formulario.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingCategoryId("")}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold border"
+                style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}
+              >
+                Seguir completando
+              </button>
+              <button
+                onClick={() => {
+                  const nextTournamentId = pendingCategoryId;
+                  setPendingCategoryId("");
+                  router.replace(`/inscripcion/${nextTournamentId}`);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+                style={{ background: "#B24343" }}
+              >
+                Cambiar sin guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {rulesOpen && info?.rules && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setRulesOpen(false)}>
