@@ -11,7 +11,7 @@ import { ChevronLeft, Loader2, ImageIcon, Info } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type CategoryMode = "single" | "sum_fixed" | "sum_open";
-type ConfirmMode  = "both_paid" | "one_paid" | "manual";
+type ConfirmMode  = "none" | "manual" | "one_paid" | "both_paid";
 type VenueMode    = "single" | "multiple";
 type CatConfig    = { categoryMode: CategoryMode; branch: string; sumTarget: string; fixedCategoryA: string; fixedCategoryB: string };
 
@@ -143,7 +143,7 @@ function TorneoNuevaInner() {
   const [multiConfigs, setMultiConfigs] = useState<CatConfig[]>([{ ...DEFAULT_CAT }, { ...DEFAULT_CAT }]);
 
   // S7 – Costo
-  const [pairConfirmation, setPairConfirmation] = useState<ConfirmMode>("manual");
+  const [pairConfirmation, setPairConfirmation] = useState<ConfirmMode>("none");
   const [entryFeeStr, setEntryFeeStr]           = useState("");
   const [paymentAlias, setPaymentAlias]         = useState("");
 
@@ -573,13 +573,13 @@ function TorneoNuevaInner() {
         </Card>
 
         {/* 7 · Costo y modalidad */}
-        <Card title="DEFINIR COSTO Y MODALIDAD">
-          <p className="text-sm font-bold text-center mb-2" style={{ color: "#173A2E" }}>¿CUÁNDO SE CONFIRMA LA INSCRIPCIÓN?</p>
+        <Card title="CONFIRMAR LA INSCRIPCIÓN DE UNA PAREJA">
           <RadioList
             options={[
-              { value: "both_paid", label: "PAGO DE AMBOS JUGADORES",       description: "La pareja se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)" },
-              { value: "one_paid",  label: "PAGO DE UNO DE LOS 2 JUGADORES", description: "La pareja se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)" },
-              { value: "manual",    label: "CONFIRMACIÓN MANUAL",            description: "El organizador confirma manualmente la inscripción. (FLEXIBLE)" },
+              { value: "none",      label: "SIN CONFIRMACIÓN",                 description: "La pareja queda confirmada apenas se inscribe, sin que el organizador tenga que confirmarla. (MÁS FLEXIBLE)" },
+              { value: "manual",    label: "ORGANIZADOR CONFIRMA A CADA PAREJA", description: "El organizador confirma manualmente cada inscripción. (FLEXIBLE)" },
+              { value: "one_paid",  label: "PAGO DE UNO DE LOS 2 JUGADORES",    description: "La pareja se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)" },
+              { value: "both_paid", label: "PAGO DE AMBOS JUGADORES",           description: "La pareja se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)" },
             ]}
             value={pairConfirmation}
             onSelect={v => setPairConfirmation(v as ConfirmMode)}
@@ -587,9 +587,12 @@ function TorneoNuevaInner() {
           <BlueNote text={
             pairConfirmation === "both_paid" ? "La pareja se confirma cuando se aprueban los pagos de ambos. (ESTRICTO)"
             : pairConfirmation === "one_paid"  ? "La pareja se confirma cuando se aprueba el pago de uno de los dos. (INTERMEDIO)"
-            : "El organizador confirma manualmente la inscripción. (FLEXIBLE)"
+            : pairConfirmation === "manual" ? "El organizador confirma manualmente cada inscripción. (FLEXIBLE)"
+            : "La pareja queda confirmada apenas se inscribe, sin que el organizador tenga que confirmarla. (MÁS FLEXIBLE)"
           } />
+        </Card>
 
+        <Card title="VALOR DE INSCRIPCIÓN">
           <FLabel label="VALOR DE INSCRIPCIÓN POR JUGADOR">
             <input
               value={entryFeeStr}

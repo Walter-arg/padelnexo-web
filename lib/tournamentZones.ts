@@ -536,6 +536,7 @@ export function isRegistrationConfirmed(registration: any = {}, tournament: any 
   const pairConfirmationMode = String(tournament?.pairConfirmationMode || "").trim().toLowerCase();
   const requiresPayment = Number(tournament?.entryFee || 0) > 0;
 
+  if (pairConfirmationMode === "none") return true;
   if (!requiresPayment && pairConfirmationMode !== "manual") return true;
   if (pairConfirmationMode === "one_paid") return approvedCount >= 1;
   if (pairConfirmationMode === "both_paid") return payments.length > 0 && approvedCount >= payments.length;
