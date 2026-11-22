@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   doc, collection, onSnapshot, updateDoc, addDoc, getDoc, getDocs, deleteDoc,
-  serverTimestamp, query, orderBy, setDoc, increment,
+  serverTimestamp, query, orderBy, setDoc, increment, where,
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
@@ -854,6 +854,7 @@ export default function TorneoDetailPage() {
   const [loading, setLoading]             = useState(true);
   const [tab, setTab]                     = useState<Tab>("inscripciones");
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
+  const [categorySiblings, setCategorySiblings] = useState<any[]>([]);
 
   // Modales
   const [newPairOpen, setNewPairOpen]     = useState(false);
@@ -937,6 +938,31 @@ export default function TorneoDetailPage() {
     });
     return unsubAuth;
   }, [torneoId, router]);
+
+  // Categorías hermanas (mismo lote de creación), para el selector del header
+  useEffect(() => {
+    const batchId = torneo?.creationBatchId || "";
+
+    if (!batchId) {
+      setCategorySiblings([]);
+      return;
+    }
+
+    getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", batchId)))
+      .then((snap) => setCategorySiblings(snap.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .catch(() => setCategorySiblings([]));
+  }, [torneo?.creationBatchId]);
+
+  const categoryOptions = categorySiblings.length > 1
+    ? [...categorySiblings]
+        .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0))
+        .map((t) => ({ id: t.id, label: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "Categoría" }))
+    : [];
+
+  function handleSelectCategory(nextTournamentId: string) {
+    if (!nextTournamentId || nextTournamentId === torneoId) return;
+    router.push(`/dashboard/torneos/${nextTournamentId}`);
+  }
 
   // ── Confirmar pareja ────────────────────────────────────────────────────
   async function confirmRegistration(regId: string) {
@@ -1434,7 +1460,23 @@ export default function TorneoDetailPage() {
             </div>
 
             {/* Categoría */}
-            {(torneo.compositionLabel ?? torneo.categoria) && (
+            {categoryOptions.length > 1 ? (
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#EEF5FF" }}>
+                  <Shield size={13} style={{ color: "#356CB8" }} />
+                </div>
+                <select
+                  value={torneoId}
+                  onChange={(e) => handleSelectCategory(e.target.value)}
+                  className="text-sm font-bold flex-1 bg-transparent cursor-pointer"
+                  style={{ color: "#173A2E" }}
+                >
+                  {categoryOptions.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (torneo.compositionLabel ?? torneo.categoria) && (
               <div className="flex items-center gap-2.5 mb-3">
                 <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#EEF5FF" }}>
                   <Shield size={13} style={{ color: "#356CB8" }} />
@@ -1516,6 +1558,22 @@ export default function TorneoDetailPage() {
                 <StatusBadge status={torneo.status ?? "draft"} meta={STATUS_META} />
               </div>
             </div>
+            {categoryOptions.length > 1 ? (
+              <select
+                value={torneoId}
+                onChange={(e) => handleSelectCategory(e.target.value)}
+                className="text-xs font-bold mt-3 w-full border rounded-lg px-2 py-1.5 bg-white"
+                style={{ borderColor: "#BED4F7", color: "#356CB8" }}
+              >
+                {categoryOptions.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            ) : (torneo.compositionLabel ?? torneo.categoria) ? (
+              <p className="text-xs font-semibold mt-2" style={{ color: "#173A2E" }}>
+                {torneo.compositionLabel ?? torneo.categoria}
+              </p>
+            ) : null}
           </div>
 
           {/* 2×2 Module grid */}
