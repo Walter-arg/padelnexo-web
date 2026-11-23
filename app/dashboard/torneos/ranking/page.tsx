@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Trophy, Loader2, Building2, Settings, X, Link2, ImageDown, RefreshCw,
@@ -38,13 +38,28 @@ function inputValueToMillis(value: string) {
 }
 
 export default function TournamentRankingPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout title="Torneos" wide>
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin" style={{ color: "#086847" }} />
+        </div>
+      </DashboardLayout>
+    }>
+      <TournamentRankingPageInner />
+    </Suspense>
+  );
+}
+
+function TournamentRankingPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [organizerId, setOrganizerId] = useState("");
   const [organizerProfile, setOrganizerProfile] = useState<any>(null);
   const [entries, setEntries] = useState<TournamentRankingEntry[]>([]);
   const [config, setConfig] = useState<OrganizerRankingConfig>({ fromMillis: 0, toMillis: 0 });
-  const [activeCategory, setActiveCategory] = useState("");
+  const [activeCategory, setActiveCategory] = useState(searchParams.get("category") ?? "");
   const [configOpen, setConfigOpen] = useState(false);
   const [draftConfig, setDraftConfig] = useState<OrganizerRankingConfig>({ fromMillis: 0, toMillis: 0 });
   const [savingConfig, setSavingConfig] = useState(false);

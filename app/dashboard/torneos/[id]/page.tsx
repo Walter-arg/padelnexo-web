@@ -1525,7 +1525,7 @@ export default function TorneoDetailPage() {
             })()}
 
             {/* Inscriptos */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 mb-4">
               <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#F6FBF8" }}>
                 <Users size={13} style={{ color: "#0B8457" }} />
               </div>
@@ -1534,6 +1534,14 @@ export default function TorneoDetailPage() {
                 {torneo.pairLimitsEnabled !== false && (torneo.maxPairs ?? 0) > 0 ? ` / ${torneo.maxPairs}` : ""}
               </span>
             </div>
+
+            <a
+              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo.compositionLabel ?? torneo.categoria ?? "")}`}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border transition-opacity hover:opacity-80"
+              style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
+            >
+              <Trophy size={14} /> Ver ranking
+            </a>
           </div>
         </aside>
 
@@ -1574,6 +1582,13 @@ export default function TorneoDetailPage() {
                 {torneo.compositionLabel ?? torneo.categoria}
               </p>
             ) : null}
+            <a
+              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo.compositionLabel ?? torneo.categoria ?? "")}`}
+              className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold border mt-3"
+              style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
+            >
+              <Trophy size={13} /> Ver ranking
+            </a>
           </div>
 
           {/* 2×2 Module grid */}
