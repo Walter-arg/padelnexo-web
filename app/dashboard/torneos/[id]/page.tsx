@@ -1075,13 +1075,6 @@ export default function TorneoDetailPage() {
   }
 
   // ── Acciones de gestión ─────────────────────────────────────────────────
-  async function handleStatusChange(newStatus: string) {
-    setSavingAction(true);
-    await updateDoc(doc(db, "tournaments", torneoId), { status: newStatus, updatedAt: serverTimestamp() });
-    setSavingAction(false);
-    showToast(`Estado actualizado a: ${STATUS_META[newStatus]?.label ?? newStatus}`);
-  }
-
   async function handlePublishTournament() {
     if (torneo?.status === "cancelled") {
       showToast("No podes publicar un torneo cancelado.", false);
@@ -2136,13 +2129,6 @@ export default function TorneoDetailPage() {
                           className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
                           style={{ background: "#FFF7E3", color: "#9B6A00", border: "1px solid #E8D59A" }}>
                           Cerrar inscripciones
-                        </button>
-                      )}
-                      {["registration_closed", "building", "in_progress"].includes(torneo.status) && (
-                        <button onClick={() => handleStatusChange("finished")} disabled={savingAction}
-                          className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
-                          style={{ background: "#F2F5F7", color: "#576773", border: "1px solid #CDD6DC" }}>
-                          Marcar como finalizado
                         </button>
                       )}
                       {!["cancelled", "finished"].includes(torneo.status ?? "") && (
