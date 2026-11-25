@@ -6,7 +6,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Trophy, Users, Calendar, MapPin, Tag, Plus, Loader2, Menu } from "lucide-react";
+import { Trophy, Calendar, Plus, Loader2, Menu } from "lucide-react";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; tint: string; border: string; accent: string }> = {
@@ -23,18 +23,6 @@ const STATUS_META: Record<string, { label: string; tint: string; border: string;
 // Color unico y acorde a la marca para el titulo del torneo (antes rotaba
 // entre varios colores sin relacion con la paleta de la app).
 const TOURNAMENT_TITLE_COLOR = "#1FAB89";
-
-function StatusBadge({ status }: { status: string }) {
-  const m = STATUS_META[status] ?? STATUS_META.draft;
-  return (
-    <span
-      className="inline-block text-[10px] font-black uppercase px-2.5 py-1 rounded-full border"
-      style={{ background: m.tint, borderColor: m.border, color: m.accent, letterSpacing: "0.5px" }}
-    >
-      {m.label}
-    </span>
-  );
-}
 
 type FilterTab = "activos" | "publicados" | "pendientes" | "en_curso" | "finalizados" | "cancelados";
 
@@ -99,143 +87,95 @@ function groupTournaments(list: any[]): ListItem[] {
   );
 }
 
-function TournamentCardLink({ t }: { t: any }) {
-  const titleColor = TOURNAMENT_TITLE_COLOR;
-  const confirmedCount = t.confirmedRegistrationsCount ?? t.registrationsCount ?? (t.players?.length ?? t.inscripciones?.length ?? 0);
-  const maxPairs = t.maxPairs ?? 0;
-  const startDate = formatDate(t.startDateMillis);
-  const endDate = formatDate(t.endDateMillis);
-  const venue = t.venues?.[0]?.name ?? t.complejo?.nombre ?? "";
-  const category = t.compositionLabel ?? t.categoria ?? "";
-
-  return (
-    <a
-      href={`/dashboard/torneos/${t.id}`}
-      className="block rounded-xl border p-4 transition-all hover:shadow-md group"
-      style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}
-    >
-      {/* Status + fecha */}
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <StatusBadge status={t.status ?? "draft"} />
-        {startDate && (
-          <span className="text-[11px] font-semibold" style={{ color: "#5F7D72" }}>{startDate}</span>
-        )}
-      </div>
-
-      {/* Nombre */}
-      <p className="text-[11px] font-black uppercase mb-0.5 text-center" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
-      <h2
-        className="font-black leading-tight mb-3 text-center"
-        style={{ fontSize: 18, color: titleColor, letterSpacing: "0.2px" }}
-      >
-        {t.name ?? t.nombre ?? "Sin nombre"}
-      </h2>
-
-      {/* Bloque info */}
-      <div
-        className="rounded-xl p-3 flex flex-col gap-1.5"
-        style={{ background: "#F3FAF6", border: "1px solid #DCEFE4" }}
-      >
-        <div className="flex items-center gap-1.5">
-          <Trophy size={13} style={{ color: "#086847", flexShrink: 0 }} />
-          <span className="text-xs font-semibold" style={{ color: "#086847" }}>Zonas + llaves</span>
-        </div>
-        {category && (
-          <div className="flex items-center gap-1.5">
-            <Tag size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
-            <span className="text-xs" style={{ color: "#5F7D72" }}>{category}</span>
-          </div>
-        )}
-        {(startDate || endDate) && (
-          <div className="flex items-center gap-1.5">
-            <Calendar size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
-            <span className="text-xs" style={{ color: "#5F7D72" }}>
-              {startDate}{endDate && endDate !== startDate ? ` — ${endDate}` : ""}
-            </span>
-          </div>
-        )}
-        {venue && (
-          <div className="flex items-center gap-1.5">
-            <MapPin size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
-            <span className="text-xs" style={{ color: "#5F7D72" }}>{venue}</span>
-          </div>
-        )}
-        {t.showOccupancyCard && maxPairs > 0 && (
-          <div className="flex items-center gap-1.5">
-            <Users size={13} style={{ color: confirmedCount >= maxPairs ? "#D64545" : "#5F7D72", flexShrink: 0 }} />
-            <span
-              className="text-xs font-semibold"
-              style={{ color: confirmedCount >= maxPairs ? "#D64545" : confirmedCount >= maxPairs - 2 ? "#D97706" : "#5F7D72" }}
-            >
-              {confirmedCount} / {maxPairs} inscriptos
-              {confirmedCount >= maxPairs ? " · Sin cupos" : confirmedCount >= maxPairs - 2 ? " · Últimos cupos" : ""}
-            </span>
-          </div>
-        )}
-      </div>
-    </a>
-  );
-}
-
-function TournamentEventCardLink({ categories }: { categories: any[] }) {
+function OrganizerTournamentCardLink({ categories }: { categories: any[] }) {
   const representative = categories[0];
   const baseName = representative.baseName ?? representative.name ?? representative.nombre ?? "Sin nombre";
   const startDate = formatDate(representative.startDateMillis);
   const endDate = formatDate(representative.endDateMillis);
   const venue = representative.venues?.[0]?.name ?? representative.complejo?.nombre ?? "";
+  const headerStatus = STATUS_META[representative.status ?? "draft"] ?? STATUS_META.draft;
 
   return (
     <a
       href={`/dashboard/torneos/${representative.id}`}
-      className="block rounded-xl border p-4 transition-all hover:shadow-md group"
-      style={{ background: "#FFFFFF", borderColor: "#CFE7DC" }}
+      className="block rounded-2xl border p-4 transition-all hover:shadow-md"
+      style={{ background: "#FFFFFF", borderColor: "#CFE7DC", boxShadow: "0 6px 14px rgba(11,39,25,0.08)" }}
     >
+      {/* Club + estado */}
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {representative.organizerLogoUrl ? (
+            <img
+              src={representative.organizerLogoUrl}
+              alt=""
+              className="w-10 h-10 rounded-xl object-cover flex-shrink-0 border"
+              style={{ borderColor: "#CFE7DC" }}
+            />
+          ) : (
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "#ECF8F2", border: "1px solid #CFE7DC" }}
+            >
+              <Trophy size={16} style={{ color: "#086847" }} />
+            </div>
+          )}
+          <span className="font-black text-sm truncate" style={{ color: "#173A2E" }}>
+            {venue || "Club a confirmar"}
+          </span>
+        </div>
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1.5 rounded-full flex-shrink-0"
+          style={{ background: headerStatus.tint, color: headerStatus.accent }}
+        >
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: headerStatus.accent }} />
+          {headerStatus.label}
+        </span>
+      </div>
+
       {/* Nombre */}
-      <p className="text-[11px] font-black uppercase mb-0.5 text-center" style={{ color: "#086847", letterSpacing: "0.8px" }}>TORNEO</p>
-      <h2
-        className="font-black leading-tight mb-3 text-center"
-        style={{ fontSize: 18, color: TOURNAMENT_TITLE_COLOR, letterSpacing: "0.2px" }}
-      >
+      <p className="text-[11px] font-black uppercase mt-1" style={{ color: "#086847", letterSpacing: "1px" }}>TORNEO</p>
+      <h2 className="font-black leading-tight mt-0.5 mb-3" style={{ fontSize: 22, color: TOURNAMENT_TITLE_COLOR }}>
         {baseName}
       </h2>
 
-      {/* Bloque info compartido */}
-      <div
-        className="rounded-xl p-3 flex flex-col gap-1.5 mb-3"
-        style={{ background: "#F3FAF6", border: "1px solid #DCEFE4" }}
-      >
-        <div className="flex items-center gap-1.5">
-          <Trophy size={13} style={{ color: "#086847", flexShrink: 0 }} />
-          <span className="text-xs font-semibold" style={{ color: "#086847" }}>Zonas + llaves</span>
-        </div>
-        {(startDate || endDate) && (
-          <div className="flex items-center gap-1.5">
-            <Calendar size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
-            <span className="text-xs" style={{ color: "#5F7D72" }}>
-              {startDate}{endDate && endDate !== startDate ? ` — ${endDate}` : ""}
-            </span>
-          </div>
-        )}
-        {venue && (
-          <div className="flex items-center gap-1.5">
-            <MapPin size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
-            <span className="text-xs" style={{ color: "#5F7D72" }}>{venue}</span>
-          </div>
-        )}
+      {/* Divisor Categorías */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex-1 h-px" style={{ background: "#CFE7DC" }} />
+        <span
+          className="text-[10px] font-black px-3 py-1 rounded-full text-white"
+          style={{ background: "#086847", letterSpacing: "1px" }}
+        >
+          CATEGORÍAS
+        </span>
+        <div className="flex-1 h-px" style={{ background: "#CFE7DC" }} />
       </div>
 
-      {/* Una fila por categoria */}
-      <div className="flex flex-col gap-1.5">
+      {/* Grilla de categorias */}
+      <div className="grid grid-cols-2 gap-2 mb-3">
         {categories.map((cat) => {
+          const meta = STATUS_META[cat.status ?? "draft"] ?? STATUS_META.draft;
           const label = cat.compositionLabel ?? cat.categoria ?? "Categoría a confirmar";
           return (
-            <div key={cat.id} className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold truncate" style={{ color: "#173A2E" }}>{label}</span>
-              <StatusBadge status={cat.status ?? "draft"} />
+            <div key={cat.id} className="rounded-xl px-2.5 py-2.5 text-center" style={{ background: "#DFF4EC" }}>
+              <p className="text-xs font-black truncate" style={{ color: "#173A2E" }}>{label}</p>
+              <div className="flex items-center justify-center gap-1 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: meta.accent }} />
+                <span className="text-[10px] font-bold truncate" style={{ color: meta.accent }}>{meta.label}</span>
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* Fecha */}
+      {(startDate || endDate) && (
+        <div className="flex items-center gap-1.5">
+          <Calendar size={13} style={{ color: "#5F7D72", flexShrink: 0 }} />
+          <span className="text-xs font-semibold" style={{ color: "#5F7D72" }}>
+            {startDate}{endDate && endDate !== startDate ? ` — ${endDate}` : ""}
+          </span>
+        </div>
+      )}
     </a>
   );
 }
@@ -379,13 +319,12 @@ export default function TorneosPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {groupTournaments(filtered).map((item) =>
-            item.type === "event" ? (
-              <TournamentEventCardLink key={item.id} categories={item.categories} />
-            ) : (
-              <TournamentCardLink key={item.id} t={item.t} />
-            )
-          )}
+          {groupTournaments(filtered).map((item) => (
+            <OrganizerTournamentCardLink
+              key={item.id}
+              categories={item.type === "event" ? item.categories : [item.t]}
+            />
+          ))}
         </div>
       )}
     </DashboardLayout>
