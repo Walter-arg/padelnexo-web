@@ -499,11 +499,12 @@ function StandingsModal({ zone, regMap, onClose }: {
 }
 
 // ── Zone card ─────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onStandingsClick, onScheduleClick }: {
+function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
   zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
   onResultClick: (matchKey: string, match: any) => void;
   onStandingsClick: () => void;
   onScheduleClick: (matchKey: string) => void;
+  onRemovePair?: (regId: string) => void;
 }) {
   const regIds = toArray(zone.registrationIds);
   const matchKeys = getMatchRows(regIds.length);
@@ -543,6 +544,11 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onS
                   {i + 1}
                 </span>
                 <span className="font-semibold truncate max-w-[120px]">{label}</span>
+                {onRemovePair && (
+                  <button onClick={() => onRemovePair(id)} className="flex-shrink-0">
+                    <X size={11} style={{ color: color.text }} />
+                  </button>
+                )}
               </div>
             );
           })}
@@ -909,9 +915,47 @@ export default function FixtureTab({
   }, [zones]);
 
   const unassignedRegs = useMemo(
-    () => registrations.filter(r => !assignedRegIds.has(r.id) && r.status !== "rejected"),
+    () => registrations.filter(r => !assignedRegIds.has(r.id) && r.status !== "rejected" && r.withdrawalStatus !== "confirmed"),
     [registrations, assignedRegIds]
   );
+
+  // Letra de zona (A, B, C...) por id de zona, derivada del label "Zona X"
+  const zoneLetterByZoneId = useMemo(() => {
+    const map: Record<string, string> = {};
+    zones.forEach((z: any, i: number) => {
+      const m = String(z?.label || "").match(/zona\s+([a-z0-9]+)/i);
+      map[z.id] = (m?.[1] || String.fromCharCode(65 + i)).toUpperCase();
+    });
+    return map;
+  }, [zones]);
+
+  const assignedZoneLetterByRegId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const z of zones) {
+      for (const id of toArray((z as any).registrationIds)) map[id] = zoneLetterByZoneId[(z as any).id] ?? "";
+    }
+    return map;
+  }, [zones, zoneLetterByZoneId]);
+
+  // Todas las parejas activas (asignadas o no) para el armado manual, igual
+  // que TournamentZonePlanningScreen.js de la app: se siguen viendo las ya
+  // asignadas (con su letra de zona), ordenadas sin asignar primero. El color
+  // de cada pareja se fija por su posicion ANTES de ordenar, para que no
+  // cambie cuando se asigna/desasigna.
+  const manualPlanningRegs = useMemo(() => {
+    const active = registrations.filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed");
+    return active
+      .map((r: any, i: number) => ({ ...r, __colorIndex: i }))
+      .sort((a: any, b: any) => {
+        const aAssigned = assignedRegIds.has(a.id);
+        const bAssigned = assignedRegIds.has(b.id);
+        if (aAssigned !== bAssigned) return aAssigned ? 1 : -1;
+        if (aAssigned && bAssigned) {
+          return (assignedZoneLetterByRegId[a.id] ?? "").localeCompare(assignedZoneLetterByRegId[b.id] ?? "");
+        }
+        return 0;
+      });
+  }, [registrations, assignedRegIds, assignedZoneLetterByRegId]);
 
   function handleSetSub(s: FixSub) {
     if (s === "manual" && !selectedDay && allDayKeys.length > 0) setSelectedDay(allDayKeys[0]);
@@ -941,13 +985,21 @@ export default function FixtureTab({
   }
 
   async function handleArmarZona() {
-    if (selectedPairIds.size < 2) { showToast("Seleccioná al menos 2 parejas", false); return; }
+    const regIdList = Array.from(selectedPairIds);
+    const alreadyAssigned = regIdList.filter((id) => assignedRegIds.has(id));
+    if (alreadyAssigned.length) {
+      showToast("Una de las parejas seleccionadas ya esta en una zona. Para usarla en otra, primero agregala a una zona existente o quitala de la actual.", false);
+      return;
+    }
+    if (regIdList.length < 2 || regIdList.length > 4) {
+      showToast("Seleccioná 2, 3 o 4 parejas para armar una zona.", false);
+      return;
+    }
     setSavingZones(true);
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
       if (!fs.zonePlanning) fs.zonePlanning = {};
       const currentZones = toArray(fs.zonePlanning.zones);
-      const regIdList = Array.from(selectedPairIds);
       const matchRows = getMatchRows(regIdList.length);
       const matchSchedules: Record<string, any> = {};
       for (const row of matchRows) matchSchedules[row] = {};
@@ -960,6 +1012,65 @@ export default function FixtureTab({
       showToast("Zona creada");
     } catch {
       showToast("Error al crear la zona", false);
+    }
+    setSavingZones(false);
+  }
+
+  async function handleAddPairToExistingZone(zoneId: string) {
+    const selectedId = Array.from(selectedPairIds)[0];
+    if (!selectedId) return;
+    setSavingZones(true);
+    try {
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const currentZones = toArray(fs.zonePlanning?.zones);
+      const targetZone = currentZones.find((z: any) => z.id === zoneId);
+      if (!targetZone) { setSavingZones(false); return; }
+      const targetIds = toArray(targetZone.registrationIds);
+      if (targetIds.includes(selectedId)) {
+        showToast("Esa pareja ya esta en esta zona.", false);
+        setSavingZones(false);
+        return;
+      }
+      if (targetIds.length >= 4) {
+        showToast("Cada zona puede tener hasta 4 parejas.", false);
+        setSavingZones(false);
+        return;
+      }
+      fs.zonePlanning.zones = currentZones.map((z: any) => ({
+        ...z,
+        registrationIds: z.id === zoneId
+          ? [...toArray(z.registrationIds).filter((id: string) => id !== selectedId), selectedId]
+          : toArray(z.registrationIds).filter((id: string) => id !== selectedId),
+      }));
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      setSelectedPairIds(new Set());
+      showToast("Pareja agregada a la zona.");
+    } catch {
+      showToast("Error al agregar la pareja a la zona", false);
+    }
+    setSavingZones(false);
+  }
+
+  async function handleRemovePairFromZone(zoneId: string, regId: string) {
+    const zone = zones.find((z: any) => z.id === zoneId);
+    const zoneHasResult = Object.values(zone?.matchSchedules ?? {}).some(
+      (m: any) => m?.result?.winnerRegistrationId || m?.result?.walkover
+    );
+    if (zoneHasResult) {
+      showToast("Esta zona ya tiene resultados cargados. Elimina el resultado antes de quitar parejas.", false);
+      return;
+    }
+    setSavingZones(true);
+    try {
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const currentZones = toArray(fs.zonePlanning?.zones);
+      fs.zonePlanning.zones = currentZones.map((z: any) =>
+        z.id === zoneId ? { ...z, registrationIds: toArray(z.registrationIds).filter((id: string) => id !== regId) } : z
+      );
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast("Pareja quitada de la zona.");
+    } catch {
+      showToast("Error al quitar la pareja de la zona", false);
     }
     setSavingZones(false);
   }
@@ -996,6 +1107,13 @@ export default function FixtureTab({
   }
 
   async function confirmZones() {
+    const unassignedCount = unassignedRegs.length;
+    const warning = unassignedCount > 0
+      ? `\n\nTodavia quedan ${unassignedCount} pareja${unassignedCount === 1 ? "" : "s"} sin zona asignada.`
+      : "";
+    if (!window.confirm(`El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`)) {
+      return;
+    }
     setSavingZones(true);
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
@@ -1006,6 +1124,20 @@ export default function FixtureTab({
       showToast("Armado confirmado");
     } catch {
       showToast("Error al confirmar", false);
+    }
+    setSavingZones(false);
+  }
+
+  async function saveDraftZones() {
+    setSavingZones(true);
+    try {
+      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      if (!fs.zonePlanning) fs.zonePlanning = {};
+      fs.zonePlanning.status = fs.zonePlanning.status === "confirmed" ? "confirmed" : "draft";
+      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      showToast("Borrador guardado");
+    } catch {
+      showToast("Error al guardar el borrador", false);
     }
     setSavingZones(false);
   }
@@ -1256,7 +1388,7 @@ export default function FixtureTab({
         {([
           { id: "configurar", label: "PREFERENCIAS" },
           { id: "automatico", label: "ARMADO AUTO" },
-          { id: "manual", label: "ARMADO MANUAL" },
+          { id: "manual", label: "ARMADO MANUAL - EDITAR" },
         ] as { id: FixSub; label: string }[]).map(s => (
           <button key={s.id} onClick={() => handleSetSub(s.id)}
             className="flex-1 py-3 rounded-xl font-black text-xs uppercase transition-all"
@@ -1670,12 +1802,12 @@ export default function FixtureTab({
                 </div>
               )}
 
-              {/* Availability grid */}
+              {/* Availability grid: TODAS las parejas activas, asignadas o no */}
               {selectedDay && (
                 <div className="mb-5">
-                  {unassignedRegs.length === 0 ? (
+                  {manualPlanningRegs.length === 0 ? (
                     <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>
-                      Todas las parejas ya tienen zona asignada.
+                      No hay parejas inscriptas todavía.
                     </p>
                   ) : (
                     <>
@@ -1683,26 +1815,33 @@ export default function FixtureTab({
                         Hacé click en el encabezado de una pareja para seleccionarla
                       </p>
                       <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: "#CFE7DC" }}>
-                        <table className="text-xs border-collapse" style={{ minWidth: 200 + unassignedRegs.length * 90 }}>
+                        <table className="text-xs border-collapse" style={{ minWidth: 200 + manualPlanningRegs.length * 90 }}>
                           <thead>
                             <tr style={{ borderBottom: "2px solid #CFE7DC" }}>
                               <th className="py-3 px-3 text-left font-black text-[10px] uppercase sticky left-0 bg-white"
                                 style={{ color: "#9BB8AE", minWidth: 52 }}>HORA</th>
-                              {unassignedRegs.map((reg, ri) => {
-                                const color = PAIR_COLORS[ri % 6];
+                              {manualPlanningRegs.map((reg: any) => {
+                                const color = PAIR_COLORS[reg.__colorIndex % 6];
                                 const selected = selectedPairIds.has(reg.id);
+                                const zoneLetter = assignedZoneLetterByRegId[reg.id];
                                 return (
                                   <th key={reg.id}
-                                    className="py-2 px-2 text-center cursor-pointer transition-all"
+                                    className="py-2 px-2 text-center cursor-pointer transition-all relative"
                                     onClick={() => setSelectedPairIds(prev => {
                                       const next = new Set(prev);
                                       if (next.has(reg.id)) next.delete(reg.id); else next.add(reg.id);
                                       return next;
                                     })}
-                                    style={{ background: selected ? color.fill : color.bg, minWidth: 88, userSelect: "none" }}>
-                                    <div className="font-black text-[10px] mb-0.5" style={{ color: color.text }}>P{ri + 1}</div>
+                                    style={{ background: selected ? color.fill : color.bg, minWidth: 88, userSelect: "none", opacity: zoneLetter ? 0.7 : 1 }}>
+                                    {zoneLetter && (
+                                      <span className="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] font-black flex items-center justify-center text-white"
+                                        style={{ background: "#086847" }}>
+                                        {zoneLetter}
+                                      </span>
+                                    )}
+                                    <div className="font-black text-[10px] mb-0.5" style={{ color: color.text }}>P{reg.__colorIndex + 1}</div>
                                     <div className="font-semibold text-[10px] truncate" style={{ color: color.text, maxWidth: 80 }}>
-                                      {getPairLabel(reg, ri).split(" / ")[0]}
+                                      {getPairLabel(reg, reg.__colorIndex).split(" / ")[0]}
                                     </div>
                                     <div className="font-semibold text-[9px] truncate" style={{ color: color.text, maxWidth: 80 }}>
                                       {(() => {
@@ -1723,9 +1862,9 @@ export default function FixtureTab({
                                   style={{ color: "#5F7D72", background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF", borderRight: "1px solid #F0F7F4" }}>
                                   {slot}
                                 </td>
-                                {unassignedRegs.map((reg, ri) => {
+                                {manualPlanningRegs.map((reg: any) => {
                                   const avail = isAvailableAtMinutes(reg.availability, selectedDay!, parseTimeToMinutes(slot));
-                                  const color = PAIR_COLORS[ri % 6];
+                                  const color = PAIR_COLORS[reg.__colorIndex % 6];
                                   return (
                                     <td key={reg.id} className="py-1.5 px-2 text-center">
                                       <div className="rounded h-5 mx-auto" style={{
@@ -1746,13 +1885,45 @@ export default function FixtureTab({
                 </div>
               )}
 
-              {/* ARMAR ZONA */}
-              {selectedPairIds.size >= 2 && (
-                <button onClick={handleArmarZona} disabled={savingZones}
-                  className="w-full py-3 rounded-2xl font-black text-sm text-white mb-5 disabled:opacity-40 transition-opacity"
-                  style={{ background: "#086847" }}>
-                  {savingZones ? "Guardando..." : `ARMAR ZONA (${selectedPairIds.size} parejas seleccionadas)`}
-                </button>
+              {/* Resumen de seleccion */}
+              {selectedPairIds.size > 0 && (
+                <div className="rounded-2xl border p-4 mb-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+                  <p className="text-sm font-black mb-1" style={{ color: "#173A2E" }}>
+                    {selectedPairIds.size} pareja{selectedPairIds.size === 1 ? "" : "s"} seleccionada{selectedPairIds.size === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-xs mb-3" style={{ color: "#5F7D72" }}>
+                    {Array.from(selectedPairIds)
+                      .map((id) => regMap[id] ? getPairLabel(regMap[id], 0) : "Pareja")
+                      .join(" / ")}
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={handleArmarZona} disabled={savingZones}
+                      className="flex-1 py-2.5 rounded-xl font-black text-xs text-white disabled:opacity-40"
+                      style={{ background: "#086847" }}>
+                      {savingZones ? "Guardando..." : "ARMAR ZONA"}
+                    </button>
+                    <button onClick={() => setSelectedPairIds(new Set())}
+                      className="px-4 py-2.5 rounded-xl font-black text-xs border"
+                      style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                      Limpiar
+                    </button>
+                  </div>
+
+                  {selectedPairIds.size === 1 && zones.length > 0 && (
+                    <div className="mt-3 pt-3 border-t" style={{ borderColor: "#E3EFE8" }}>
+                      <p className="text-[10px] font-bold uppercase mb-2" style={{ color: "#5F7D72" }}>Agregar a zona existente</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {zones.map((zone: any) => (
+                          <button key={zone.id} disabled={savingZones} onClick={() => handleAddPairToExistingZone(zone.id)}
+                            className="text-xs font-bold px-3 py-1.5 rounded-full border disabled:opacity-40"
+                            style={{ borderColor: "#CFE7DC", color: "#086847", background: "#FFFFFF" }}>
+                            {zone.label ?? "Zona"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Existing zones */}
@@ -1764,15 +1935,16 @@ export default function FixtureTab({
                       zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById}
                       onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
                       onStandingsClick={() => setStandingsModal(zone)}
-                      onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
+                      onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })}
+                      onRemovePair={(regId) => handleRemovePairFromZone(zone.id, regId)} />
                   ))}
                 </div>
               )}
 
               {/* GUARDAR BORRADOR | CONFIRMAR ARMADO */}
               <div className="flex gap-3">
-                <button onClick={() => showToast("Borrador guardado")}
-                  className="flex-1 py-3 rounded-2xl border font-black text-sm transition-all"
+                <button onClick={saveDraftZones} disabled={savingZones}
+                  className="flex-1 py-3 rounded-2xl border font-black text-sm transition-all disabled:opacity-40"
                   style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
                   GUARDAR BORRADOR
                 </button>
