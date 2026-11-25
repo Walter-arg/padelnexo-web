@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { doc, updateDoc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
 import { X, Plus, Minus, ChevronDown, ChevronUp, Clock, Check, MapPin, Trash2, Info } from "lucide-react";
@@ -14,6 +14,7 @@ import {
   getPlanningMatchPairNumbers,
   buildZoneMatchSchedulingSlots,
   buildAutoMatchSchedules,
+  buildAutoMatchSchedulesAcrossZones,
   getOccupiedSlotKeys,
   formatMinutesToTime,
   normalizeTypedTimeInput,
@@ -28,6 +29,25 @@ import { buildBracketPreview, applyBracketProgressions, assignSchedulesToBracket
 // ── Types ─────────────────────────────────────────────────────────────────────
 type FixSub = "configurar" | "automatico" | "manual";
 type MatchFmt = "third_set" | "super_tiebreak";
+type BracketFinalOverride = "none" | "final_only" | "semifinal_and_final";
+
+// Mismo criterio que usa la app: si el formato de llaves es Super Tie Break,
+// la excepcion de "instancias finales" puede bajar semifinal/final (o solo la
+// final) a tercer set completo. Si el formato de llaves no es super tie break,
+// todas las rondas quedan en tercer set sin importar la excepcion.
+function resolveBracketRoundMatchFormat(
+  bracketFmt: MatchFmt, finalOverride: BracketFinalOverride, roundTitle = ""
+): MatchFmt {
+  if (bracketFmt !== "super_tiebreak") return "third_set";
+  const normalizedRoundTitle = String(roundTitle || "").trim().toLowerCase();
+  if (finalOverride === "semifinal_and_final" && (normalizedRoundTitle.includes("semifinal") || normalizedRoundTitle.includes("final"))) {
+    return "third_set";
+  }
+  if (finalOverride === "final_only" && normalizedRoundTitle === "final") {
+    return "third_set";
+  }
+  return "super_tiebreak";
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CARD_W = 258;
@@ -60,6 +80,12 @@ const FORMAT_OPTIONS: { id: MatchFmt; label: string; desc: string }[] = [
 const TOURNAMENT_RULESET_OPTIONS: { value: "fap" | "apa"; label: string; subtitle: string; description: string }[] = [
   { value: "fap", label: "TORNEO FAP", subtitle: "Federacion Argentina de Padel", description: "Modalidad mas extensa." },
   { value: "apa", label: "TORNEO APA", subtitle: "Asociacion Padel Argentina", description: "Modalidad mas corta." },
+];
+
+const BRACKET_FINAL_OVERRIDE_OPTIONS: { value: BracketFinalOverride; label: string; description: string }[] = [
+  { value: "none", label: "SIN EXCEPCIONES", description: "Todas las llaves mantienen el mismo formato." },
+  { value: "final_only", label: "SOLO FINAL A 3ER SET", description: "La final pasa a jugarse a tercer set completo." },
+  { value: "semifinal_and_final", label: "SEMIFINAL Y FINAL A 3ER SET", description: "Semifinales y final pasan a jugarse a tercer set completo." },
 ];
 
 // ── Data normalization ────────────────────────────────────────────────────────
@@ -639,6 +665,9 @@ export default function FixtureTab({
   const [bracketFormat, setBracketFormat] = useState<MatchFmt>(mf.bracket ?? "super_tiebreak");
   const [zonesSuperTB, setZonesSuperTB] = useState<number>(mf.zonesSuperTieBreakPoints ?? 10);
   const [bracketSuperTB, setBracketSuperTB] = useState<number>(mf.bracketSuperTieBreakPoints ?? 10);
+  const [bracketFinalOverride, setBracketFinalOverride] = useState<BracketFinalOverride>(
+    ["none", "final_only", "semifinal_and_final"].includes(mf.bracketFinalStagesOverride) ? mf.bracketFinalStagesOverride : "none"
+  );
   const [rapidMode, setRapidMode] = useState<boolean>(!!mf.rapidModePoints);
   const [rapidPoints, setRapidPoints] = useState<number>(mf.rapidModePoints ?? 16);
   const [durationInput, setDurationInput] = useState<string>(
@@ -906,6 +935,7 @@ export default function FixtureTab({
       fs.matchFormat.bracket = bracketFormat;
       fs.matchFormat.zonesSuperTieBreakPoints = zonesSuperTB;
       fs.matchFormat.bracketSuperTieBreakPoints = bracketSuperTB;
+      fs.matchFormat.bracketFinalStagesOverride = bracketFinalOverride;
       fs.matchFormat.rapidModePoints = rapidMode ? rapidPoints : null;
       fs.matchDurationMinutes = duration;
       fs.lastViewedSection = "configuration";
@@ -1043,18 +1073,73 @@ export default function FixtureTab({
 
   async function handleAutoScheduleAll() {
     if (!zoneSchedulesForMatches.length) {
-      showToast("Primero cargá horarios de cancha en Configurar", false);
+      showToast("Primero cargá horarios de cancha en Preferencias", false);
       return;
     }
     setSavingAutoSchedule(true);
     try {
-      const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedules(
-        zones as ZonePlanningZone[], registrationsById, zoneSchedulesForMatches, matchDurationMinutes
-      );
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-      fs.zonePlanning = { ...(fs.zonePlanning ?? {}), zones: scheduledZones };
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
+      if (eventBatchId) {
+        // Evento multi-categoria: reparte los partidos de TODAS las categorias
+        // hermanas que ya tengan zonas creadas, en un solo pase contra el pool
+        // compartido del evento, para que no se pisen entre categorias.
+        const siblingsSnap = await getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", eventBatchId)));
+        const siblings = siblingsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+
+        const combinedRegistrationsById = new Map<string, any>();
+        const combinedZones: (ZonePlanningZone & { __tournamentId: string })[] = [];
+        const siblingFixtureSetups: Record<string, any> = {};
+
+        for (const sibling of siblings) {
+          const siblingZones = toArray(sibling.fixtureSetup?.zonePlanning?.zones);
+          if (!siblingZones.length) continue;
+
+          const regsSnap = await getDocs(collection(db, "tournaments", sibling.id, "registrations"));
+          const siblingConfirmed = regsSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((r: any) => isRegistrationConfirmed(r, sibling));
+          siblingConfirmed.forEach((r: any) => combinedRegistrationsById.set(r.id, r));
+
+          siblingZones.forEach((zone: any) => combinedZones.push({ ...zone, __tournamentId: sibling.id }));
+          siblingFixtureSetups[sibling.id] = sibling.fixtureSetup ?? {};
+        }
+
+        if (!combinedZones.length) {
+          showToast("Ninguna categoria del evento tiene zonas creadas todavia", false);
+          setSavingAutoSchedule(false);
+          return;
+        }
+
+        const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedulesAcrossZones(
+          combinedZones, combinedRegistrationsById, zoneSchedulesForMatches, matchDurationMinutes
+        );
+
+        const scheduledByTournament = new Map<string, any[]>();
+        scheduledZones.forEach(({ __tournamentId, ...zone }) => {
+          const list = scheduledByTournament.get(__tournamentId) ?? [];
+          list.push(zone);
+          scheduledByTournament.set(__tournamentId, list);
+        });
+
+        for (const [tid, zonesList] of scheduledByTournament) {
+          const fs = JSON.parse(JSON.stringify(siblingFixtureSetups[tid] ?? {}));
+          fs.zonePlanning = { ...(fs.zonePlanning ?? {}), zones: zonesList };
+          await updateDoc(doc(db, "tournaments", tid), { fixtureSetup: fs });
+        }
+
+        showToast(
+          unassignedCount > 0
+            ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.`
+            : "Horarios asignados entre todas las categorias del evento, sin pisarse"
+        );
+      } else {
+        const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedules(
+          zones as ZonePlanningZone[], registrationsById, zoneSchedulesForMatches, matchDurationMinutes
+        );
+        const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+        fs.zonePlanning = { ...(fs.zonePlanning ?? {}), zones: scheduledZones };
+        await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+        showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
+      }
     } catch {
       showToast("Error al asignar horarios", false);
     }
@@ -1122,7 +1207,7 @@ export default function FixtureTab({
   async function handleAutoScheduleBracket() {
     if (!fixtureSetup?.bracketPreview) return;
     if (!zoneSchedulesForBracket.length) {
-      showToast("Primero cargá horarios de cancha marcados para llaves en Configurar", false);
+      showToast("Primero cargá horarios de cancha marcados para llaves en Preferencias", false);
       return;
     }
     setSavingAutoSchedule(true);
@@ -1164,6 +1249,10 @@ export default function FixtureTab({
 
   const savedZonesFormat: MatchFmt = fixtureSetup?.matchFormat?.zones ?? "super_tiebreak";
   const savedBracketFormat: MatchFmt = fixtureSetup?.matchFormat?.bracket ?? "super_tiebreak";
+  const savedBracketFinalOverride: BracketFinalOverride =
+    ["none", "final_only", "semifinal_and_final"].includes(fixtureSetup?.matchFormat?.bracketFinalStagesOverride)
+      ? fixtureSetup.matchFormat.bracketFinalStagesOverride
+      : "none";
   const bracketLayout = hasBracket ? buildBracketLayout(bracketRounds) : null;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1257,6 +1346,24 @@ export default function FixtureTab({
                       <div>
                         <p className="text-xs font-bold mb-3" style={{ color: "#5F7D72" }}>Puntos Super Tie Break</p>
                         <Stepper value={superTB} onChange={setSuperTB} min={7} max={15} unit="pts" />
+                      </div>
+                    )}
+                    {!isZonas && fmt === "super_tiebreak" && (
+                      <div className="mt-4">
+                        <p className="text-xs font-bold mb-3" style={{ color: "#5F7D72" }}>Instancias finales</p>
+                        <div className="flex flex-col gap-2">
+                          {BRACKET_FINAL_OVERRIDE_OPTIONS.map(opt => (
+                            <button key={opt.value} onClick={() => setBracketFinalOverride(opt.value)}
+                              className="flex items-center gap-3 p-3 rounded-xl border transition-all text-left"
+                              style={bracketFinalOverride === opt.value ? { background: "#EEF8F1", borderColor: "#72C98B" } : { background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                              <RadioDot active={bracketFinalOverride === opt.value} />
+                              <div>
+                                <p className="text-xs font-black" style={{ color: "#173A2E" }}>{opt.label}</p>
+                                <p className="text-xs" style={{ color: "#5F7D72" }}>{opt.description}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1813,7 +1920,7 @@ export default function FixtureTab({
       {bracketResultModal && (
         <ResultModal
           match={bracketResultModal.match}
-          format={savedBracketFormat}
+          format={resolveBracketRoundMatchFormat(savedBracketFormat, savedBracketFinalOverride, bracketResultModal.match?.roundTitle)}
           onClose={() => setBracketResultModal(null)}
           onSave={async result => {
             const m = bracketResultModal.match;

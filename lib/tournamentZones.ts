@@ -713,6 +713,113 @@ export function buildAutoMatchSchedules(
   return { zones: scheduledZones, unassignedCount };
 }
 
+// Equivalente a buildAutoMatchSchedules, pero para eventos multi-categoria:
+// en vez de asignar los partidos zona por zona en el orden en que vienen,
+// junta TODOS los partidos de TODAS las categorias del evento en una sola
+// bolsa y los ordena por disponibilidad mas restringida primero, para que
+// ninguna categoria se quede sin cancha por haber sido procesada despues.
+// Cada zona debe venir con un campo __tournamentId que identifique a que
+// torneo/categoria pertenece, para poder separar el resultado por categoria
+// al guardar.
+export function buildAutoMatchSchedulesAcrossZones(
+  zones: (ZonePlanningZone & { __tournamentId: string })[],
+  registrationsById: Map<string, any>,
+  venueSchedules: ZoneVenueSchedule[],
+  matchDurationMinutes = ZONE_MATCH_DURATION_MINUTES
+): { zones: (ZonePlanningZone & { __tournamentId: string })[]; unassignedCount: number } {
+  const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
+  if (!slots.length) return { zones, unassignedCount: 0 };
+
+  const usedSlotIds = new Set<string>();
+  const pairOccupancy = new Map<string, any[]>();
+  let unassignedCount = 0;
+
+  const overlaps = (a: any, b: any) => a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
+
+  const pendingMatches: { zone: ZonePlanningZone & { __tournamentId: string }; matchLabel: string; idA: string; idB: string }[] = [];
+  zones.forEach((zone) => {
+    const matchLabels = buildPlanningMatchLabels(zone.registrationIds.length);
+    matchLabels.forEach((matchLabel) => {
+      const parts = matchLabel.match(/^(\d+)\s+vs\s+(\d+)$/i);
+      if (!parts) return;
+      const idA = zone.registrationIds[Number(parts[1]) - 1];
+      const idB = zone.registrationIds[Number(parts[2]) - 1];
+      if (!idA || !idB) return;
+      pendingMatches.push({ zone, matchLabel, idA, idB });
+    });
+  });
+
+  const restrictionScore = ({ idA, idB }: { idA: string; idB: string }) => {
+    const minsA = getTotalAvailabilityMinutes(registrationsById.get(idA)?.availability || {});
+    const minsB = getTotalAvailabilityMinutes(registrationsById.get(idB)?.availability || {});
+    // Sin disponibilidad cargada = flexible (puede jugar cuando sea), se procesa al final
+    return Math.min(minsA || Infinity, minsB || Infinity);
+  };
+
+  pendingMatches.sort((a, b) => restrictionScore(a) - restrictionScore(b));
+
+  const matchSchedulesByZoneKey = new Map<string, Record<string, any>>();
+
+  pendingMatches.forEach(({ zone, matchLabel, idA, idB }) => {
+    const availA = registrationsById.get(idA)?.availability || {};
+    const availB = registrationsById.get(idB)?.availability || {};
+    const occA = pairOccupancy.get(idA) || [];
+    const occB = pairOccupancy.get(idB) || [];
+
+    const findCandidates = (extensionMinutes: number) =>
+      slots.filter(
+        (slot) =>
+          !usedSlotIds.has(slot.id) &&
+          !occA.some((u) => overlaps(slot, u)) &&
+          !occB.some((u) => overlaps(slot, u)) &&
+          isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+          isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
+      );
+
+    const strictCandidates = findCandidates(0);
+    const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
+    const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
+
+    if (!candidates.length) {
+      unassignedCount++;
+      return;
+    }
+
+    const allOcc = [...occA, ...occB];
+    candidates.sort((a, b) => {
+      const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
+      const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
+      if (bVenue !== aVenue) return bVenue - aVenue;
+      if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      return a.courtIndex - b.courtIndex;
+    });
+
+    const chosen = candidates[0];
+    usedSlotIds.add(chosen.id);
+    pairOccupancy.set(idA, [...occA, chosen]);
+    pairOccupancy.set(idB, [...occB, chosen]);
+
+    const zoneKey = `${zone.__tournamentId}:${zone.id}`;
+    if (!matchSchedulesByZoneKey.has(zoneKey)) {
+      matchSchedulesByZoneKey.set(zoneKey, { ...(zone.matchSchedules || {}) });
+    }
+    matchSchedulesByZoneKey.get(zoneKey)![matchLabel] = {
+      dayKey: chosen.dayKey,
+      startTime: formatMinutesToTime(chosen.startMinutes),
+      venueId: chosen.venueId,
+      courtIndex: chosen.courtIndex || 0,
+    };
+  });
+
+  const scheduledZones = zones.map((zone) => {
+    const zoneKey = `${zone.__tournamentId}:${zone.id}`;
+    return { ...zone, matchSchedules: matchSchedulesByZoneKey.get(zoneKey) || zone.matchSchedules || {} };
+  });
+
+  return { zones: scheduledZones, unassignedCount };
+}
+
 // Slots ya ocupados por OTRO partido (de cualquier zona) en el mismo
 // dia+hora+sede+cancha, para que el picker manual no los vuelva a ofrecer.
 export function getOccupiedSlotKeys(zones: ZonePlanningZone[], excludeZoneId = "", excludeMatchKey = ""): Set<string> {
