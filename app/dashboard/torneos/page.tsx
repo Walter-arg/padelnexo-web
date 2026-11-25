@@ -93,7 +93,15 @@ function OrganizerTournamentCardLink({ categories }: { categories: any[] }) {
   const startDate = formatDate(representative.startDateMillis);
   const endDate = formatDate(representative.endDateMillis);
   const venue = representative.venues?.[0]?.name ?? representative.complejo?.nombre ?? "";
-  const headerStatus = STATUS_META[representative.status ?? "draft"] ?? STATUS_META.draft;
+  const hasOpenCategory = categories.some((cat) => cat.status === "registration_open");
+  const areAllCategoriesClosed = categories.every((cat) =>
+    ["published", "registration_closed"].includes(cat.status)
+  );
+  const headerStatus = hasOpenCategory
+    ? STATUS_META.registration_open
+    : areAllCategoriesClosed
+    ? STATUS_META.registration_closed
+    : STATUS_META[representative.status ?? "draft"] ?? STATUS_META.draft;
 
   return (
     <a
