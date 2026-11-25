@@ -8,6 +8,7 @@ import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import { ChevronLeft, Loader2, ImageIcon, Info } from "lucide-react";
+import { buildPublicationMercadoPagoConfig } from "@/lib/mercadoPago";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type CategoryMode = "single" | "sum_fixed" | "sum_open";
@@ -273,7 +274,7 @@ function TorneoNuevaInner() {
     });
   }
 
-  function buildBase(cat: CatConfig, tournamentName: string) {
+  function buildBase(cat: CatConfig, tournamentName: string, batchId: string = "") {
     const comp = buildComposition(cat);
     const fee  = parseMoney(entryFeeStr);
     return {
@@ -287,6 +288,7 @@ function TorneoNuevaInner() {
       tournamentRuleSet,
       status: "draft",
       registrationStatus: "closed",
+      creationBatchId: batchId,
       venueMode,
       venues: buildVenues(),
       temporaryVenues: [],
@@ -300,6 +302,7 @@ function TorneoNuevaInner() {
       pairConfirmationMode: pairConfirmation,
       entryFee: fee,
       paymentMethods: fee > 0 ? ["transferencia"] : [],
+      mercadoPagoConfig: buildPublicationMercadoPagoConfig(userData?.mercadoPagoConfig || {}, "torneos"),
       paymentAlias: paymentAlias.trim(),
       startDateMillis: startDate ? new Date(startDate).setHours(0, 0, 0, 0) : 0,
       endDateMillis:   endDate   ? new Date(endDate).setHours(0, 0, 0, 0)   : 0,
@@ -366,12 +369,13 @@ function TorneoNuevaInner() {
         const newRef = await addDoc(collection(db, "tournaments"), buildBase(singleCat, name.trim().toUpperCase()));
         router.push(`/dashboard/torneos/${newRef.id}`);
       } else {
-        const qty   = Math.max(2, parseInt(quantity) || 2);
-        const batch = writeBatch(db);
+        const qty     = Math.max(2, parseInt(quantity) || 2);
+        const batch   = writeBatch(db);
+        const batchId = `tournament-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         multiConfigs.slice(0, qty).forEach(cat => {
           const comp   = buildComposition(cat);
           const tName  = [name.trim().toUpperCase(), comp.compositionLabel].filter(Boolean).join(" ");
-          batch.set(doc(collection(db, "tournaments")), buildBase(cat, tName));
+          batch.set(doc(collection(db, "tournaments")), buildBase(cat, tName, batchId));
         });
         await batch.commit();
         router.push("/dashboard/torneos");

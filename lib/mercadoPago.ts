@@ -50,6 +50,30 @@ export function normalizeMercadoPagoConfig(config: any = {}): MercadoPagoConfig 
   };
 }
 
+export function isMercadoPagoCategoryEnabled(config: any = {}, categoryKey: string = ""): boolean {
+  const normalized = normalizeMercadoPagoConfig(config);
+  if (!normalized.enabled) return false;
+  return (normalized.categories as any)?.[categoryKey] === true;
+}
+
+// Config de Mercado Pago que queda guardada EN el torneo al crearlo/publicarlo,
+// a partir de la config de la cuenta del organizador (misma logica que
+// buildPublicationMercadoPagoConfig en mercadoPagoConfigService.js de la app).
+export function buildPublicationMercadoPagoConfig(config: any = {}, categoryKey: string = ""): MercadoPagoConfig & { provider: string } {
+  const normalized = normalizeMercadoPagoConfig(config);
+  const categoryEnabled = categoryKey ? isMercadoPagoCategoryEnabled(normalized, categoryKey) : normalized.enabled;
+
+  return {
+    enabled: categoryEnabled,
+    accountLinked: normalized.accountLinked,
+    accountDisplayName: normalized.accountDisplayName,
+    autoEnableNewPayments: normalized.autoEnableNewPayments,
+    connectionStatus: normalized.connectionStatus,
+    categories: { ...normalized.categories },
+    provider: "mercado_pago",
+  };
+}
+
 // La pagina a la que Mercado Pago (via mercadoPagoOAuthRedirect) nos manda
 // de vuelta con ?code&state&sessionId. Debe ser siempre la misma string,
 // tanto al iniciar como al completar la vinculacion.
