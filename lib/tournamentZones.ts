@@ -69,6 +69,42 @@ export function formatMinutesToTime(totalMinutes = 0): string {
 export const ZONE_MATCH_DURATION_MINUTES = 75;
 export const AVAILABILITY_EXTENSION_MINUTES = 90;
 
+// Duracion de partido, mismo formato "h:mm" que usa la app (ej "1:15" = 75 min)
+export function normalizeTypedTimeInput(value = ""): string {
+  const sanitized = String(value || "").replace(/[^\d:]/g, "").slice(0, 5);
+
+  if (sanitized.includes(":")) {
+    return sanitized;
+  }
+
+  const digitsOnly = sanitized.replace(/\D/g, "");
+
+  if (digitsOnly.length <= 2) {
+    return digitsOnly;
+  }
+
+  return `${digitsOnly.slice(0, 2)}:${digitsOnly.slice(2, 4)}`;
+}
+
+export function parseMatchDurationToMinutes(value = ""): number {
+  const trimmed = String(value || "").trim();
+
+  if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    const [hours, minutes] = trimmed.split(":").map((item) => Number.parseInt(item, 10));
+    return Math.max(hours * 60 + minutes, 15);
+  }
+
+  const numericValue = Number.parseInt(trimmed.replace(/\D/g, ""), 10);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : ZONE_MATCH_DURATION_MINUTES;
+}
+
+export function formatMatchDurationValue(totalMinutes = ZONE_MATCH_DURATION_MINUTES): string {
+  const safeMinutes = Math.max(Number(totalMinutes || 0), 15);
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
 // ── zoneVenueSchedules ─────────────────────────────────────────────────────
 
 export function normalizeZoneVenueSchedules(

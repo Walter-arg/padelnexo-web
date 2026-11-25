@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
-import { X, Plus, Minus, ChevronDown, ChevronUp, Zap, Clock, Check, MapPin, Trash2 } from "lucide-react";
+import { X, Plus, Minus, ChevronDown, ChevronUp, Clock, Check, MapPin, Trash2, Info } from "lucide-react";
 import {
   normalizeZoneVenueSchedules,
   buildTournamentDayOptions,
@@ -16,6 +16,10 @@ import {
   buildAutoMatchSchedules,
   getOccupiedSlotKeys,
   formatMinutesToTime,
+  normalizeTypedTimeInput,
+  parseMatchDurationToMinutes,
+  formatMatchDurationValue,
+  parseTimeToMinutes,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
@@ -51,6 +55,11 @@ const TIME_SLOTS = [
 const FORMAT_OPTIONS: { id: MatchFmt; label: string; desc: string }[] = [
   { id: "third_set", label: "Tercer set", desc: "SET 1 — SET 2 — SET 3" },
   { id: "super_tiebreak", label: "Super Tie Break", desc: "SET 1 — SET 2 — SUPER TIE BREAK" },
+];
+
+const TOURNAMENT_RULESET_OPTIONS: { value: "fap" | "apa"; label: string; subtitle: string; description: string }[] = [
+  { value: "fap", label: "TORNEO FAP", subtitle: "Federacion Argentina de Padel", description: "Modalidad mas extensa." },
+  { value: "apa", label: "TORNEO APA", subtitle: "Asociacion Padel Argentina", description: "Modalidad mas corta." },
 ];
 
 // ── Data normalization ────────────────────────────────────────────────────────
@@ -262,17 +271,6 @@ function Stepper({ value, onChange, min, max, step = 1, unit }: {
       </button>
       {unit && <span className="text-xs" style={{ color: "#9BB8AE" }}>{unit}</span>}
     </div>
-  );
-}
-
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button onClick={() => onChange(!value)}
-      className="relative w-12 h-6 rounded-full transition-all flex-shrink-0"
-      style={{ background: value ? "#0B8457" : "#CFE7DC" }}>
-      <span className="absolute top-1 transition-all rounded-full w-4 h-4 bg-white"
-        style={{ left: value ? "calc(100% - 20px)" : "4px" }} />
-    </button>
   );
 }
 
@@ -643,9 +641,30 @@ export default function FixtureTab({
   const [bracketSuperTB, setBracketSuperTB] = useState<number>(mf.bracketSuperTieBreakPoints ?? 10);
   const [rapidMode, setRapidMode] = useState<boolean>(!!mf.rapidModePoints);
   const [rapidPoints, setRapidPoints] = useState<number>(mf.rapidModePoints ?? 16);
-  const [duration, setDuration] = useState<number>(fixtureSetup?.matchDurationMinutes ?? 90);
+  const [durationInput, setDurationInput] = useState<string>(
+    formatMatchDurationValue(fixtureSetup?.matchDurationMinutes)
+  );
+  const duration = useMemo(() => parseMatchDurationToMinutes(durationInput), [durationInput]);
   const [savingConfig, setSavingConfig] = useState(false);
   const [configOpen, setConfigOpen] = useState<"zonas" | "llaves" | null>("zonas");
+
+  // ── Tipo de torneo (FAP/APA) ─────────────────────────────────────────────────
+  const [ruleSet, setRuleSet] = useState<"fap" | "apa">(
+    tournament?.tournamentRuleSet === "apa" || tournament?.ruleSet === "apa" ? "apa" : "fap"
+  );
+  const [ruleSetInfoVisible, setRuleSetInfoVisible] = useState(false);
+
+  useEffect(() => {
+    setRuleSet(tournament?.tournamentRuleSet === "apa" || tournament?.ruleSet === "apa" ? "apa" : "fap");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament?.id]);
+
+  useEffect(() => {
+    const savedRuleSet = tournament?.tournamentRuleSet === "apa" || tournament?.ruleSet === "apa" ? "apa" : "fap";
+    if (ruleSet === savedRuleSet || !torneoId) return;
+    updateDoc(doc(db, "tournaments", torneoId), { tournamentRuleSet: ruleSet }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ruleSet]);
 
   // ── Zonas state ─────────────────────────────────────────────────────────────
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -654,12 +673,34 @@ export default function FixtureTab({
   const [pathType, setPathType] = useState<"strict" | "flex">("strict");
 
   // ── Horarios de cancha para zonas (zoneVenueSchedules) ──────────────────────
+  // Cuando el torneo pertenece a un evento multi-categoria (creationBatchId),
+  // esta disponibilidad es compartida por todas las categorias del evento y
+  // vive en tournamentEvents/{batchId} en vez de en el fixtureSetup de este
+  // torneo individual, para que el armado automatico unificado la vea igual
+  // desde cualquiera de las categorias (misma logica que ya usa la app).
+  const eventBatchId: string = tournament?.creationBatchId || "";
   const [organizerComplejos, setOrganizerComplejos] = useState<any[]>([]);
-  const [scheduleDraft, setScheduleDraft] = useState<{ venueId: string; dayKey: string; from: string; to: string }>({
-    venueId: "", dayKey: "", from: "", to: "",
-  });
-  const [scheduleSelectedCourts, setScheduleSelectedCourts] = useState<Set<number>>(new Set());
+  const [eventVenueSchedulesRaw, setEventVenueSchedulesRaw] = useState<any[]>([]);
+  const [expandedVenueScheduleIds, setExpandedVenueScheduleIds] = useState<string[]>([]);
+  const [scheduleVenueDrafts, setScheduleVenueDrafts] = useState<Record<string, {
+    selectedDayKey: string; from: string; to: string; selectedCourtIndices: number[] | null;
+    useForZones: boolean; useForBracket: boolean;
+  }>>({});
   const [savingSchedules, setSavingSchedules] = useState(false);
+
+  useEffect(() => {
+    if (!eventBatchId) {
+      setEventVenueSchedulesRaw([]);
+      return;
+    }
+    let active = true;
+    getDoc(doc(db, "tournamentEvents", eventBatchId)).then((snap) => {
+      if (!active) return;
+      const data = snap.exists() ? snap.data() : null;
+      setEventVenueSchedulesRaw(Array.isArray(data?.zoneVenueSchedules) ? data.zoneVenueSchedules : []);
+    });
+    return () => { active = false; };
+  }, [eventBatchId]);
 
   useEffect(() => {
     if (!tournament?.organizerId) return;
@@ -688,9 +729,35 @@ export default function FixtureTab({
   );
 
   const zoneVenueSchedules: ZoneVenueSchedule[] = useMemo(
-    () => normalizeZoneVenueSchedules(fixtureSetup?.zoneVenueSchedules, tournamentDayOptions.map((d) => d.key), tournamentVenueOptions),
-    [fixtureSetup?.zoneVenueSchedules, tournamentDayOptions, tournamentVenueOptions]
+    () => normalizeZoneVenueSchedules(
+      eventBatchId ? eventVenueSchedulesRaw : fixtureSetup?.zoneVenueSchedules,
+      tournamentDayOptions.map((d) => d.key),
+      tournamentVenueOptions
+    ),
+    [eventBatchId, eventVenueSchedulesRaw, fixtureSetup?.zoneVenueSchedules, tournamentDayOptions, tournamentVenueOptions]
   );
+
+  async function persistZoneVenueSchedules(nextSchedules: any[], successMessage?: string) {
+    setSavingSchedules(true);
+    try {
+      if (eventBatchId) {
+        await setDoc(
+          doc(db, "tournamentEvents", eventBatchId),
+          { organizerId: tournament?.organizerId ?? "", zoneVenueSchedules: nextSchedules, updatedAt: serverTimestamp() },
+          { merge: true }
+        );
+        setEventVenueSchedulesRaw(nextSchedules);
+      } else {
+        const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+        fs.zoneVenueSchedules = nextSchedules;
+        await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      }
+      if (successMessage) showToast(successMessage);
+    } catch {
+      showToast("Error al guardar la disponibilidad de sedes", false);
+    }
+    setSavingSchedules(false);
+  }
 
   const zoneSchedulesForMatches = useMemo(
     () => zoneVenueSchedules.filter((s) => s.useForZones),
@@ -711,62 +778,85 @@ export default function FixtureTab({
     return m;
   }, [registrations]);
 
-  const draftVenue = tournamentVenueOptions.find((v) => v.id === scheduleDraft.venueId);
+  function getVenueDraft(venueId: string) {
+    return scheduleVenueDrafts[venueId] ?? {
+      selectedDayKey: "", from: "09:00", to: "18:00", selectedCourtIndices: null, useForZones: false, useForBracket: false,
+    };
+  }
 
-  async function handleAddZoneSchedule() {
-    if (!scheduleDraft.venueId || !scheduleDraft.dayKey || !scheduleDraft.from || !scheduleDraft.to) {
-      showToast("Completá sede, día y horario", false);
+  function updateVenueDraft(venueId: string, partial: Partial<ReturnType<typeof getVenueDraft>>) {
+    setScheduleVenueDrafts((current) => ({ ...current, [venueId]: { ...getVenueDraft(venueId), ...partial } }));
+  }
+
+  function toggleVenueScheduleExpanded(venueId: string) {
+    setExpandedVenueScheduleIds((current) =>
+      current.includes(venueId) ? current.filter((id) => id !== venueId) : [...current, venueId]
+    );
+  }
+
+  function toggleScheduleVenueUsage(venueId: string, field: "useForZones" | "useForBracket") {
+    updateVenueDraft(venueId, { [field]: !getVenueDraft(venueId)[field] });
+  }
+
+  function selectScheduleVenueDay(venueId: string, dayKey: string) {
+    updateVenueDraft(venueId, { selectedDayKey: dayKey });
+  }
+
+  function toggleCourtSelection(venueId: string, courtIndex: number, totalCanchas: number) {
+    const draft = getVenueDraft(venueId);
+    const allIndices = Array.from({ length: totalCanchas }, (_, i) => i + 1);
+    const currentSelected = draft.selectedCourtIndices ?? allIndices;
+    const next = currentSelected.includes(courtIndex)
+      ? currentSelected.filter((i) => i !== courtIndex)
+      : [...currentSelected, courtIndex].sort((a, b) => a - b);
+    if (next.length === 0) return;
+    updateVenueDraft(venueId, { selectedCourtIndices: next });
+  }
+
+  async function handleAddZoneVenueSchedule(venueId: string) {
+    const venueDraft = getVenueDraft(venueId);
+    const venue = tournamentVenueOptions.find((v) => v.id === venueId);
+    const maxCourts = Math.max(venue?.totalCanchas || 0, 1);
+    const allIndices = Array.from({ length: maxCourts }, (_, i) => i + 1);
+    const draftSelectedIndices = venueDraft.selectedCourtIndices?.length ? venueDraft.selectedCourtIndices : allIndices;
+
+    if (!venueDraft.useForZones && !venueDraft.useForBracket) {
+      showToast("Indica si esta sede se usara en zonas, en llaves o en ambas", false);
       return;
     }
-    setSavingSchedules(true);
-    try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-      const current = toArray(fs.zoneVenueSchedules);
-      current.push({
-        id: `zone-schedule-${Date.now()}`,
-        venueId: scheduleDraft.venueId,
-        dayKey: scheduleDraft.dayKey,
-        from: scheduleDraft.from,
-        to: scheduleDraft.to,
-        courts: scheduleSelectedCourts.size || draftVenue?.totalCanchas || 1,
-        selectedCourtIndices: scheduleSelectedCourts.size
-          ? Array.from(scheduleSelectedCourts).sort((a, b) => a - b)
-          : Array.from({ length: draftVenue?.totalCanchas || 1 }, (_, i) => i + 1),
-        useForZones: true,
-        useForBracket: true,
-      });
-      fs.zoneVenueSchedules = current;
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      setScheduleDraft({ venueId: "", dayKey: "", from: "", to: "" });
-      setScheduleSelectedCourts(new Set());
-      showToast("Horario agregado");
-    } catch {
-      showToast("Error al agregar el horario", false);
+    if (!venue || !venueDraft.selectedDayKey || !venueDraft.from || !venueDraft.to) {
+      showToast("Selecciona el dia y completa el horario desde y hasta", false);
+      return;
     }
-    setSavingSchedules(false);
+    if (parseTimeToMinutes(venueDraft.to) <= parseTimeToMinutes(venueDraft.from)) {
+      showToast("El horario de fin debe ser posterior al de inicio", false);
+      return;
+    }
+
+    const newEntry = {
+      id: `zone-schedule-${Date.now()}-${venueId}`,
+      venueId: venue.id,
+      venueName: venue.name,
+      dayKey: venueDraft.selectedDayKey,
+      from: venueDraft.from,
+      to: venueDraft.to,
+      courts: draftSelectedIndices.length,
+      selectedCourtIndices: draftSelectedIndices,
+      useForZones: Boolean(venueDraft.useForZones),
+      useForBracket: Boolean(venueDraft.useForBracket),
+    };
+    // Reemplazar entradas existentes de la misma sede+dia para no acumular duplicados
+    const nextSchedules = [
+      ...zoneVenueSchedules.filter((entry) => !(entry.venueId === venueId && entry.dayKey === newEntry.dayKey)),
+      newEntry,
+    ];
+
+    await persistZoneVenueSchedules(nextSchedules, "Franja horaria guardada");
   }
 
-  async function handleRemoveZoneSchedule(scheduleId: string) {
-    setSavingSchedules(true);
-    try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-      fs.zoneVenueSchedules = toArray(fs.zoneVenueSchedules).filter((s: any) => s.id !== scheduleId);
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      showToast("Horario eliminado");
-    } catch {
-      showToast("Error al eliminar el horario", false);
-    }
-    setSavingSchedules(false);
-  }
-
-  async function handleToggleZoneScheduleUse(scheduleId: string, field: "useForZones" | "useForBracket") {
-    const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-    const list = toArray(fs.zoneVenueSchedules);
-    const entry = list.find((s: any) => s.id === scheduleId);
-    if (!entry) return;
-    entry[field] = !entry[field];
-    fs.zoneVenueSchedules = list;
-    await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+  async function handleRemoveZoneVenueSchedule(scheduleId: string) {
+    const nextSchedules = zoneVenueSchedules.filter((entry) => entry.id !== scheduleId);
+    await persistZoneVenueSchedules(nextSchedules);
   }
 
   // ── Modal state ─────────────────────────────────────────────────────────────
@@ -857,8 +947,8 @@ export default function FixtureTab({
   );
 
   const fixtureRecommendation = useMemo(
-    () => resolveFixtureRecommendation(confirmedRegistrations.length, pathType, (tournament?.tournamentRuleSet || tournament?.ruleSet || "fap") as any),
-    [confirmedRegistrations.length, pathType, tournament?.tournamentRuleSet, tournament?.ruleSet]
+    () => resolveFixtureRecommendation(confirmedRegistrations.length, pathType, ruleSet),
+    [confirmedRegistrations.length, pathType, ruleSet]
   );
 
   async function handleGenerarZonasAutomatico() {
@@ -920,7 +1010,7 @@ export default function FixtureTab({
               })),
             ])
           );
-          const synced = syncBracketWithZones(fs.bracketPreview, zoneList as ZonePlanningZone[], pairsByZoneId, tournamentRuleSet);
+          const synced = syncBracketWithZones(fs.bracketPreview, zoneList as ZonePlanningZone[], pairsByZoneId, ruleSet);
           if (synced) fs.bracketPreview = synced;
         }
 
@@ -971,8 +1061,6 @@ export default function FixtureTab({
     setSavingAutoSchedule(false);
   }
 
-  const tournamentRuleSet: "fap" | "apa" = tournament?.tournamentRuleSet === "apa" || tournament?.ruleSet === "apa" ? "apa" : "fap";
-
   async function handleGenerateBracket() {
     if (!zones.length) {
       showToast("Primero armá las zonas", false);
@@ -988,7 +1076,7 @@ export default function FixtureTab({
           })),
         ])
       );
-      const preview = buildBracketPreview(zones as ZonePlanningZone[], pairsByZoneId, tournamentRuleSet);
+      const preview = buildBracketPreview(zones as ZonePlanningZone[], pairsByZoneId, ruleSet);
       if (!preview) {
         showToast("No hay un molde de llave para esta cantidad de parejas (se necesitan entre 6 y 32)", false);
         return;
@@ -1084,7 +1172,7 @@ export default function FixtureTab({
       {/* Sub-tab navigation */}
       <div className="flex gap-1 mb-6 p-1 rounded-2xl" style={{ background: "#F2FAF5", border: "1px solid #D5EADF" }}>
         {([
-          { id: "configurar", label: "CONFIGURAR" },
+          { id: "configurar", label: "PREFERENCIAS" },
           { id: "automatico", label: "ARMADO AUTO" },
           { id: "manual", label: "ARMADO MANUAL" },
         ] as { id: FixSub; label: string }[]).map(s => (
@@ -1099,6 +1187,38 @@ export default function FixtureTab({
       {/* ── CONFIGURAR ─────────────────────────────────────────────────────── */}
       {sub === "configurar" && (
         <div className="max-w-lg flex flex-col gap-4">
+          {/* Parejas confirmadas */}
+          <div className="rounded-[20px] border p-5 flex items-center justify-between" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+            <span className="font-black text-sm" style={{ color: "#173A2E" }}>Parejas confirmadas</span>
+            <span className="font-black text-lg" style={{ color: "#086847" }}>{confirmedRegistrations.length}</span>
+          </div>
+
+          {/* Tipo de torneo */}
+          <div className="rounded-[20px] border p-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-black text-sm" style={{ color: "#173A2E" }}>TIPO DE TORNEO</span>
+              <button onClick={() => setRuleSetInfoVisible(true)} className="p-1">
+                <Info size={18} style={{ color: "#086847" }} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {TOURNAMENT_RULESET_OPTIONS.map((option) => (
+                <button key={option.value} onClick={() => setRuleSet(option.value)}
+                  className="flex items-center gap-3 p-3 rounded-xl border transition-all text-left"
+                  style={ruleSet === option.value ? { background: "#EEF8F1", borderColor: "#72C98B" } : { background: "#FFFFFF", borderColor: "#CFE7DC" }}>
+                  <RadioDot active={ruleSet === option.value} />
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: "#173A2E" }}>{option.label}</p>
+                    <p className="text-xs" style={{ color: "#5F7D72" }}>{option.subtitle}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-3" style={{ color: "#5F7D72" }}>
+              {TOURNAMENT_RULESET_OPTIONS.find((o) => o.value === ruleSet)?.description}
+            </p>
+          </div>
+
           {/* Accordion: Zonas */}
           {(["zonas", "llaves"] as const).map(section => {
             const isZonas = section === "zonas";
@@ -1147,41 +1267,55 @@ export default function FixtureTab({
 
           {/* MODO RELÁMPAGO */}
           <div className="rounded-[20px] border p-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Zap size={16} style={{ color: rapidMode ? "#E8A70A" : "#9BB8AE" }} />
-                <span className="font-black text-sm" style={{ color: "#173A2E" }}>Modo Relámpago</span>
-              </div>
-              <Toggle value={rapidMode} onChange={setRapidMode} />
+            <button onClick={() => setRapidMode(!rapidMode)} className="flex items-center gap-2 mb-2">
+              {rapidMode ? <Check size={18} style={{ color: "#086847" }} /> : <div className="w-[18px] h-[18px] rounded-full border" style={{ borderColor: "#9BB8AE" }} />}
+              <span className="font-black text-sm" style={{ color: rapidMode ? "#173A2E" : "#5F7D72" }}>MODO RELAMPAGO</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold" style={{ color: "#5F7D72" }}>1 SOLO SET A</span>
+              <input
+                type="text"
+                value={rapidPoints}
+                onChange={(e) => setRapidPoints(Number.parseInt(e.target.value.replace(/\D/g, ""), 10) || 9)}
+                className="border rounded-lg px-2 py-1 text-xs w-14 text-center"
+                style={{ borderColor: "#CFE7DC" }}
+              />
+              <span className="text-xs font-bold" style={{ color: "#5F7D72" }}>PTS</span>
             </div>
-            <p className="text-xs mb-3" style={{ color: "#5F7D72" }}>
-              Los partidos se juegan al primero en llegar a X puntos en un solo set.
-            </p>
-            {rapidMode && (
-              <div>
-                <p className="text-xs font-bold mb-3" style={{ color: "#5F7D72" }}>Puntos para ganar</p>
-                <Stepper value={rapidPoints} onChange={setRapidPoints} min={12} max={24} unit="pts" />
-              </div>
-            )}
           </div>
 
           {/* Duración */}
           <div className="rounded-[20px] border p-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
             <div className="flex items-center gap-2 mb-3">
               <Clock size={16} style={{ color: "#5F7D72" }} />
-              <span className="font-black text-sm" style={{ color: "#173A2E" }}>Duración del partido</span>
+              <span className="font-black text-sm" style={{ color: "#173A2E" }}>Duracion de partido promedio</span>
             </div>
-            <Stepper value={duration} onChange={setDuration} min={30} max={180} step={15} unit="min" />
+            <input
+              type="text"
+              value={durationInput}
+              onChange={(e) => setDurationInput(normalizeTypedTimeInput(e.target.value))}
+              placeholder="1:15"
+              className="border rounded-lg px-3 py-2 text-sm w-24"
+              style={{ borderColor: "#CFE7DC" }}
+            />
           </div>
 
-          {/* Horarios de cancha para zonas / llaves */}
+          {/* Disponibilidad de sedes para zonas */}
           <div className="rounded-[20px] border p-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-2">
               <MapPin size={16} style={{ color: "#5F7D72" }} />
-              <span className="font-black text-sm" style={{ color: "#173A2E" }}>Horarios de cancha para zonas</span>
+              <span className="font-black text-sm" style={{ color: "#173A2E" }}>Disponibilidad de sedes para zonas</span>
             </div>
+            <p className="text-xs mb-1" style={{ color: "#5F7D72" }}>
+              Agrega las franjas horarias de canchas disponibles.
+            </p>
+            {eventBatchId && (
+              <p className="text-xs mb-1" style={{ color: "#5F7D72" }}>
+                Esta configuracion es compartida por todas las categorias de este evento.
+              </p>
+            )}
             <p className="text-xs mb-4" style={{ color: "#5F7D72" }}>
-              Cargá qué canchas y horarios vas a usar para los partidos de zona (y, si querés, también para las llaves).
+              Franjas para llaves detectadas: {zoneVenueSchedules.filter((s) => s.useForBracket).length}
             </p>
 
             {!tournamentVenueOptions.length ? (
@@ -1193,81 +1327,126 @@ export default function FixtureTab({
                 Cargá la fecha de inicio y fin del torneo para poder elegir días.
               </p>
             ) : (
-              <>
-                {zoneVenueSchedules.length > 0 && (
-                  <div className="flex flex-col gap-2 mb-4">
-                    {zoneVenueSchedules.map((s) => (
-                      <div key={s.id} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 border flex-wrap" style={{ borderColor: "#CFE7DC" }}>
-                        <div className="flex-1 min-w-[160px]">
-                          <p className="text-xs font-bold" style={{ color: "#173A2E" }}>
-                            {s.venueName} · {tournamentDayOptions.find((d) => d.key === s.dayKey)?.shortLabel || s.dayKey}
-                          </p>
+              <div className="flex flex-col gap-3">
+                {tournamentVenueOptions.map((venue, venueIndex) => {
+                  const venueDraft = getVenueDraft(venue.id);
+                  const venueSchedules = zoneVenueSchedules.filter((s) => s.venueId === venue.id);
+                  const totalCanchas = venue.totalCanchas || 1;
+                  const courtOptions = Array.from({ length: totalCanchas }, (_, i) => i + 1);
+                  const effectiveSelectedIndices = venueDraft.selectedCourtIndices ?? courtOptions;
+                  const isVenueEnabled = venueDraft.useForZones || venueDraft.useForBracket;
+                  const isExpanded = expandedVenueScheduleIds.includes(venue.id);
+
+                  return (
+                    <div key={venue.id} className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: "#CFE7DC" }}>
+                      <button onClick={() => toggleVenueScheduleExpanded(venue.id)}
+                        className="w-full flex items-center justify-between px-4 py-3">
+                        <div className="text-left">
+                          <p className="text-[10px] font-bold uppercase" style={{ color: "#5F7D72" }}>Sede {venueIndex + 1}</p>
+                          <p className="text-sm font-bold" style={{ color: "#173A2E" }}>{venue.name}</p>
                           <p className="text-xs" style={{ color: "#5F7D72" }}>
-                            {s.from} a {s.to} hs · {s.courts} cancha{s.courts !== 1 ? "s" : ""}
+                            {effectiveSelectedIndices.length}/{totalCanchas} cancha{totalCanchas !== 1 ? "s" : ""} seleccionada{effectiveSelectedIndices.length !== 1 ? "s" : ""}
                           </p>
                         </div>
-                        <button onClick={() => handleToggleZoneScheduleUse(s.id, "useForZones")}
-                          className="text-[10px] font-black px-2 py-1 rounded-full border"
-                          style={s.useForZones ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                          ZONAS
-                        </button>
-                        <button onClick={() => handleToggleZoneScheduleUse(s.id, "useForBracket")}
-                          className="text-[10px] font-black px-2 py-1 rounded-full border"
-                          style={s.useForBracket ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                          LLAVES
-                        </button>
-                        <button onClick={() => handleRemoveZoneSchedule(s.id)} disabled={savingSchedules} className="text-red-400 hover:text-red-600 p-1">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black px-2 py-1 rounded-full"
+                            style={isVenueEnabled ? { background: "#D7F2E2", color: "#167A45" } : { background: "#FBEBD2", color: "#A86500" }}>
+                            {isVenueEnabled ? "Disponible" : "Sin seleccionar"}
+                          </span>
+                          {isExpanded ? <ChevronUp size={18} style={{ color: "#5F7D72" }} /> : <ChevronDown size={18} style={{ color: "#5F7D72" }} />}
+                        </div>
+                      </button>
 
-                <div className="flex flex-col gap-2 bg-white rounded-xl p-3 border" style={{ borderColor: "#CFE7DC" }}>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select value={scheduleDraft.venueId} onChange={(e) => setScheduleDraft((d) => ({ ...d, venueId: e.target.value }))}
-                      className="border rounded-lg px-2 py-2 text-xs" style={{ borderColor: "#CFE7DC" }}>
-                      <option value="">Sede...</option>
-                      {tournamentVenueOptions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    <select value={scheduleDraft.dayKey} onChange={(e) => setScheduleDraft((d) => ({ ...d, dayKey: e.target.value }))}
-                      className="border rounded-lg px-2 py-2 text-xs" style={{ borderColor: "#CFE7DC" }}>
-                      <option value="">Día...</option>
-                      {tournamentDayOptions.map((d) => <option key={d.key} value={d.key}>{d.shortLabel}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="time" value={scheduleDraft.from} onChange={(e) => setScheduleDraft((d) => ({ ...d, from: e.target.value }))}
-                      className="border rounded-lg px-2 py-2 text-xs" style={{ borderColor: "#CFE7DC" }} />
-                    <input type="time" value={scheduleDraft.to} onChange={(e) => setScheduleDraft((d) => ({ ...d, to: e.target.value }))}
-                      className="border rounded-lg px-2 py-2 text-xs" style={{ borderColor: "#CFE7DC" }} />
-                  </div>
-                  {draftVenue && (
-                    <div>
-                      <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>Canchas a usar (todas si no elegís ninguna)</p>
-                      <div className="flex gap-1 flex-wrap">
-                        {Array.from({ length: draftVenue.totalCanchas }, (_, i) => i + 1).map((courtIndex) => (
-                          <button key={courtIndex} onClick={() => setScheduleSelectedCourts((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(courtIndex)) next.delete(courtIndex); else next.add(courtIndex);
-                            return next;
-                          })}
-                            className="w-8 h-8 rounded-lg text-xs font-bold border"
-                            style={scheduleSelectedCourts.has(courtIndex) ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                            {courtIndex}
-                          </button>
-                        ))}
-                      </div>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 pt-1 border-t flex flex-col gap-3" style={{ borderColor: "#F0F7F4" }}>
+                          <div className="flex gap-2">
+                            <button onClick={() => toggleScheduleVenueUsage(venue.id, "useForZones")}
+                              className="text-xs font-bold px-3 py-1.5 rounded-full border"
+                              style={venueDraft.useForZones ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                              Utilizar en Zonas
+                            </button>
+                            <button onClick={() => toggleScheduleVenueUsage(venue.id, "useForBracket")}
+                              className="text-xs font-bold px-3 py-1.5 rounded-full border"
+                              style={venueDraft.useForBracket ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                              Utilizar en Llaves
+                            </button>
+                          </div>
+
+                          {courtOptions.length > 1 && (
+                            <div>
+                              <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>Canchas a usar</p>
+                              <div className="flex gap-1 flex-wrap">
+                                {courtOptions.map((courtIndex) => (
+                                  <button key={courtIndex} onClick={() => toggleCourtSelection(venue.id, courtIndex, totalCanchas)}
+                                    className="w-8 h-8 rounded-lg text-xs font-bold border"
+                                    style={effectiveSelectedIndices.includes(courtIndex) ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                                    {courtIndex}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {isVenueEnabled && (
+                            <>
+                              <div>
+                                <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>Dia</p>
+                                <div className="flex gap-1 flex-wrap">
+                                  {tournamentDayOptions.map((day) => (
+                                    <button key={day.key} onClick={() => selectScheduleVenueDay(venue.id, day.key)}
+                                      className="text-xs font-bold px-3 py-1.5 rounded-full border"
+                                      style={venueDraft.selectedDayKey === day.key ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                                      {day.shortLabel}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>Desde</p>
+                                  <input type="time" value={venueDraft.from}
+                                    onChange={(e) => updateVenueDraft(venue.id, { from: e.target.value })}
+                                    className="border rounded-lg px-2 py-2 text-xs w-full" style={{ borderColor: "#CFE7DC" }} />
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>Hasta</p>
+                                  <input type="time" value={venueDraft.to}
+                                    onChange={(e) => updateVenueDraft(venue.id, { to: e.target.value })}
+                                    className="border rounded-lg px-2 py-2 text-xs w-full" style={{ borderColor: "#CFE7DC" }} />
+                                </div>
+                              </div>
+
+                              <button onClick={() => handleAddZoneVenueSchedule(venue.id)} disabled={savingSchedules}
+                                className="py-2.5 rounded-xl font-black text-xs text-white disabled:opacity-40"
+                                style={{ background: "#086847" }}>
+                                {savingSchedules ? "GUARDANDO..." : "GUARDAR FRANJA"}
+                              </button>
+
+                              {venueSchedules.length > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                  {venueSchedules.map((s) => (
+                                    <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2" style={{ background: "#F6FBF8" }}>
+                                      <p className="text-xs" style={{ color: "#5F7D72" }}>
+                                        {tournamentDayOptions.find((d) => d.key === s.dayKey)?.shortLabel ?? s.dayKey} · {s.from} a {s.to} · {s.selectedCourtIndices?.length ?? s.courts} cancha{(s.selectedCourtIndices?.length ?? s.courts) !== 1 ? "s" : ""}
+                                      </p>
+                                      <button onClick={() => handleRemoveZoneVenueSchedule(s.id)} disabled={savingSchedules} className="text-red-400 hover:text-red-600 p-1">
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs" style={{ color: "#9BB8AE" }}>Aun no cargaste franjas horarias para esta sede.</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <button onClick={handleAddZoneSchedule} disabled={savingSchedules}
-                    className="py-2.5 rounded-xl font-black text-xs text-white disabled:opacity-40"
-                    style={{ background: "#086847" }}>
-                    {savingSchedules ? "Guardando..." : "+ AGREGAR HORARIO"}
-                  </button>
-                </div>
-              </>
+                  );
+                })}
+              </div>
             )}
           </div>
 
@@ -1509,7 +1688,7 @@ export default function FixtureTab({
               <button onClick={handleGenerateBracket} disabled={savingAutoSchedule || !zones.length}
                 className="py-3 px-6 rounded-2xl font-black text-sm text-white disabled:opacity-40 transition-opacity"
                 style={{ background: "#086847" }}>
-                {savingAutoSchedule ? "Generando..." : `GENERAR LLAVE ${tournamentRuleSet.toUpperCase()}`}
+                {savingAutoSchedule ? "Generando..." : `GENERAR LLAVE ${ruleSet.toUpperCase()}`}
               </button>
               {!zones.length && (
                 <p className="text-xs mt-3" style={{ color: "#9BB8AE" }}>Primero armá las zonas.</p>
@@ -1707,6 +1886,34 @@ export default function FixtureTab({
           />
         );
       })()}
+
+      {ruleSetInfoVisible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="w-full max-w-sm rounded-[22px] p-6 shadow-xl overflow-y-auto" style={{ background: "#FFFFFF", maxHeight: "90vh" }}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-black text-base" style={{ color: "#173A2E" }}>¿Cómo se arman las zonas y llaves?</h3>
+              <button onClick={() => setRuleSetInfoVisible(false)}><X size={18} style={{ color: "#5F7D72" }} /></button>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm font-bold mb-1" style={{ color: "#173A2E" }}>Torneo FAP (Federación Argentina de Pádel)</p>
+              <p className="text-xs" style={{ color: "#5F7D72" }}>
+                De cada zona de 4 parejas avanzan 3 a la fase eliminatoria. Al clasificar más parejas por zona, el cuadro final es más grande y el torneo tiene más partidos y fechas, ideal si querés que casi todos jueguen más de una ronda eliminatoria.
+              </p>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm font-bold mb-1" style={{ color: "#173A2E" }}>Torneo APA (Asociación Padel Argentina)</p>
+              <p className="text-xs" style={{ color: "#5F7D72" }}>
+                De cada zona de 4 parejas avanzan solo 2 a la fase eliminatoria. El cuadro final es más chico, por lo que el torneo se resuelve en menos partidos y fechas, ideal para torneos más cortos o con menos días de juego.
+              </p>
+            </div>
+            <button onClick={() => setRuleSetInfoVisible(false)}
+              className="w-full py-3 rounded-xl font-black text-sm text-white"
+              style={{ background: "#086847" }}>
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1736,7 +1943,7 @@ function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurr
 
         {freeSlots.length === 0 ? (
           <p className="text-sm text-center py-6" style={{ color: "#5F7D72" }}>
-            No hay horarios libres. Cargá más horarios de cancha en Configurar.
+            No hay horarios libres. Cargá más horarios de cancha en Preferencias.
           </p>
         ) : (
           <>
