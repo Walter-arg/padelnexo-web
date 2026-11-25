@@ -161,9 +161,11 @@ function RulesText({ text, className }: { text: string; className?: string }) {
 type Tab = "inscripciones" | "fixture" | "pagos" | "gestion";
 
 // ── Modal inscripción ───────────────────────────────────────────────────────
-function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
+function RegistrationModal({ torneoId, initial, torneo, registrations, onClose, onSaved, onDelete }: {
   torneoId: string;
   initial?: any;
+  torneo?: any;
+  registrations?: any[];
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
@@ -174,10 +176,21 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSave() {
+    if (status === "confirmed" && initial?.status !== "confirmed") {
+      const currentConfirmedCount = (registrations ?? []).filter(
+        (r: any) => r.status === "confirmed" && r.id !== initial?.id && r.withdrawalStatus !== "confirmed"
+      ).length;
+      const maxPairsLimit = Number(torneo?.maxPairs || 0);
+      if (torneo?.pairLimitsEnabled !== false && maxPairsLimit > 0 && currentConfirmedCount >= maxPairsLimit) {
+        setError("El torneo ya alcanzo el cupo maximo de parejas confirmadas.");
+        return;
+      }
+    }
     setSaving(true);
-    const data = {
+    const data: any = {
       player1Name: p1Name.trim(),
       player2Name: p2Name.trim(),
       pairLabel: `${p1Name.trim()} / ${p2Name.trim()}`,
@@ -186,6 +199,11 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
       notes: notes.trim(),
       updatedAt: serverTimestamp(),
     };
+    if (status === "confirmed" && initial?.status !== "confirmed") {
+      data.confirmedAt = serverTimestamp();
+      data.confirmedBy = auth.currentUser?.uid ?? "";
+      data.confirmedByName = torneo?.organizerName || "Organizador";
+    }
     if (initial?.id) {
       await updateDoc(doc(db, "tournaments", torneoId, "registrations", initial.id), data);
     } else {
@@ -242,6 +260,8 @@ function RegistrationModal({ torneoId, initial, onClose, onSaved, onDelete }: {
               className="w-full border rounded-xl px-3 py-2 text-sm resize-none" style={{ borderColor: "#CFE7DC" }} placeholder="Notas para el armado del torneo" />
           </div>
         </div>
+
+        {error && <p className="text-xs font-semibold mb-2" style={{ color: "#D64545" }}>{error}</p>}
 
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
@@ -322,6 +342,15 @@ function AvailabilityModal({ torneoId, reg, torneo, onClose }: {
   async function handleSave() {
     setSaving(true);
     const avail: Record<string, { quickSlots: string[]; customSlots: { from: string; to: string }[] }> = {};
+    // Este editor solo administra customSlots. Si no se preservan los
+    // quickSlots que la pareja ya tenia cargados (Mañana/Tarde/Noche/
+    // Madrugada), guardar acá los borraria en silencio.
+    for (const [dateKey, dayData] of Object.entries(reg.availability ?? {})) {
+      avail[dateKey] = {
+        quickSlots: Array.isArray((dayData as any)?.quickSlots) ? (dayData as any).quickSlots : [],
+        customSlots: [],
+      };
+    }
     for (const s of slots) {
       if (!avail[s.dateKey]) avail[s.dateKey] = { quickSlots: [], customSlots: [] };
       avail[s.dateKey].customSlots.push({ from: s.from, to: s.to });
@@ -966,8 +995,21 @@ export default function TorneoDetailPage() {
 
   // ── Confirmar pareja ────────────────────────────────────────────────────
   async function confirmRegistration(regId: string) {
+    const currentConfirmedCount = registrations.filter(
+      (r: any) => r.status === "confirmed" && r.id !== regId && r.withdrawalStatus !== "confirmed"
+    ).length;
+    const maxPairsLimit = Number(torneo?.maxPairs || 0);
+    if (torneo?.pairLimitsEnabled !== false && maxPairsLimit > 0 && currentConfirmedCount >= maxPairsLimit) {
+      showToast("El torneo ya alcanzo el cupo maximo de parejas confirmadas.", false);
+      return;
+    }
+
     await updateDoc(doc(db, "tournaments", torneoId, "registrations", regId), {
-      status: "confirmed", confirmedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      status: "confirmed",
+      confirmedAt: serverTimestamp(),
+      confirmedBy: auth.currentUser?.uid ?? "",
+      confirmedByName: torneo?.organizerName || "Organizador",
+      updatedAt: serverTimestamp(),
     });
     showToast("Pareja confirmada.");
 
@@ -999,8 +1041,17 @@ export default function TorneoDetailPage() {
 
   // ── Confirmar baja ──────────────────────────────────────────────────────
   async function confirmWithdrawal(regId: string) {
+    const reg = registrations.find((r: any) => r.id === regId);
+    if (reg?.withdrawalStatus !== "requested") {
+      showToast("La pareja todavia no solicito la baja.", false);
+      return;
+    }
     await updateDoc(doc(db, "tournaments", torneoId, "registrations", regId), {
-      withdrawalStatus: "confirmed", withdrawalConfirmedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      withdrawalStatus: "confirmed",
+      withdrawalConfirmedAt: serverTimestamp(),
+      withdrawalConfirmedBy: auth.currentUser?.uid ?? "",
+      withdrawalConfirmedByName: torneo?.organizerName || "Organizador",
+      updatedAt: serverTimestamp(),
     });
     showToast("Baja confirmada.");
   }
@@ -1029,6 +1080,54 @@ export default function TorneoDetailPage() {
     await updateDoc(doc(db, "tournaments", torneoId), { status: newStatus, updatedAt: serverTimestamp() });
     setSavingAction(false);
     showToast(`Estado actualizado a: ${STATUS_META[newStatus]?.label ?? newStatus}`);
+  }
+
+  async function handlePublishTournament() {
+    if (torneo?.status === "cancelled") {
+      showToast("No podes publicar un torneo cancelado.", false);
+      return;
+    }
+    setSavingAction(true);
+    await updateDoc(doc(db, "tournaments", torneoId), { status: "published", updatedAt: serverTimestamp() });
+    setSavingAction(false);
+    showToast("Torneo publicado.");
+  }
+
+  async function handleOpenRegistration() {
+    setSavingAction(true);
+    await updateDoc(doc(db, "tournaments", torneoId), {
+      status: "registration_open",
+      registrationStatus: "open",
+      updatedAt: serverTimestamp(),
+    });
+    setSavingAction(false);
+    showToast("La inscripcion ya quedo abierta.");
+  }
+
+  async function handleCloseRegistration() {
+    setSavingAction(true);
+    await updateDoc(doc(db, "tournaments", torneoId), {
+      status: torneo?.status === "in_progress" ? "in_progress" : "registration_closed",
+      registrationStatus: "closed",
+      updatedAt: serverTimestamp(),
+    });
+    setSavingAction(false);
+    showToast("La inscripcion ya quedo cerrada.");
+  }
+
+  async function handleCancelTournament() {
+    setSavingAction(true);
+    await updateDoc(doc(db, "tournaments", torneoId), {
+      status: "cancelled",
+      registrationStatus: "closed",
+      cancellationReason: "Cancelado por el organizador",
+      cancelledAt: serverTimestamp(),
+      cancelledBy: auth.currentUser?.uid ?? "",
+      cancelledByName: torneo?.organizerName || "Organizador",
+      updatedAt: serverTimestamp(),
+    });
+    setSavingAction(false);
+    showToast("Torneo cancelado.");
   }
 
   async function handleSaveCupos() {
@@ -1252,7 +1351,7 @@ export default function TorneoDetailPage() {
 
   const torneoName    = torneo.name ?? torneo.nombre ?? "Torneo";
   const printVenue    = torneo.venues?.[0]?.name ?? torneo.complejo?.nombre ?? "";
-  const printCategory = torneo.compositionLabel ?? torneo.categoria ?? "";
+  const printCategory = torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria ?? "";
   const printDate     = [formatDate(torneo.startDateMillis), formatDate(torneo.endDateMillis)].filter(Boolean).join(" — ");
 
   return (
@@ -1373,7 +1472,7 @@ export default function TorneoDetailPage() {
       )}
       {regModal.open && (
         <RegistrationModal
-          torneoId={torneoId} initial={regModal.initial}
+          torneoId={torneoId} initial={regModal.initial} torneo={torneo} registrations={registrations}
           onClose={() => setRegModal({ open: false })}
           onSaved={() => { setRegModal({ open: false }); showToast("Inscripción guardada."); }}
           onDelete={regModal.initial?.id ? () => { setRegModal({ open: false }); setDeleteConfirm(regModal.initial!.id); } : undefined}
@@ -1476,13 +1575,13 @@ export default function TorneoDetailPage() {
                   ))}
                 </select>
               </div>
-            ) : (torneo.compositionLabel ?? torneo.categoria) && (
+            ) : (torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria) && (
               <div className="flex items-center gap-2.5 mb-3">
                 <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#EEF5FF" }}>
                   <Shield size={13} style={{ color: "#356CB8" }} />
                 </div>
                 <span className="text-sm font-semibold" style={{ color: "#173A2E" }}>
-                  {torneo.compositionLabel ?? torneo.categoria}
+                  {torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria}
                 </span>
               </div>
             )}
@@ -1536,7 +1635,7 @@ export default function TorneoDetailPage() {
             </div>
 
             <a
-              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo.compositionLabel ?? torneo.categoria ?? "")}`}
+              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria ?? "")}`}
               className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border transition-opacity hover:opacity-80"
               style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
             >
@@ -1577,13 +1676,13 @@ export default function TorneoDetailPage() {
                   <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
               </select>
-            ) : (torneo.compositionLabel ?? torneo.categoria) ? (
+            ) : (torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria) ? (
               <p className="text-xs font-semibold mt-2" style={{ color: "#173A2E" }}>
-                {torneo.compositionLabel ?? torneo.categoria}
+                {torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria}
               </p>
             ) : null}
             <a
-              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo.compositionLabel ?? torneo.categoria ?? "")}`}
+              href={`/dashboard/torneos/ranking?category=${encodeURIComponent(torneo?.compositionConfig?.label ?? torneo.compositionLabel ?? torneo.categoria ?? "")}`}
               className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold border mt-3"
               style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}
             >
@@ -2019,21 +2118,21 @@ export default function TorneoDetailPage() {
                     </div>
                     <div className="flex flex-col gap-2">
                       {torneo.status === "draft" && (
-                        <button onClick={() => handleStatusChange("published")} disabled={savingAction}
+                        <button onClick={handlePublishTournament} disabled={savingAction}
                           className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                           style={{ background: "#0B8457" }}>
                           Publicar torneo
                         </button>
                       )}
                       {["published", "registration_closed"].includes(torneo.status) && (
-                        <button onClick={() => handleStatusChange("registration_open")} disabled={savingAction}
+                        <button onClick={handleOpenRegistration} disabled={savingAction}
                           className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                           style={{ background: "#0B8457" }}>
                           Abrir inscripciones
                         </button>
                       )}
                       {torneo.status === "registration_open" && (
-                        <button onClick={() => handleStatusChange("registration_closed")} disabled={savingAction}
+                        <button onClick={handleCloseRegistration} disabled={savingAction}
                           className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
                           style={{ background: "#FFF7E3", color: "#9B6A00", border: "1px solid #E8D59A" }}>
                           Cerrar inscripciones
@@ -2047,7 +2146,7 @@ export default function TorneoDetailPage() {
                         </button>
                       )}
                       {!["cancelled", "finished"].includes(torneo.status ?? "") && (
-                        <button onClick={() => handleStatusChange("cancelled")} disabled={savingAction}
+                        <button onClick={handleCancelTournament} disabled={savingAction}
                           className="w-full py-2 text-sm font-bold transition-opacity hover:opacity-70"
                           style={{ color: "#D64545" }}>
                           Cancelar torneo
