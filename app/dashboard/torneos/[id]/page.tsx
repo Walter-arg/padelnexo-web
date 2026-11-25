@@ -1925,7 +1925,7 @@ export default function TorneoDetailPage() {
                                           <Eye size={11} /> Comprobante
                                         </a>
                                       )}
-                                      {pay.status !== "approved" && (
+                                      {pay.status !== "approved" && (pay.method || pay.receiptUrl) && (
                                         <button onClick={() => handlePaymentAction(reg, pi, "approved")}
                                           className="text-[11px] font-bold px-2.5 py-1 rounded-full text-white"
                                           style={{ background: "#0B8457" }}>
