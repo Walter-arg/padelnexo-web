@@ -1834,8 +1834,8 @@ export default function FixtureTab({
                                     })}
                                     style={{ background: selected ? color.fill : color.bg, minWidth: 88, userSelect: "none", opacity: zoneLetter ? 0.7 : 1 }}>
                                     {zoneLetter && (
-                                      <span className="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] font-black flex items-center justify-center text-white"
-                                        style={{ background: "#086847" }}>
+                                      <span className="absolute top-1 right-1 w-5 h-5 rounded-full text-[11px] font-bold leading-none flex items-center justify-center text-white border"
+                                        style={{ background: "#086847", borderColor: "#FFFFFF" }}>
                                         {zoneLetter}
                                       </span>
                                     )}
