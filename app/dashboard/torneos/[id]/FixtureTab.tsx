@@ -21,6 +21,8 @@ import {
   parseMatchDurationToMinutes,
   formatMatchDurationValue,
   parseTimeToMinutes,
+  isAvailableAtMinutes,
+  getAvailabilityRangeLabelsForDay,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
@@ -128,15 +130,6 @@ function getPairLabel(reg: any, fallbackIdx: number): string {
   if (p1 && p2) return `${p1} / ${p2}`;
   if (p1) return p1;
   return reg?.pairLabel ?? `Pareja ${fallbackIdx + 1}`;
-}
-
-function isAvailable(reg: any, dayKey: string, timeSlot: string): boolean {
-  const day = reg?.availability?.[dayKey];
-  if (!day) return false;
-  const quick: string[] = Array.isArray(day.quickSlots) ? day.quickSlots : [];
-  if (quick.includes(timeSlot)) return true;
-  const custom: any[] = Array.isArray(day.customSlots) ? day.customSlots : [];
-  return custom.some((s: any) => (s.startTime ?? s.start ?? "") === timeSlot);
 }
 
 function getAllDayKeys(registrations: any[]): string[] {
@@ -1711,6 +1704,12 @@ export default function FixtureTab({
                                     <div className="font-semibold text-[10px] truncate" style={{ color: color.text, maxWidth: 80 }}>
                                       {getPairLabel(reg, ri).split(" / ")[0]}
                                     </div>
+                                    <div className="font-semibold text-[9px] truncate" style={{ color: color.text, maxWidth: 80 }}>
+                                      {(() => {
+                                        const ranges = getAvailabilityRangeLabelsForDay(reg.availability, selectedDay!);
+                                        return ranges.length ? ranges.join(" / ") : "Sin horario";
+                                      })()}
+                                    </div>
                                     {selected && <Check size={10} className="mx-auto mt-1" style={{ color: color.text }} />}
                                   </th>
                                 );
@@ -1725,7 +1724,7 @@ export default function FixtureTab({
                                   {slot}
                                 </td>
                                 {unassignedRegs.map((reg, ri) => {
-                                  const avail = isAvailable(reg, selectedDay, slot);
+                                  const avail = isAvailableAtMinutes(reg.availability, selectedDay!, parseTimeToMinutes(slot));
                                   const color = PAIR_COLORS[ri % 6];
                                   return (
                                     <td key={reg.id} className="py-1.5 px-2 text-center">

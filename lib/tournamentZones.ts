@@ -468,6 +468,34 @@ function getTotalAvailabilityMinutes(availability: any = {}): number {
   }, 0);
 }
 
+// Para la tabla de armado manual: misma pareja de helpers que usa la app
+// (isSlotAvailable / getAvailabilityRangesForDay) para saber si una pareja
+// esta disponible en un horario puntual y para mostrar sus franjas cargadas
+// en la cabecera de la tabla.
+const QUICK_SLOT_LABEL_RANGES: Record<string, { from: string; to: string }> = {
+  morning: { from: "08:00", to: "12:00" },
+  afternoon: { from: "12:00", to: "18:00" },
+  night: { from: "18:00", to: "23:00" },
+  late_night: { from: "23:00", to: "02:00" },
+};
+
+export function isAvailableAtMinutes(availability: any = {}, dayKey: string, slotMinutes: number): boolean {
+  const dayAvailability = availability?.[dayKey];
+  if (!dayAvailability) return false;
+  return getDayTimeRanges(dayAvailability).some((r) => slotMinutes >= r.from && slotMinutes < r.to);
+}
+
+export function getAvailabilityRangeLabelsForDay(availability: any = {}, dayKey: string): string[] {
+  const dayAvailability = availability?.[dayKey] || {};
+  const quickLabels = (dayAvailability.quickSlots || [])
+    .map((key: string) => QUICK_SLOT_LABEL_RANGES[key])
+    .filter(Boolean)
+    .map((r: { from: string; to: string }) => `${r.from}-${r.to}`);
+  const customLabels = (Array.isArray(dayAvailability.customSlots) ? dayAvailability.customSlots : [])
+    .map((slot: any) => `${slot.from}-${slot.to}`);
+  return [...quickLabels, ...customLabels];
+}
+
 function computeAvailabilityCompatibilityScore(availA: any = {}, availB: any = {}): number {
   const daysA = Object.keys(availA);
   if (!daysA.length || !Object.keys(availB).length) return 0;
