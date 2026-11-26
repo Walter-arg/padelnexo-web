@@ -153,6 +153,11 @@ function getShortPairLabel(reg: any, fallbackIdx: number): string {
   return splitLabel.length ? splitLabel.join(" / ") : label;
 }
 
+function extractCategoryOrderNumber(label: string = ""): number {
+  const match = String(label || "").match(/(\d+)/);
+  return match ? Number(match[1]) : 999;
+}
+
 function getAllDayKeys(registrations: any[]): string[] {
   const keys = new Set<string>();
   for (const reg of registrations) {
@@ -735,6 +740,71 @@ export default function FixtureTab({
   // desde ninguna UI, siempre queda en "strict". Se replica igual acá.
   const pathType: "strict" | "flex" = "strict";
 
+  // ── Vista multi-categoria de solo lectura en Armado Manual (igual que
+  // TournamentZonePlanningScreen.js de la app) ────────────────────────────────
+  const [categorySiblingOptions, setCategorySiblingOptions] = useState<{ id: string; label: string }[]>([]);
+  const [extraCategoryIds, setExtraCategoryIds] = useState<string[]>([]);
+  const [extraCategoriesData, setExtraCategoriesData] = useState<Record<string, {
+    tournament: any; confirmedRegistrations: any[]; zones: any[];
+  }>>({});
+
+  useEffect(() => {
+    const batchId = tournament?.creationBatchId || "";
+    if (!batchId) {
+      setCategorySiblingOptions([]);
+      return;
+    }
+    let active = true;
+    getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", batchId)))
+      .then((snap) => {
+        if (!active) return;
+        const siblings = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as any))
+          .filter((t) => t.id !== torneoId);
+        setCategorySiblingOptions(
+          siblings
+            .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0))
+            .map((t) => ({ id: t.id, label: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "Categoria" }))
+        );
+      })
+      .catch(() => { if (active) setCategorySiblingOptions([]); });
+    return () => { active = false; };
+  }, [tournament?.creationBatchId, torneoId]);
+
+  useEffect(() => {
+    const idsToFetch = extraCategoryIds.filter((id) => !extraCategoriesData[id]);
+    if (!idsToFetch.length) return undefined;
+    let active = true;
+    (async () => {
+      try {
+        const entries = await Promise.all(idsToFetch.map(async (id) => {
+          const [tSnap, regsSnap] = await Promise.all([
+            getDoc(doc(db, "tournaments", id)),
+            getDocs(collection(db, "tournaments", id, "registrations")),
+          ]);
+          const tData = tSnap.exists() ? ({ id, ...tSnap.data() } as any) : { id };
+          const regs = regsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+          const confirmed = regs
+            .filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed")
+            .map((r: any, i: number) => ({ ...r, __colorIndex: i }));
+          const zonesList = toArray(tData.fixtureSetup?.zonePlanning?.zones);
+          return [id, { tournament: tData, confirmedRegistrations: confirmed, zones: zonesList }] as const;
+        }));
+        if (active) {
+          setExtraCategoriesData((current) => {
+            const next = { ...current };
+            entries.forEach(([id, data]) => { next[id] = data; });
+            return next;
+          });
+        }
+      } catch {
+        // Si falla una categoria extra, simplemente no se muestra; no bloquea la pantalla principal.
+      }
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraCategoryIds]);
+
   // ── Horarios de cancha para zonas (zoneVenueSchedules) ──────────────────────
   // Cuando el torneo pertenece a un evento multi-categoria (creationBatchId),
   // esta disponibilidad es compartida por todas las categorias del evento y
@@ -991,6 +1061,85 @@ export default function FixtureTab({
         return 0;
       });
   }, [registrations, assignedRegIds, assignedZoneLetterByRegId]);
+
+  // Combina la categoria activa con las categorias adicionales seleccionadas
+  // (solo lectura) en una sola grilla, ordenadas por numero de categoria.
+  const allCategoryBlocks = useMemo(() => {
+    const activeBlock = {
+      tournamentId: torneoId,
+      categoryLabel: zoneCategoryLabel,
+      isActive: true,
+      confirmedRegistrations: manualPlanningRegs,
+      zones,
+      assignedIds: assignedRegIds,
+    };
+    const extraBlocks = extraCategoryIds
+      .map((id) => {
+        const data = extraCategoriesData[id];
+        if (!data) return null;
+        const label = data.tournament?.compositionConfig?.label ?? data.tournament?.compositionLabel ?? data.tournament?.name ?? "";
+        const extraAssignedIds = new Set<string>(data.zones.flatMap((z: any) => toArray(z.registrationIds)));
+        return {
+          tournamentId: id,
+          categoryLabel: label,
+          isActive: false,
+          confirmedRegistrations: data.confirmedRegistrations,
+          zones: data.zones,
+          assignedIds: extraAssignedIds,
+        };
+      })
+      .filter(Boolean) as typeof activeBlock[];
+    return [activeBlock, ...extraBlocks].sort(
+      (a, b) => extractCategoryOrderNumber(a.categoryLabel) - extractCategoryOrderNumber(b.categoryLabel)
+    );
+  }, [torneoId, zoneCategoryLabel, manualPlanningRegs, zones, assignedRegIds, extraCategoryIds, extraCategoriesData]);
+
+  const isMultiCategoryView = extraCategoryIds.length > 0;
+
+  const combinedZoneColumns = useMemo(() => {
+    if (!isMultiCategoryView) return [];
+    const columns: any[] = [];
+    allCategoryBlocks.forEach((block) => {
+      block.zones.forEach((zone: any, zoneIndex: number) => {
+        const pairs = toArray(zone.registrationIds)
+          .map((id: string) => block.confirmedRegistrations.find((r: any) => r.id === id))
+          .filter(Boolean);
+        if (!pairs.length) return;
+        columns.push({
+          key: `zone:${block.tournamentId}:${zone.id}`,
+          type: "zone" as const,
+          categoryLabel: block.categoryLabel,
+          isActive: block.isActive,
+          zoneLabel: zone.label || `Zona ${String.fromCharCode(65 + zoneIndex)}`,
+          pairs,
+        });
+      });
+    });
+    return columns;
+  }, [allCategoryBlocks, isMultiCategoryView]);
+
+  const combinedUnassignedColumns = useMemo(() => {
+    if (!isMultiCategoryView) return [];
+    const columns: any[] = [];
+    allCategoryBlocks.forEach((block) => {
+      block.confirmedRegistrations.forEach((registration: any) => {
+        if (block.assignedIds.has(registration.id)) return;
+        columns.push({
+          key: `pair:${block.tournamentId}:${registration.id}`,
+          type: "pair" as const,
+          categoryLabel: block.categoryLabel,
+          isActive: block.isActive,
+          registration,
+        });
+      });
+    });
+    return columns;
+  }, [allCategoryBlocks, isMultiCategoryView]);
+
+  const combinedColumns = useMemo(
+    () => [...combinedZoneColumns, ...combinedUnassignedColumns],
+    [combinedZoneColumns, combinedUnassignedColumns]
+  );
 
   function handleSetSub(s: FixSub) {
     if (s === "manual" && !selectedDay && allDayKeys.length > 0) setSelectedDay(allDayKeys[0]);
@@ -1856,8 +2005,34 @@ export default function FixtureTab({
                 </div>
               )}
 
+              {/* Ver otras categorias del mismo evento (solo lectura) */}
+              {categorySiblingOptions.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>
+                    Ver también (solo lectura, {zoneCategoryLabel || "esta categoria"} sigue siendo la editable)
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {categorySiblingOptions.map((opt) => {
+                      const isSelected = extraCategoryIds.includes(opt.id);
+                      return (
+                        <button key={opt.id}
+                          onClick={() => setExtraCategoryIds((current) =>
+                            current.includes(opt.id) ? current.filter((id) => id !== opt.id) : [...current, opt.id]
+                          )}
+                          className="px-3 py-2 rounded-full text-xs font-bold border transition-all"
+                          style={isSelected
+                            ? { background: "#086847", color: "#FFF", borderColor: "#086847" }
+                            : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Availability grid: TODAS las parejas activas, asignadas o no */}
-              {selectedDay && (
+              {selectedDay && !isMultiCategoryView && (
                 <div className="mb-5">
                   {manualPlanningRegs.length === 0 ? (
                     <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>
@@ -1935,6 +2110,123 @@ export default function FixtureTab({
                                     </td>
                                   );
                                 })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Availability grid combinada: categoria activa + categorias adicionales
+                  de solo lectura, una columna por zona ya armada (parejas apiladas) y
+                  una columna por pareja sin asignar, ordenadas por numero de categoria */}
+              {selectedDay && isMultiCategoryView && (
+                <div className="mb-5">
+                  {combinedColumns.length === 0 ? (
+                    <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>
+                      No hay parejas inscriptas todavía.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>
+                        Hacé click en el encabezado de una pareja de {zoneCategoryLabel || "la categoria activa"} para seleccionarla
+                      </p>
+                      <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: "#CFE7DC" }}>
+                        <table className="text-xs border-collapse" style={{ minWidth: 200 + combinedColumns.length * 90 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "2px solid #CFE7DC" }}>
+                              <th className="py-3 px-3 text-left font-black text-[10px] uppercase sticky left-0 bg-white"
+                                style={{ color: "#9BB8AE", minWidth: 52 }}>HORA</th>
+                              {combinedColumns.map((column) => {
+                                if (column.type === "zone") {
+                                  return (
+                                    <th key={column.key}
+                                      className="py-2 px-2 text-center relative"
+                                      style={{ background: "#EEF3F0", minWidth: 92, opacity: column.isActive ? 1 : 0.85 }}>
+                                      <div className="inline-block rounded px-1.5 py-0.5 mb-1 text-[8px] font-black"
+                                        style={{ background: "rgba(255,255,255,0.85)", color: "#086847" }}>
+                                        {column.categoryLabel || "-"}
+                                      </div>
+                                      <div className="font-black text-sm" style={{ color: "#173A2E" }}>{column.zoneLabel}</div>
+                                    </th>
+                                  );
+                                }
+                                const reg = column.registration;
+                                const color = PAIR_COLORS[reg.__colorIndex % 6];
+                                const selected = column.isActive && selectedPairIds.has(reg.id);
+                                const ranges = getAvailabilityRangeLabelsForDay(reg.availability, selectedDay!);
+                                return (
+                                  <th key={column.key}
+                                    className={`py-2 px-2 text-center transition-all relative ${column.isActive ? "cursor-pointer" : ""}`}
+                                    onClick={column.isActive ? () => setSelectedPairIds(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(reg.id)) next.delete(reg.id); else next.add(reg.id);
+                                      return next;
+                                    }) : undefined}
+                                    style={{
+                                      background: color.bg,
+                                      minWidth: 92,
+                                      userSelect: "none",
+                                      opacity: column.isActive ? 1 : 0.85,
+                                      boxShadow: selected ? `inset 0 0 0 3px #086847` : undefined,
+                                    }}>
+                                    <div className="inline-block rounded px-1.5 py-0.5 mb-1 text-[8px] font-black"
+                                      style={{ background: "rgba(255,255,255,0.75)", color: "#086847" }}>
+                                      {column.categoryLabel || "-"}
+                                    </div>
+                                    <div className="font-semibold text-[10px] leading-tight break-words" style={{ color: color.text, maxWidth: 84 }}>
+                                      {getShortPairLabel(reg, reg.__colorIndex)}
+                                    </div>
+                                    <div className="font-semibold text-[9px] leading-tight break-words mt-0.5" style={{ color: color.text, maxWidth: 84 }}>
+                                      {ranges.length ? ranges.join(" / ") : "Sin horario"}
+                                    </div>
+                                    {selected && <Check size={10} className="mx-auto mt-1" style={{ color: color.text }} />}
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {TIME_SLOTS.map((slot, si) => (
+                              <tr key={slot} style={{ background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF" }}>
+                                <td className="py-1.5 px-3 font-mono text-[11px] font-semibold sticky left-0"
+                                  style={{ color: "#5F7D72", background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF", borderRight: "1px solid #F0F7F4" }}>
+                                  {slot}
+                                </td>
+                                {combinedColumns.map((column) => (
+                                  <td key={column.key} className="px-2 text-center align-middle" style={{ height: 76 }}>
+                                    <div className="flex flex-col items-center justify-center gap-0.5 mx-auto" style={{ height: 64 }}>
+                                      {column.type === "zone"
+                                        ? column.pairs.map((pair: any) => {
+                                            const pairColor = PAIR_COLORS[pair.__colorIndex % 6];
+                                            const avail = isAvailableAtMinutes(pair.availability, selectedDay!, parseTimeToMinutes(slot));
+                                            return (
+                                              <div key={`${column.key}-${pair.id}`} className="rounded" style={{
+                                                background: avail ? pairColor.fill : "transparent",
+                                                border: avail ? "none" : "1px solid #EFF4F2",
+                                                width: 32,
+                                                height: 14,
+                                              }} />
+                                            );
+                                          })
+                                        : (() => {
+                                            const pairColor = PAIR_COLORS[column.registration.__colorIndex % 6];
+                                            const avail = isAvailableAtMinutes(column.registration.availability, selectedDay!, parseTimeToMinutes(slot));
+                                            return (
+                                              <div className="rounded" style={{
+                                                background: avail ? pairColor.fill : "transparent",
+                                                border: avail ? "none" : "1px solid #EFF4F2",
+                                                width: 32,
+                                                height: 14,
+                                              }} />
+                                            );
+                                          })()}
+                                    </div>
+                                  </td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>
