@@ -132,6 +132,26 @@ function getPairLabel(reg: any, fallbackIdx: number): string {
   return reg?.pairLabel ?? `Pareja ${fallbackIdx + 1}`;
 }
 
+// "Juan Perez" -> "Perez J." (igual que getShortPersonName en la app), para
+// que entren los dos nombres de la pareja en el encabezado angosto de la
+// tabla de Armado Manual.
+function getShortPersonName(rawName: string = ""): string {
+  const parts = String(rawName || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length === 1) return parts[0];
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(" ");
+  return `${lastName} ${firstName.charAt(0).toUpperCase()}.`;
+}
+
+function getShortPairLabel(reg: any, fallbackIdx: number): string {
+  const explicitNames = [reg?.player1Name, reg?.player2Name].filter(Boolean).map(getShortPersonName).filter(Boolean);
+  if (explicitNames.length) return explicitNames.join(" / ");
+  const label = getPairLabel(reg, fallbackIdx);
+  const splitLabel = String(label || "").split(/\s+\/\s+/).map(getShortPersonName).filter(Boolean);
+  return splitLabel.length ? splitLabel.join(" / ") : label;
+}
+
 function getAllDayKeys(registrations: any[]): string[] {
   const keys = new Set<string>();
   for (const reg of registrations) {
@@ -591,7 +611,7 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onS
                   })();
                   const venueName = md.venueId ? venueNameById[md.venueId] : "";
                   const placeLabel = venueName
-                    ? `${venueName}${md.courtIndex ? " · C" + md.courtIndex : ""}`
+                    ? `${venueName}${md.courtIndex ? " · Cancha " + md.courtIndex : ""}`
                     : "—";
 
                   return (
@@ -698,7 +718,10 @@ export default function FixtureTab({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedPairIds, setSelectedPairIds] = useState<Set<string>>(new Set());
   const [savingZones, setSavingZones] = useState(false);
-  const [pathType, setPathType] = useState<"strict" | "flex">("strict");
+  // La app nunca expone un selector de "llave corta/larga" al organizador:
+  // setSelectedPathType existe en TournamentFixtureScreen.js pero no se llama
+  // desde ninguna UI, siempre queda en "strict". Se replica igual acá.
+  const pathType: "strict" | "flex" = "strict";
 
   // ── Horarios de cancha para zonas (zoneVenueSchedules) ──────────────────────
   // Cuando el torneo pertenece a un evento multi-categoria (creationBatchId),
@@ -1724,18 +1747,6 @@ export default function FixtureTab({
               </p>
             ) : (
               <>
-                <div className="flex gap-2 mb-3">
-                  {([
-                    { id: "strict", label: "Llave corta" },
-                    { id: "flex", label: "Llave larga" },
-                  ] as const).map((opt) => (
-                    <button key={opt.id} onClick={() => setPathType(opt.id)}
-                      className="flex-1 py-2 rounded-xl text-xs font-bold border transition-all"
-                      style={pathType === opt.id ? { background: "#086847", color: "#FFF", borderColor: "#086847" } : { borderColor: "#CFE7DC", color: "#5F7D72" }}>
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
                 <p className="text-sm font-bold mb-1" style={{ color: "#173A2E" }}>
                   Zonas de {fixtureRecommendation.zoneSizes.join(" / ")}
                 </p>
@@ -1832,7 +1843,13 @@ export default function FixtureTab({
                                       if (next.has(reg.id)) next.delete(reg.id); else next.add(reg.id);
                                       return next;
                                     })}
-                                    style={{ background: selected ? color.fill : color.bg, minWidth: 88, userSelect: "none", opacity: zoneLetter ? 0.7 : 1 }}>
+                                    style={{
+                                      background: color.bg,
+                                      minWidth: 92,
+                                      userSelect: "none",
+                                      opacity: zoneLetter ? 0.72 : 1,
+                                      boxShadow: selected ? `inset 0 0 0 3px #086847` : undefined,
+                                    }}>
                                     {zoneLetter && (
                                       <span className="absolute top-1 right-1 w-5 h-5 rounded-full text-[11px] font-bold leading-none flex items-center justify-center text-white border"
                                         style={{ background: "#086847", borderColor: "#FFFFFF" }}>
@@ -1840,10 +1857,10 @@ export default function FixtureTab({
                                       </span>
                                     )}
                                     <div className="font-black text-[10px] mb-0.5" style={{ color: color.text }}>P{reg.__colorIndex + 1}</div>
-                                    <div className="font-semibold text-[10px] truncate" style={{ color: color.text, maxWidth: 80 }}>
-                                      {getPairLabel(reg, reg.__colorIndex).split(" / ")[0]}
+                                    <div className="font-semibold text-[10px] leading-tight break-words" style={{ color: color.text, maxWidth: 84 }}>
+                                      {getShortPairLabel(reg, reg.__colorIndex)}
                                     </div>
-                                    <div className="font-semibold text-[9px] truncate" style={{ color: color.text, maxWidth: 80 }}>
+                                    <div className="font-semibold text-[9px] leading-tight break-words mt-0.5" style={{ color: color.text, maxWidth: 84 }}>
                                       {(() => {
                                         const ranges = getAvailabilityRangeLabelsForDay(reg.availability, selectedDay!);
                                         return ranges.length ? ranges.join(" / ") : "Sin horario";
