@@ -12,6 +12,7 @@ import {
   buildAutomaticZonePlanning,
   isRegistrationConfirmed,
   getPlanningMatchPairNumbers,
+  getZoneMatchParticipantIds,
   buildZoneMatchSchedulingSlots,
   buildAutoMatchSchedules,
   buildAutoMatchSchedulesAcrossZones,
@@ -1206,6 +1207,31 @@ export default function FixtureTab({
       const zoneList = toArray(fs.zonePlanning?.zones);
       const zone = zoneList.find((z: any) => z.id === zoneId);
       if (!zone) return;
+
+      // Ninguna de las dos parejas de este partido puede tener otro partido de
+      // zona ya programado que se superponga con este horario, respetando la
+      // duracion de partido configurada por el organizador.
+      if (schedule?.dayKey && schedule?.startTime) {
+        const participantIds = getZoneMatchParticipantIds(zone, matchKey);
+        const nextStart = parseTimeToMinutes(schedule.startTime);
+        const nextEnd = nextStart + matchDurationMinutes;
+        const hasOverlap = participantIds.length > 0 && zoneList.some((z: any) =>
+          Object.entries(z.matchSchedules ?? {}).some(([mk, s]: [string, any]) => {
+            if (z.id === zoneId && mk === matchKey) return false;
+            if (s?.dayKey !== schedule.dayKey || !s?.startTime) return false;
+            const start = parseTimeToMinutes(s.startTime);
+            const end = start + matchDurationMinutes;
+            if (!(nextStart < end && nextEnd > start)) return false;
+            const otherIds = getZoneMatchParticipantIds(z, mk);
+            return participantIds.some((id) => otherIds.includes(id));
+          })
+        );
+        if (hasOverlap) {
+          showToast("Una de las parejas de este partido ya tiene otro partido de zona programado que se superpone con ese horario.", false);
+          return;
+        }
+      }
+
       if (!zone.matchSchedules) zone.matchSchedules = {};
       const existing = zone.matchSchedules[matchKey] ?? {};
       zone.matchSchedules[matchKey] = schedule
@@ -2128,7 +2154,36 @@ export default function FixtureTab({
         const currentSchedule = zone.matchSchedules?.[scheduleModal.matchKey] ?? {};
         const occupied = getOccupiedSlotKeys(zones as ZonePlanningZone[], scheduleModal.zoneId, scheduleModal.matchKey);
         const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, matchDurationMinutes);
-        const freeSlots = allSlots.filter((slot) => !occupied.has(`${slot.dayKey}|${slot.startMinutes}|${slot.venueId}|${slot.courtIndex}`));
+
+        // Ocupacion por pareja: ninguna de las dos parejas de este partido
+        // puede jugar otro partido de zona que se superponga en el tiempo.
+        const participantIds = getZoneMatchParticipantIds(zone, scheduleModal.matchKey);
+        const pairOccupancy = new Map<string, { dayKey: string; startMinutes: number; endMinutes: number }[]>();
+        (zones as any[]).forEach((z) => {
+          Object.entries(z.matchSchedules ?? {}).forEach(([mk, s]: [string, any]) => {
+            if (z.id === scheduleModal.zoneId && mk === scheduleModal.matchKey) return;
+            if (!s?.dayKey || !s?.startTime) return;
+            const startMinutes = parseTimeToMinutes(s.startTime);
+            const entry = { dayKey: s.dayKey, startMinutes, endMinutes: startMinutes + matchDurationMinutes };
+            getZoneMatchParticipantIds(z, mk).forEach((pairId) => {
+              const list = pairOccupancy.get(pairId) ?? [];
+              list.push(entry);
+              pairOccupancy.set(pairId, list);
+            });
+          });
+        });
+
+        const freeSlots = allSlots.filter((slot) => {
+          if (occupied.has(`${slot.dayKey}|${slot.startMinutes}|${slot.venueId}|${slot.courtIndex}`)) return false;
+          return !participantIds.some((pairId) =>
+            (pairOccupancy.get(pairId) ?? []).some(
+              (entry) =>
+                entry.dayKey === slot.dayKey &&
+                slot.startMinutes < entry.endMinutes &&
+                slot.startMinutes + matchDurationMinutes > entry.startMinutes
+            )
+          );
+        });
         return (
           <ScheduleMatchModal
             matchKey={scheduleModal.matchKey}

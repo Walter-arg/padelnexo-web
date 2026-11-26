@@ -890,3 +890,15 @@ export function getPlanningMatchPairNumbers(zone: ZonePlanningZone, registration
     ? openingMatches.map((entry) => entry!.winner)
     : openingMatches.map((entry) => entry!.loser);
 }
+
+// Ids de registracion de las dos parejas de un partido de zona (identificado
+// por zona + matchLabel, ej "1 vs 2" o "G vs G"). Devuelve [] si todavia no
+// se puede resolver (ej "G vs G" antes de que existan los resultados de
+// "1 vs 2" y "3 vs 4").
+export function getZoneMatchParticipantIds(zone: any, matchLabel: string): string[] {
+  const registrationIds: string[] = Array.isArray(zone?.registrationIds) ? zone.registrationIds : [];
+  const pairNumbers = getPlanningMatchPairNumbers(zone, registrationIds, matchLabel);
+  return pairNumbers
+    .map((n) => registrationIds[Number.parseInt(n, 10) - 1])
+    .filter((id): id is string => Boolean(id));
+}
