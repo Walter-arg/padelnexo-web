@@ -645,6 +645,44 @@ function NewPairDrawer({ torneoId, tournament, players, onClose, onSaved }: {
     try {
       const clubLabel = tournament?.venues?.[0]?.name ?? tournament?.complejo?.nombre ?? "";
 
+      // Si el torneo es parte de un evento multi-categoria, un jugador con
+      // cuenta real solo puede participar en UNA categoria de ese evento (la
+      // primera en la que quedo inscripto). No se puede validar para
+      // invitados, que no tienen un id real estable entre inscripciones.
+      if (tournament?.creationBatchId) {
+        const siblingsSnap = await getDocs(
+          query(collection(db, "tournaments"), where("creationBatchId", "==", tournament.creationBatchId))
+        );
+        const siblings = siblingsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as any))
+          .filter((s) => s.id !== torneoId);
+
+        const playerIdsToCheck = new Set(
+          pendingPairs
+            .flatMap((pair) => [pair.player1, pair.player2])
+            .filter((p: any) => !p.isGuest && p.id)
+            .map((p: any) => p.id)
+        );
+
+        for (const sibling of siblings) {
+          const regsSnap = await getDocs(collection(db, "tournaments", sibling.id, "registrations"));
+          const alreadyInSibling = regsSnap.docs
+            .map((d) => d.data())
+            .find(
+              (r: any) =>
+                r.withdrawalStatus !== "confirmed" &&
+                [r.player1Id, r.player2Id].some((id: string) => playerIdsToCheck.has(id))
+            );
+
+          if (alreadyInSibling) {
+            const siblingLabel = sibling.compositionConfig?.label ?? sibling.compositionLabel ?? sibling.name ?? "otra categoria";
+            setError(`Uno de los jugadores ya esta inscripto en ${siblingLabel} de este evento. Un jugador solo puede participar en una categoria.`);
+            setSubmitting(false);
+            return;
+          }
+        }
+      }
+
       for (const pair of pendingPairs) {
         await addDoc(collection(db, "tournaments", torneoId, "registrations"), {
           player1Id: pair.player1.id,
