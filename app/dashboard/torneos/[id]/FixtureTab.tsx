@@ -520,8 +520,9 @@ function StandingsModal({ zone, regMap, onClose }: {
 }
 
 // ── Zone card ─────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
+function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
   zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
+  categoryLabel?: string;
   onResultClick: (matchKey: string, match: any) => void;
   onStandingsClick: () => void;
   onScheduleClick: (matchKey: string) => void;
@@ -537,10 +538,18 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, onResultClick, onS
       {/* Header */}
       <div className="px-5 py-3 flex items-center justify-between border-b flex-wrap gap-2"
         style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-        <span className="inline-block px-4 py-1.5 rounded-full text-sm font-black border"
-          style={{ background: "#E1F4F0", borderColor: "#9FD6CF", color: "#1F6D69" }}>
-          {zone.label ?? "Zona"}
-        </span>
+        <div className="flex flex-col items-start gap-1">
+          {categoryLabel && (
+            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase"
+              style={{ background: "#DFF4EC", color: "#086847", letterSpacing: "0.3px" }}>
+              {categoryLabel}
+            </span>
+          )}
+          <span className="inline-block px-4 py-1.5 rounded-full text-sm font-black border"
+            style={{ background: "#E1F4F0", borderColor: "#9FD6CF", color: "#1F6D69" }}>
+            {zone.label ?? "Zona"}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs" style={{ color: "#9BB8AE" }}>{completedCount}/{matchKeys.length} partidos</span>
           <button onClick={onStandingsClick}
@@ -675,6 +684,8 @@ export default function FixtureTab({
   torneoId: string; fixtureSetup: any; registrations?: any[];
   showToast: (msg: string, ok?: boolean) => void; tournament?: any;
 }) {
+  const zoneCategoryLabel: string =
+    tournament?.compositionConfig?.label ?? tournament?.compositionLabel ?? "";
   const [sub, setSub] = useState<FixSub>("configurar");
   const [view, setView] = useState<"zonas" | "llaves">("zonas");
   const [zoom, setZoom] = useState(1);
@@ -1432,11 +1443,17 @@ export default function FixtureTab({
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Sub-tab navigation */}
+      {/* Sub-tab navigation: Preferencias en su propia linea, igual que en la app */}
+      <div className="flex gap-1 mb-2 p-1 rounded-2xl" style={{ background: "#F2FAF5", border: "1px solid #D5EADF" }}>
+        <button onClick={() => handleSetSub("configurar")}
+          className="flex-1 py-3 rounded-xl font-black text-xs uppercase transition-all"
+          style={sub === "configurar" ? { background: "#086847", color: "#FFFFFF" } : { background: "transparent", color: "#086847" }}>
+          PREFERENCIAS
+        </button>
+      </div>
       <div className="flex gap-1 mb-6 p-1 rounded-2xl" style={{ background: "#F2FAF5", border: "1px solid #D5EADF" }}>
         {([
-          { id: "configurar", label: "PREFERENCIAS" },
-          { id: "automatico", label: "ARMADO AUTO" },
+          { id: "automatico", label: "ARMADO AUTOMATICO" },
           { id: "manual", label: "ARMADO MANUAL - EDITAR" },
         ] as { id: FixSub; label: string }[]).map(s => (
           <button key={s.id} onClick={() => handleSetSub(s.id)}
@@ -1801,7 +1818,7 @@ export default function FixtureTab({
               </button>
               {zones.map((zone) => (
                 <ZoneCard key={zone.id}
-                  zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById}
+                  zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
                   onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
                   onStandingsClick={() => setStandingsModal(zone)}
                   onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
@@ -1975,7 +1992,7 @@ export default function FixtureTab({
                   <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>Zonas creadas</p>
                   {zones.map(zone => (
                     <ZoneCard key={zone.id}
-                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById}
+                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
                       onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
                       onStandingsClick={() => setStandingsModal(zone)}
                       onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })}
