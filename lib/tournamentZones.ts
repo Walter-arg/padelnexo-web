@@ -107,6 +107,16 @@ export function formatMatchDurationValue(totalMinutes = ZONE_MATCH_DURATION_MINU
 
 // ── zoneVenueSchedules ─────────────────────────────────────────────────────
 
+// "00:00" como horario de FIN de una franja significa "hasta la medianoche"
+// (fin del mismo dia), no el minuto 0: si se tomara literal, parseTimeToMinutes
+// lo deja en 0 y cualquier franja que termine a medianoche quedaba rechazada
+// por "el fin tiene que ser posterior al inicio" (0 <= cualquier from > 0).
+// No se soporta cruzar al dia siguiente (ej. "01:00" como fin de una franja
+// que arranca a las 22:00): esa franja se sigue rechazando igual que antes.
+export function parseEndTimeToMinutes(value = ""): number {
+  return value === "00:00" ? 24 * 60 : parseTimeToMinutes(value);
+}
+
 export function normalizeZoneVenueSchedules(
   entries: any[] = [],
   tournamentDayKeys: string[] = [],
@@ -133,7 +143,7 @@ export function normalizeZoneVenueSchedules(
       if (!venueId || !venue || !allowedDayKeys.has(dayKey) || !isValidTimeString(from) || !isValidTimeString(to)) {
         return null;
       }
-      if (parseTimeToMinutes(to) <= parseTimeToMinutes(from)) {
+      if (parseEndTimeToMinutes(to) <= parseTimeToMinutes(from)) {
         return null;
       }
 
@@ -179,7 +189,7 @@ export function buildZoneMatchSchedulingSlots(schedules: ZoneVenueSchedule[] = [
 
   schedules.forEach((schedule) => {
     const startMinutes = parseTimeToMinutes(schedule.from);
-    const endMinutes = parseTimeToMinutes(schedule.to);
+    const endMinutes = parseEndTimeToMinutes(schedule.to);
     if (endMinutes - startMinutes < durationMinutes) return;
 
     const courtIndices = schedule.selectedCourtIndices?.length

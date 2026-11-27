@@ -61,7 +61,10 @@ export function getHourColumnsForDay(venueSchedules: VenueScheduleForHours[] = [
   if (!daySchedules.length) return [];
 
   const minFrom = Math.min(...daySchedules.map((schedule) => parseTimeToMinutes(schedule.from)));
-  const maxTo = Math.max(...daySchedules.map((schedule) => parseTimeToMinutes(schedule.to)));
+  // "00:00" como fin de franja significa "hasta la medianoche" (fin del
+  // mismo dia): tomado literal (minuto 0) una franja que termina a
+  // medianoche colapsaba a una sola columna en vez de cubrir todo el rango.
+  const maxTo = Math.max(...daySchedules.map((schedule) => (schedule.to === "00:00" ? 24 * 60 : parseTimeToMinutes(schedule.to))));
   const startHour = Math.floor(minFrom / 60);
   const endHour = Math.max(startHour + 1, Math.ceil(maxTo / 60));
   const columns: HourColumn[] = [];

@@ -43,6 +43,7 @@ export type GridRow =
 
 type FlatColumn =
   | { kind: "divider"; id: string }
+  | { kind: "empty-day"; id: string; blockIndex: number }
   | { kind: "hour"; id: string; dayKey: string; minutes: number; label: string; blockIndex: number };
 
 const NAME_COL_W = 176;
@@ -53,6 +54,9 @@ const HOUR_LABEL_H = 24;
 const HEADER_H = DAY_TITLE_H + HOUR_LABEL_H;
 const PAIR_ROW_H = 52;
 const SMALL_ROW_H = 26;
+// Ancho de un bloque de dia sin ningun horario de cancha cargado (en vez de
+// un rango inventado, o de desaparecer con ancho 0, se muestra el aviso).
+const EMPTY_DAY_W = 230;
 // Fondo levemente distinto por dia (alternando), para que se note que son
 // bloques separados y no una sola tira continua de cuadraditos.
 const DAY_BG_TINTS = ["#FFFFFF", "#F4F9F6"];
@@ -61,6 +65,10 @@ function buildFlatColumns(dayBlocks: DayBlock[]): FlatColumn[] {
   const columns: FlatColumn[] = [];
   dayBlocks.forEach((block, blockIndex) => {
     if (blockIndex > 0) columns.push({ kind: "divider", id: `div-${block.key}` });
+    if (!block.hourColumns.length) {
+      columns.push({ kind: "empty-day", id: `empty-${block.key}`, blockIndex });
+      return;
+    }
     block.hourColumns.forEach((hour) => {
       columns.push({ kind: "hour", id: `${block.key}:${hour.minutes}`, dayKey: block.key, minutes: hour.minutes, label: hour.label, blockIndex });
     });
@@ -77,20 +85,27 @@ function DividerCell({ height }: { height: number }) {
   );
 }
 
-function CellsRow({ flatColumns, height, renderCell }: {
+function CellsRow({ flatColumns, height, renderCell, renderEmptyDay }: {
   flatColumns: FlatColumn[]; height: number; renderCell: (col: FlatColumn & { kind: "hour" }) => ReactNode;
+  renderEmptyDay?: (col: FlatColumn & { kind: "empty-day" }) => ReactNode;
 }) {
   return (
     <div className="flex" style={{ height }}>
-      {flatColumns.map((col) =>
-        col.kind === "divider" ? (
-          <DividerCell key={col.id} height={height} />
-        ) : (
+      {flatColumns.map((col) => {
+        if (col.kind === "divider") return <DividerCell key={col.id} height={height} />;
+        if (col.kind === "empty-day") {
+          return (
+            <div key={col.id} style={{ width: EMPTY_DAY_W, flexShrink: 0, background: DAY_BG_TINTS[col.blockIndex % DAY_BG_TINTS.length] }} className="flex items-center justify-center">
+              {renderEmptyDay?.(col)}
+            </div>
+          );
+        }
+        return (
           <div key={col.id} style={{ width: HOUR_COL_W, flexShrink: 0, background: DAY_BG_TINTS[col.blockIndex % DAY_BG_TINTS.length] }} className="flex items-center justify-center">
             {renderCell(col)}
           </div>
-        )
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -210,7 +225,7 @@ function FilterChip({ active, onClick, label, borderColor }: { active: boolean; 
 export default function AvailabilityGrid({
   dayBlocks, gridRows, selectedPairIds, onTogglePairSelect, onToggleCell, onToggleSiblingCollapsed,
   countPairsAvailableAtHour, getCourtsAvailableAtHour, countMatchesAtHour,
-  gridFilter, setGridFilter, categoryFilterOptions,
+  gridFilter, setGridFilter, categoryFilterOptions, onOpenPreferences,
 }: {
   dayBlocks: DayBlock[];
   gridRows: GridRow[];
@@ -224,6 +239,9 @@ export default function AvailabilityGrid({
   gridFilter: GridFilter;
   setGridFilter: (filter: GridFilter) => void;
   categoryFilterOptions: { tournamentId: string; label: string; count: number; colorIndex: number }[];
+  // Boton "Ir a Preferencias" dentro del aviso de un dia sin horarios de
+  // cancha cargados. Si no se pasa, el aviso se muestra igual sin el boton.
+  onOpenPreferences?: () => void;
 }) {
   if (!dayBlocks.length) {
     return (
@@ -319,8 +337,13 @@ export default function AvailabilityGrid({
               })}
             </div>
 
-            {/* Lado que se desplaza horizontalmente: mismos dias uno al lado del otro */}
-            <div className="overflow-x-auto" style={{ flex: 1 }}>
+            {/* Lado que se desplaza horizontalmente: mismos dias uno al lado del otro.
+                minWidth: 0 es necesario: sin esto, un hijo de flex no se encoge
+                por debajo del ancho de su contenido (min-width: auto por
+                default), as que en vez de scrollear, empujaba a toda la fila
+                (columna de nombres incluida) a desbordar la pantalla, sin
+                barra de scroll ni forma de desplazarse. */}
+            <div className="overflow-x-auto" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ width: "max-content" }}>
                 <div className="flex" style={{ height: DAY_TITLE_H }}>
                   {dayBlocks.map((block, blockIndex) => (
@@ -328,13 +351,17 @@ export default function AvailabilityGrid({
                       {blockIndex > 0 && <DividerCell height={DAY_TITLE_H} />}
                       <div
                         style={{
-                          width: block.hourColumns.length * HOUR_COL_W, flexShrink: 0,
+                          width: (block.hourColumns.length ? block.hourColumns.length * HOUR_COL_W : EMPTY_DAY_W), flexShrink: 0,
                           background: DAY_BG_TINTS[blockIndex % DAY_BG_TINTS.length],
                           borderBottom: "2px solid #086847",
+                          overflow: "hidden",
                         }}
-                        className="flex items-center justify-center text-[11px] font-black uppercase"
+                        className="flex items-center justify-center text-[11px] font-black uppercase px-1"
+                        title={block.label}
                       >
-                        <span style={{ color: "#086847" }}>{block.label}</span>
+                        <span style={{ color: "#086847", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {block.label}
+                        </span>
                       </div>
                     </Fragment>
                   ))}
@@ -344,6 +371,17 @@ export default function AvailabilityGrid({
                   flatColumns={flatColumns}
                   height={HOUR_LABEL_H}
                   renderCell={(col) => <span className="text-[9px] font-mono" style={{ color: "#5F7D72" }}>{col.label}</span>}
+                  renderEmptyDay={() => (
+                    <button
+                      type="button"
+                      onClick={onOpenPreferences}
+                      title="Sin horarios de cancha cargados para este dia. Cargalos en Preferencias."
+                      className="text-[9px] font-bold underline-offset-2 hover:underline px-1 truncate"
+                      style={{ color: "#B8860B", maxWidth: EMPTY_DAY_W - 8 }}
+                    >
+                      Sin horarios — ver Preferencias
+                    </button>
+                  )}
                 />
 
                 {gridRows.map((row) => {

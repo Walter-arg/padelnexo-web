@@ -21,6 +21,7 @@ import {
   parseMatchDurationToMinutes,
   formatMatchDurationValue,
   parseTimeToMinutes,
+  parseEndTimeToMinutes,
   buildAvailabilityWarningForParticipants,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
@@ -1164,7 +1165,7 @@ export default function FixtureTab({
       showToast("Selecciona el dia y completa el horario desde y hasta", false);
       return;
     }
-    if (parseTimeToMinutes(venueDraft.to) <= parseTimeToMinutes(venueDraft.from)) {
+    if (parseEndTimeToMinutes(venueDraft.to) <= parseTimeToMinutes(venueDraft.from)) {
       showToast("El horario de fin debe ser posterior al de inicio", false);
       return;
     }
@@ -1463,7 +1464,7 @@ export default function FixtureTab({
       .filter((schedule) => schedule.dayKey === dayKey)
       .forEach((schedule) => {
         const from = parseTimeToMinutes(schedule.from);
-        const to = parseTimeToMinutes(schedule.to);
+        const to = parseEndTimeToMinutes(schedule.to);
         if (hourMinutes >= from && hourMinutes < to) {
           total += Array.isArray(schedule.selectedCourtIndices) && schedule.selectedCourtIndices.length
             ? schedule.selectedCourtIndices.length
@@ -2510,6 +2511,7 @@ export default function FixtureTab({
                 gridFilter={gridFilter}
                 setGridFilter={setGridFilter}
                 categoryFilterOptions={categoryFilterOptions}
+                onOpenPreferences={() => setSub("configurar")}
               />
 
               {/* Resumen de seleccion */}

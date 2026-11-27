@@ -129,3 +129,10 @@ test("buildPairSelectionKey: dos categorias distintas con el mismo id de pareja 
   const keyB = buildPairSelectionKey("tournament-b", "reg-1");
   assert.notEqual(keyA, keyB);
 });
+
+test("regresion: getHourColumnsForDay con una franja que termina a medianoche cubre hasta las 23:00, no colapsa a una sola columna", () => {
+  const columns = getHourColumnsForDay([{ dayKey: "2026-03-06", from: "18:00", to: "00:00" }], "2026-03-06");
+  assert.equal(columns[0].label, "18:00");
+  assert.equal(columns[columns.length - 1].label, "23:00");
+  assert.equal(columns.length, 6);
+});
