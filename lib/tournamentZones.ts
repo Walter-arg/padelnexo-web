@@ -485,6 +485,23 @@ export function isAvailableAtMinutes(availability: any = {}, dayKey: string, slo
   return getDayTimeRanges(dayAvailability).some((r) => slotMinutes >= r.from && slotMinutes < r.to);
 }
 
+// Mensaje de advertencia (nunca bloquea) cuando alguna de las parejas de un
+// partido no cargo disponibilidad para el horario candidato. Compartido
+// entre el selector de horario y el guardado real, para que ambos evaluen
+// exactamente lo mismo (antes estaba duplicado en los dos lugares).
+export function buildAvailabilityWarningForParticipants(
+  participantIds: string[],
+  registrationsById: Map<string, any>,
+  dayKey: string,
+  startMinutes: number
+): string {
+  const someoneUnavailable = participantIds.some((pairId) => {
+    const reg = registrationsById.get(pairId);
+    return reg && !isAvailableAtMinutes(reg.availability, dayKey, startMinutes);
+  });
+  return someoneUnavailable ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas." : "";
+}
+
 export function getAvailabilityRangeLabelsForDay(availability: any = {}, dayKey: string): string[] {
   const dayAvailability = availability?.[dayKey] || {};
   const quickLabels = (dayAvailability.quickSlots || [])

@@ -21,7 +21,7 @@ import {
   parseMatchDurationToMinutes,
   formatMatchDurationValue,
   parseTimeToMinutes,
-  isAvailableAtMinutes,
+  buildAvailabilityWarningForParticipants,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
@@ -1538,12 +1538,19 @@ export default function FixtureTab({
     }
   }
 
-  async function saveZoneMatchSchedule(zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null) {
+  // Devuelve si efectivamente guardo (true) o si el organizador cancelo la
+  // confirmacion de conflicto, no encontro la zona, o fallo el guardado
+  // (false en los tres casos). El llamador SIEMPRE debe revisar este valor
+  // antes de cerrar cualquier modal/selector: cerrar igual aunque haya
+  // devuelto false hace parecer que "no se puede asignar nada" cuando en
+  // realidad el organizador solo cancelo el cartel de conflicto y deberia
+  // poder elegir otro horario sin que el selector se cierre solo.
+  async function saveZoneMatchSchedule(zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null): Promise<boolean> {
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
       const zoneList = toArray(fs.zonePlanning?.zones);
       const zone = zoneList.find((z: any) => z.id === zoneId);
-      if (!zone) return;
+      if (!zone) return false;
 
       // Conflicto (cancha contra categorias hermanas, pareja superpuesta,
       // dependencia G vs G/P vs P, o fuera de disponibilidad cargada): nunca
@@ -1552,12 +1559,7 @@ export default function FixtureTab({
         const participantIds = getZoneMatchParticipantIds(zone, matchKey);
         const startMinutes = parseTimeToMinutes(schedule.startTime);
         const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
-        const availabilityWarning = participantIds.some((pairId) => {
-          const reg = registrationsById.get(pairId);
-          return reg && !isAvailableAtMinutes(reg.availability, schedule.dayKey, startMinutes);
-        })
-          ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
-          : "";
+        const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, registrationsById, schedule.dayKey, startMinutes);
 
         const result = validateMatchSlot({
           dayKey: schedule.dayKey,
@@ -1576,7 +1578,7 @@ export default function FixtureTab({
 
         const reason = result.conflictReason || result.availabilityWarning;
         if (reason && !window.confirm(`${reason}. ¿Asignar igual?`)) {
-          return;
+          return false;
         }
       }
 
@@ -1589,8 +1591,10 @@ export default function FixtureTab({
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast(schedule ? "Horario asignado" : "Horario borrado");
       await fetchSiblingZonesForOccupancy();
+      return true;
     } catch {
       showToast("Error al guardar el horario", false);
+      return false;
     }
   }
 
@@ -2418,14 +2422,10 @@ export default function FixtureTab({
           : [];
 
         // No se oculta ni se deshabilita ningun horario: el que tiene
-        // conflicto o advertencia se muestra igual, marcado con el motivo.
+        // conflicto o advertencia se muestra igual, marcado con el motivo
+        // (con estilos distintos: ver ScheduleMatchModal).
         const freeSlots = allSlots.map((slot) => {
-          const availabilityWarning = participantIds.some((pairId) => {
-            const reg = registrationsById.get(pairId);
-            return reg && !isAvailableAtMinutes(reg.availability, slot.dayKey, slot.startMinutes);
-          })
-            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
-            : "";
+          const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, registrationsById, slot.dayKey, slot.startMinutes);
 
           const result = validateMatchSlot({
             dayKey: slot.dayKey,
@@ -2457,14 +2457,18 @@ export default function FixtureTab({
             hasCurrentSchedule={Boolean(currentSchedule.dayKey && currentSchedule.startTime && currentSchedule.venueId)}
             onClose={() => setScheduleModal(null)}
             onClear={async () => {
-              await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, null);
-              setScheduleModal(null);
+              const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, null);
+              if (saved) setScheduleModal(null);
             }}
             onAssign={async (slot) => {
-              await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, {
+              // Si el organizador cancela el cartel de conflicto, saveZoneMatchSchedule
+              // devuelve false y el selector tiene que seguir abierto para que pueda
+              // elegir otro horario (cerrarlo igual hacia parecer que no se puede
+              // asignar nada, aunque el organizador solo haya cancelado ESE horario).
+              const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, {
                 dayKey: slot.dayKey, startTime: formatMinutesToTime(slot.startMinutes), venueId: slot.venueId, courtIndex: slot.courtIndex,
               });
-              setScheduleModal(null);
+              if (saved) setScheduleModal(null);
             }}
           />
         );
@@ -2577,25 +2581,41 @@ function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurr
             </div>
             <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Horario libre</p>
             <div className="flex flex-col gap-2 mb-2 max-h-60 overflow-y-auto">
-              {slotsForDay.map((slot) => {
-                const reason = slot.conflictReason || slot.availabilityWarning;
-                return (
-                  <button key={slot.id} disabled={saving}
-                    onClick={async () => { setSaving(true); await onAssign(slot); setSaving(false); }}
-                    className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold disabled:opacity-40"
-                    style={reason
-                      ? { borderColor: "#E6C0C0", color: "#173A2E", background: "#FFF6F6" }
-                      : { borderColor: "#CFE7DC", color: "#173A2E", background: "#F6FBF8" }}>
-                    <div className="flex items-center gap-1.5">
-                      {reason && <Info size={12} style={{ color: "#B24343", flexShrink: 0 }} />}
-                      <span>{slot.timeLabel} · {slot.venueName} · Cancha {slot.courtIndex}</span>
-                    </div>
-                    {reason && (
-                      <p className="text-[10px] font-bold mt-1" style={{ color: "#B24343" }}>{reason}</p>
-                    )}
-                  </button>
-                );
-              })}
+              {slotsForDay
+                .slice()
+                // Los horarios realmente libres primero, para que no queden
+                // escondidos entre los que solo tienen una advertencia de
+                // disponibilidad (que suelen ser la mayoria: el organizador
+                // a menudo agenda en horas que la pareja no cargo puntualmente).
+                .sort((a, b) => Number(Boolean(a.conflictReason || a.availabilityWarning)) - Number(Boolean(b.conflictReason || b.availabilityWarning)))
+                .map((slot) => {
+                  // Un conflicto real (cancha/pareja/dependencia G-P) es mas
+                  // grave que una simple advertencia de disponibilidad no
+                  // cargada: se distinguen con colores distintos para que no
+                  // parezca que TODOS los horarios estan "ocupados" cuando en
+                  // realidad solo faltan cargar disponibilidad.
+                  const tone: "conflict" | "warning" | "free" = slot.conflictReason ? "conflict" : slot.availabilityWarning ? "warning" : "free";
+                  const reason = slot.conflictReason || slot.availabilityWarning;
+                  const toneColors = {
+                    conflict: { border: "#E6C0C0", background: "#FFF6F6", accent: "#B24343" },
+                    warning: { border: "#F0DBA6", background: "#FFFBF0", accent: "#A6790A" },
+                    free: { border: "#CFE7DC", background: "#F6FBF8", accent: "" },
+                  }[tone];
+                  return (
+                    <button key={slot.id} disabled={saving}
+                      onClick={async () => { setSaving(true); await onAssign(slot); setSaving(false); }}
+                      className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold disabled:opacity-40"
+                      style={{ borderColor: toneColors.border, color: "#173A2E", background: toneColors.background }}>
+                      <div className="flex items-center gap-1.5">
+                        {reason && <Info size={12} style={{ color: toneColors.accent, flexShrink: 0 }} />}
+                        <span>{slot.timeLabel} · {slot.venueName} · Cancha {slot.courtIndex}</span>
+                      </div>
+                      {reason && (
+                        <p className="text-[10px] font-bold mt-1" style={{ color: toneColors.accent }}>{reason}</p>
+                      )}
+                    </button>
+                  );
+                })}
             </div>
           </>
         )}

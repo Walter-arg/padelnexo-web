@@ -14,6 +14,7 @@ import {
   buildScheduleOccupancy,
   formatMinutesToTime,
   validateMatchSlot,
+  annotateSlotCandidates,
 } from "../scheduleValidation.ts";
 
 test("DEFAULT_MATCH_DURATION_MINUTES es 75 y DEFAULT_REST_MINUTES es 0", () => {
@@ -232,4 +233,77 @@ test("f) la duracion sale de matchDurationMinutes; si no se pasa, usa 75 por def
 test("formatMinutesToTime da formato HH:MM", () => {
   assert.equal(formatMinutesToTime(19 * 60 + 5), "19:05");
   assert.equal(formatMinutesToTime(0), "00:00");
+});
+
+// ── Regresion: "en el selector de horario solo aparecen opciones en rojo,
+// ninguna libre" (web, feature/grilla-disponibilidad-web). Estos tres casos
+// prueban que el motor de validacion (este modulo) NO es la causa: el bug
+// real estaba en FixtureTab.tsx (ver mas abajo), no aca.
+
+test("regresion: hasConflict nunca se contamina con una availabilityWarning", () => {
+  // Zona recien creada, sin ningun partido agendado en ningun lado: un
+  // horario candidato cualquiera no puede tener un conflicto real, aunque
+  // se le pase una advertencia de disponibilidad (son campos separados).
+  const result = validateMatchSlot({
+    dayKey: "2026-03-06",
+    startMinutes: 19 * 60,
+    venueId: "venue-1",
+    courtIndex: 1,
+    participantIds: ["pair-1", "pair-2"],
+    occupancy: buildScheduleOccupancy([], 75),
+    availabilityWarning: "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas.",
+  });
+
+  assert.equal(result.hasConflict, false);
+  assert.equal(result.conflictReason, "");
+  assert.equal(result.availabilityWarning, "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas.");
+});
+
+test("regresion: un partido con excludeKey nunca choca contra su propio horario ya guardado", () => {
+  const occupancy = buildScheduleOccupancy(
+    [
+      {
+        tournamentId: "own-tournament", zoneId: "zone-a", matchKey: "1 vs 2",
+        courtIndex: 1, dayKey: "2026-03-06", startMinutes: 19 * 60,
+        participantIds: ["pair-1", "pair-2"], venueId: "venue-1",
+      },
+    ],
+    75
+  );
+
+  // Revalidar el MISMO horario que el partido ya tiene, excluyendose a si
+  // mismo: no debe marcarse como conflicto contra su propia entrada.
+  const sameSlotExcluded = validateMatchSlot({
+    dayKey: "2026-03-06", startMinutes: 19 * 60, venueId: "venue-1", courtIndex: 1,
+    participantIds: ["pair-1", "pair-2"], occupancy,
+    excludeKey: { tournamentId: "own-tournament", zoneId: "zone-a", matchKey: "1 vs 2" },
+  });
+  assert.equal(sameSlotExcluded.hasConflict, false);
+
+  // Sin excludeKey (o con uno que no coincide), ese mismo horario SI tiene
+  // que chocar contra la entrada existente: confirma que el excludeKey de
+  // arriba no estaba "de adorno", realmente hace la diferencia.
+  const sameSlotNotExcluded = validateMatchSlot({
+    dayKey: "2026-03-06", startMinutes: 19 * 60, venueId: "venue-1", courtIndex: 1,
+    participantIds: ["pair-1", "pair-3"], occupancy,
+  });
+  assert.equal(sameSlotNotExcluded.hasConflict, true);
+});
+
+test("regresion: annotateSlotCandidates no marca TODOS los horarios como conflicto cuando solo uno choca", () => {
+  const occupancy = buildScheduleOccupancy(
+    [{ courtIndex: 1, dayKey: "2026-03-06", matchKey: "1 vs 2", participantIds: [], startMinutes: 19 * 60, tournamentId: "sibling", venueId: "venue-1" }],
+    75
+  );
+  const candidateSlots = [
+    { dayKey: "2026-03-06", startMinutes: 9 * 60, venueId: "venue-1", courtIndex: 1 },
+    { dayKey: "2026-03-06", startMinutes: 10 * 60 + 30, venueId: "venue-1", courtIndex: 1 },
+    { dayKey: "2026-03-06", startMinutes: 19 * 60, venueId: "venue-1", courtIndex: 1 },
+    { dayKey: "2026-03-06", startMinutes: 21 * 60, venueId: "venue-1", courtIndex: 1 },
+  ];
+
+  const annotated = annotateSlotCandidates(candidateSlots, { occupancy, participantIds: [] });
+
+  assert.equal(annotated.filter((slot) => slot.hasConflict).length, 1);
+  assert.equal(annotated.filter((slot) => !slot.hasConflict).length, 3);
 });
