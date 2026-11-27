@@ -22,7 +22,6 @@ import {
   formatMatchDurationValue,
   parseTimeToMinutes,
   isAvailableAtMinutes,
-  getAvailabilityRangeLabelsForDay,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
@@ -34,6 +33,15 @@ import {
   type ScheduledMatch,
   type ScheduleOccupancy,
 } from "@/lib/scheduleValidation";
+import {
+  getHourColumnsForDay,
+  getTotalLoadedHours,
+  buildZoneLetterMapForZones,
+  sortRegistrationsUnassignedFirst,
+  isSlotAvailable,
+  buildAvailabilityAfterCellToggle,
+} from "@/lib/availabilityGrid";
+import AvailabilityGrid, { type CategoryBlock, type GridFilter, type GridRow } from "./AvailabilityGrid";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type FixSub = "configurar" | "automatico" | "manual";
@@ -66,19 +74,13 @@ const B_PAD = 16;
 const B_HDR = 34;
 const ROUND_COLORS = ["#AEEBFF", "#6FCBFF", "#2E8FE8", "#0B4FB3"];
 
-const PAIR_COLORS = [
+export const PAIR_COLORS = [
   { bg: "#E8F5EE", fill: "#BFE8D0", text: "#0F5F37" },
   { bg: "#EAF3FF", fill: "#C7DFFF", text: "#1F5B99" },
   { bg: "#FFF4E3", fill: "#F7D89A", text: "#895A00" },
   { bg: "#F3EEFF", fill: "#D9CCFF", text: "#5B3EA0" },
   { bg: "#E8FAFA", fill: "#BCE9E7", text: "#146C68" },
   { bg: "#FFF0F4", fill: "#F7C7D2", text: "#9B314B" },
-];
-
-const TIME_SLOTS = [
-  "07:00","08:00","09:00","10:00","11:00","12:00",
-  "13:00","14:00","15:00","16:00","17:00","18:00",
-  "19:00","20:00","21:00","22:00","23:00","00:00",
 ];
 
 const FORMAT_OPTIONS: { id: MatchFmt; label: string; desc: string }[] = [
@@ -151,7 +153,7 @@ function getShortPersonName(rawName: string = ""): string {
   return `${lastName} ${firstName.charAt(0).toUpperCase()}.`;
 }
 
-function getShortPairLabel(reg: any, fallbackIdx: number): string {
+export function getShortPairLabel(reg: any, fallbackIdx: number): string {
   const explicitNames = [reg?.player1Name, reg?.player2Name].filter(Boolean).map(getShortPersonName).filter(Boolean);
   if (explicitNames.length) return explicitNames.join(" / ");
   const label = getPairLabel(reg, fallbackIdx);
@@ -162,14 +164,6 @@ function getShortPairLabel(reg: any, fallbackIdx: number): string {
 function extractCategoryOrderNumber(label: string = ""): number {
   const match = String(label || "").match(/(\d+)/);
   return match ? Number(match[1]) : 999;
-}
-
-function getAllDayKeys(registrations: any[]): string[] {
-  const keys = new Set<string>();
-  for (const reg of registrations) {
-    for (const k of Object.keys(reg.availability ?? {})) keys.add(k);
-  }
-  return Array.from(keys).sort();
 }
 
 function formatDayKey(dayKey: string): string {
@@ -752,7 +746,6 @@ export default function FixtureTab({
   }, [ruleSet]);
 
   // ── Zonas state ─────────────────────────────────────────────────────────────
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedPairIds, setSelectedPairIds] = useState<Set<string>>(new Set());
   const [savingZones, setSavingZones] = useState(false);
   // La app nunca expone un selector de "llave corta/larga" al organizador:
@@ -760,70 +753,17 @@ export default function FixtureTab({
   // desde ninguna UI, siempre queda en "strict". Se replica igual acá.
   const pathType: "strict" | "flex" = "strict";
 
-  // ── Vista multi-categoria de solo lectura en Armado Manual (igual que
-  // TournamentZonePlanningScreen.js de la app) ────────────────────────────────
-  const [categorySiblingOptions, setCategorySiblingOptions] = useState<{ id: string; label: string }[]>([]);
-  const [extraCategoryIds, setExtraCategoryIds] = useState<string[]>([]);
-  const [extraCategoriesData, setExtraCategoriesData] = useState<Record<string, {
-    tournament: any; confirmedRegistrations: any[]; zones: any[];
+  // ── Grilla de disponibilidad (filas = pareja, columnas = hora) ──────────────
+  // Las categorias hermanas del evento se muestran SIEMPRE (solo lectura,
+  // plegables), no como un "Ver tambien" opt-in: los datos salen de
+  // siblingCategoriesData, poblado junto con siblingZonesForOccupancy mas
+  // abajo (misma consulta, sin pedirle a Firestore los mismos documentos dos
+  // veces). Igual que TournamentZonePlanningScreen.js de la app.
+  const [siblingCategoriesData, setSiblingCategoriesData] = useState<Record<string, {
+    categoryLabel: string; confirmedRegistrations: any[]; zones: any[];
   }>>({});
-
-  useEffect(() => {
-    const batchId = tournament?.creationBatchId || "";
-    if (!batchId) {
-      setCategorySiblingOptions([]);
-      return;
-    }
-    let active = true;
-    getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", batchId)))
-      .then((snap) => {
-        if (!active) return;
-        const siblings = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as any))
-          .filter((t) => t.id !== torneoId);
-        setCategorySiblingOptions(
-          siblings
-            .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0))
-            .map((t) => ({ id: t.id, label: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "Categoria" }))
-        );
-      })
-      .catch(() => { if (active) setCategorySiblingOptions([]); });
-    return () => { active = false; };
-  }, [tournament?.creationBatchId, torneoId]);
-
-  useEffect(() => {
-    const idsToFetch = extraCategoryIds.filter((id) => !extraCategoriesData[id]);
-    if (!idsToFetch.length) return undefined;
-    let active = true;
-    (async () => {
-      try {
-        const entries = await Promise.all(idsToFetch.map(async (id) => {
-          const [tSnap, regsSnap] = await Promise.all([
-            getDoc(doc(db, "tournaments", id)),
-            getDocs(collection(db, "tournaments", id, "registrations")),
-          ]);
-          const tData = tSnap.exists() ? ({ id, ...tSnap.data() } as any) : { id };
-          const regs = regsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-          const confirmed = regs
-            .filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed")
-            .map((r: any, i: number) => ({ ...r, __colorIndex: i }));
-          const zonesList = toArray(tData.fixtureSetup?.zonePlanning?.zones);
-          return [id, { tournament: tData, confirmedRegistrations: confirmed, zones: zonesList }] as const;
-        }));
-        if (active) {
-          setExtraCategoriesData((current) => {
-            const next = { ...current };
-            entries.forEach(([id, data]) => { next[id] = data; });
-            return next;
-          });
-        }
-      } catch {
-        // Si falla una categoria extra, simplemente no se muestra; no bloquea la pantalla principal.
-      }
-    })();
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraCategoryIds]);
+  const [collapsedSiblingIds, setCollapsedSiblingIds] = useState<Set<string>>(new Set());
+  const [gridFilter, setGridFilter] = useState<GridFilter>({ type: "all" });
 
   // ── Horarios de cancha para zonas (zoneVenueSchedules) ──────────────────────
   // Cuando el torneo pertenece a un evento multi-categoria (creationBatchId),
@@ -951,6 +891,7 @@ export default function FixtureTab({
     const batchId = tournament?.creationBatchId || "";
     if (!batchId) {
       setSiblingZonesForOccupancy([]);
+      setSiblingCategoriesData({});
       return;
     }
     try {
@@ -963,8 +904,25 @@ export default function FixtureTab({
           zones: toArray(t.fixtureSetup?.zonePlanning?.zones),
         }))
       );
+
+      // Ademas de las zonas (para ocupacion de cancha), se traen las parejas
+      // de cada hermana para mostrarlas en solo lectura en la grilla.
+      const entries = await Promise.all(siblings.map(async (t) => {
+        const regsSnap = await getDocs(collection(db, "tournaments", t.id, "registrations"));
+        const regs = regsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+        const confirmed = regs
+          .filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed")
+          .map((r: any, i: number) => ({ ...r, __colorIndex: i }));
+        return [t.id, {
+          categoryLabel: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "",
+          confirmedRegistrations: confirmed,
+          zones: toArray(t.fixtureSetup?.zonePlanning?.zones),
+        }] as const;
+      }));
+      setSiblingCategoriesData(Object.fromEntries(entries));
     } catch {
       setSiblingZonesForOccupancy([]);
+      setSiblingCategoriesData({});
     }
   }
 
@@ -1178,8 +1136,6 @@ export default function FixtureTab({
     return m;
   }, [registrations]);
 
-  const allDayKeys = useMemo(() => getAllDayKeys(registrations), [registrations]);
-
   const assignedRegIds = useMemo(() => {
     const s = new Set<string>();
     for (const z of zones) for (const id of toArray(z.registrationIds)) s.add(id);
@@ -1191,125 +1147,172 @@ export default function FixtureTab({
     [registrations, assignedRegIds]
   );
 
-  // Letra de zona (A, B, C...) por id de zona, derivada del label "Zona X"
-  const zoneLetterByZoneId = useMemo(() => {
-    const map: Record<string, string> = {};
-    zones.forEach((z: any, i: number) => {
-      const m = String(z?.label || "").match(/zona\s+([a-z0-9]+)/i);
-      map[z.id] = (m?.[1] || String.fromCharCode(65 + i)).toUpperCase();
-    });
-    return map;
-  }, [zones]);
-
-  const assignedZoneLetterByRegId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const z of zones) {
-      for (const id of toArray((z as any).registrationIds)) map[id] = zoneLetterByZoneId[(z as any).id] ?? "";
-    }
-    return map;
-  }, [zones, zoneLetterByZoneId]);
-
-  // Todas las parejas activas (asignadas o no) para el armado manual, igual
-  // que TournamentZonePlanningScreen.js de la app: se siguen viendo las ya
-  // asignadas (con su letra de zona), ordenadas sin asignar primero. El color
-  // de cada pareja se fija por su posicion ANTES de ordenar, para que no
-  // cambie cuando se asigna/desasigna.
-  const manualPlanningRegs = useMemo(() => {
-    const active = registrations.filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed");
-    return active
-      .map((r: any, i: number) => ({ ...r, __colorIndex: i }))
-      .sort((a: any, b: any) => {
-        const aAssigned = assignedRegIds.has(a.id);
-        const bAssigned = assignedRegIds.has(b.id);
-        if (aAssigned !== bAssigned) return aAssigned ? 1 : -1;
-        if (aAssigned && bAssigned) {
-          return (assignedZoneLetterByRegId[a.id] ?? "").localeCompare(assignedZoneLetterByRegId[b.id] ?? "");
-        }
-        return 0;
-      });
-  }, [registrations, assignedRegIds, assignedZoneLetterByRegId]);
-
-  // Combina la categoria activa con las categorias adicionales seleccionadas
-  // (solo lectura) en una sola grilla, ordenadas por numero de categoria.
-  const allCategoryBlocks = useMemo(() => {
-    const activeBlock = {
+  // Bloques por categoria para la grilla (activa + TODAS las hermanas, en
+  // solo lectura), ordenados por el numero de la categoria (5ta antes que
+  // 7ma antes que 8va). Las hermanas no son opcionales: se muestran siempre
+  // que existan, plegables (igual que TournamentZonePlanningScreen.js).
+  const allCategoryBlocks: CategoryBlock[] = useMemo(() => {
+    const activeZones = zones;
+    const activeConfirmed = registrations
+      .filter((r: any) => r.status !== "rejected" && r.withdrawalStatus !== "confirmed")
+      .map((r: any, i: number) => ({ ...r, __colorIndex: i }));
+    const activeBlock: CategoryBlock = {
       tournamentId: torneoId,
       categoryLabel: zoneCategoryLabel,
       isActive: true,
-      confirmedRegistrations: manualPlanningRegs,
-      zones,
+      confirmedRegistrations: sortRegistrationsUnassignedFirst(activeConfirmed, assignedRegIds, buildZoneLetterMapForZones(activeZones)),
+      zones: activeZones,
       assignedIds: assignedRegIds,
     };
-    const extraBlocks = extraCategoryIds
-      .map((id) => {
-        const data = extraCategoriesData[id];
-        if (!data) return null;
-        const label = data.tournament?.compositionConfig?.label ?? data.tournament?.compositionLabel ?? data.tournament?.name ?? "";
-        const extraAssignedIds = new Set<string>(data.zones.flatMap((z: any) => toArray(z.registrationIds)));
-        return {
-          tournamentId: id,
-          categoryLabel: label,
-          isActive: false,
-          confirmedRegistrations: data.confirmedRegistrations,
-          zones: data.zones,
-          assignedIds: extraAssignedIds,
-        };
-      })
-      .filter(Boolean) as typeof activeBlock[];
-    return [activeBlock, ...extraBlocks].sort(
+
+    const siblingBlocks: CategoryBlock[] = Object.entries(siblingCategoriesData).map(([id, data]) => {
+      const siblingZones = data.zones;
+      const siblingAssignedIds = new Set<string>(siblingZones.flatMap((z: any) => toArray(z.registrationIds)));
+      return {
+        tournamentId: id,
+        categoryLabel: data.categoryLabel,
+        isActive: false,
+        confirmedRegistrations: sortRegistrationsUnassignedFirst(data.confirmedRegistrations, siblingAssignedIds, buildZoneLetterMapForZones(siblingZones)),
+        zones: siblingZones,
+        assignedIds: siblingAssignedIds,
+      };
+    });
+
+    return [activeBlock, ...siblingBlocks].sort(
       (a, b) => extractCategoryOrderNumber(a.categoryLabel) - extractCategoryOrderNumber(b.categoryLabel)
     );
-  }, [torneoId, zoneCategoryLabel, manualPlanningRegs, zones, assignedRegIds, extraCategoryIds, extraCategoriesData]);
+  }, [torneoId, zoneCategoryLabel, registrations, zones, assignedRegIds, siblingCategoriesData]);
 
-  const isMultiCategoryView = extraCategoryIds.length > 0;
-
-  const combinedZoneColumns = useMemo(() => {
-    if (!isMultiCategoryView) return [];
-    const columns: any[] = [];
-    allCategoryBlocks.forEach((block) => {
-      block.zones.forEach((zone: any, zoneIndex: number) => {
-        const pairs = toArray(zone.registrationIds)
-          .map((id: string) => block.confirmedRegistrations.find((r: any) => r.id === id))
-          .filter(Boolean);
-        if (!pairs.length) return;
-        columns.push({
-          key: `zone:${block.tournamentId}:${zone.id}`,
-          type: "zone" as const,
-          categoryLabel: block.categoryLabel,
-          isActive: block.isActive,
-          zoneLabel: zone.label || `Zona ${String.fromCharCode(65 + zoneIndex)}`,
-          pairs,
-        });
-      });
-    });
-    return columns;
-  }, [allCategoryBlocks, isMultiCategoryView]);
-
-  const combinedUnassignedColumns = useMemo(() => {
-    if (!isMultiCategoryView) return [];
-    const columns: any[] = [];
-    allCategoryBlocks.forEach((block) => {
-      block.confirmedRegistrations.forEach((registration: any) => {
-        if (block.assignedIds.has(registration.id)) return;
-        columns.push({
-          key: `pair:${block.tournamentId}:${registration.id}`,
-          type: "pair" as const,
-          categoryLabel: block.categoryLabel,
-          isActive: block.isActive,
-          registration,
-        });
-      });
-    });
-    return columns;
-  }, [allCategoryBlocks, isMultiCategoryView]);
-
-  const combinedColumns = useMemo(
-    () => [...combinedZoneColumns, ...combinedUnassignedColumns],
-    [combinedZoneColumns, combinedUnassignedColumns]
+  // Columnas de hora: una por cada dia del torneo, lado a lado dentro del
+  // mismo scroll horizontal (a diferencia de la app, que muestra un dia a la
+  // vez por el espacio reducido de pantalla).
+  const dayBlocks = useMemo(
+    () => tournamentDayOptions.map((day) => ({
+      key: day.key,
+      label: formatDayKey(day.key),
+      hourColumns: getHourColumnsForDay(zoneSchedulesForMatches, day.key),
+    })),
+    [tournamentDayOptions, zoneSchedulesForMatches]
   );
 
+  const zoneLetterMapsByBlock = useMemo(() => {
+    const map = new Map<string, Map<string, string>>();
+    allCategoryBlocks.forEach((block) => map.set(block.tournamentId, buildZoneLetterMapForZones(block.zones)));
+    return map;
+  }, [allCategoryBlocks]);
+
+  const categoryFilterOptions = useMemo(
+    () => allCategoryBlocks.map((block, index) => ({
+      tournamentId: block.tournamentId,
+      label: block.categoryLabel || (block.isActive ? "Esta categoria" : "Categoria"),
+      count: block.confirmedRegistrations.length,
+      colorIndex: index,
+    })),
+    [allCategoryBlocks]
+  );
+
+  const gridRows: GridRow[] = useMemo(() => {
+    const rows: GridRow[] = [];
+
+    allCategoryBlocks.forEach((block, blockIndex) => {
+      if (gridFilter.type === "category" && block.tournamentId !== gridFilter.tournamentId) return;
+
+      const isCollapsed = !block.isActive && collapsedSiblingIds.has(block.tournamentId);
+      rows.push({ type: "category-header", key: `header:${block.tournamentId}`, block, colorIndex: blockIndex, isCollapsed });
+
+      if (isCollapsed) return;
+
+      const zoneLetterMap = zoneLetterMapsByBlock.get(block.tournamentId) || new Map();
+
+      block.confirmedRegistrations
+        .filter((registration: any) => {
+          if (gridFilter.type === "problems") return getTotalLoadedHours(registration) < 4;
+          if (gridFilter.type === "unassigned") return !block.assignedIds.has(registration.id);
+          return true;
+        })
+        .forEach((registration: any) => {
+          rows.push({
+            type: "pair", key: `pair:${block.tournamentId}:${registration.id}`, block, colorIndex: blockIndex,
+            registration, zoneLetter: zoneLetterMap.get(String(registration.id)) || "",
+          });
+        });
+
+      rows.push({ type: "coinciden", key: `coinciden:${block.tournamentId}`, block, colorIndex: blockIndex });
+    });
+
+    if (rows.length) rows.push({ type: "canchas-ocupadas", key: "canchas-ocupadas" });
+
+    return rows;
+  }, [allCategoryBlocks, gridFilter, collapsedSiblingIds, zoneLetterMapsByBlock]);
+
+  function toggleSiblingCollapsed(siblingTournamentId: string) {
+    setCollapsedSiblingIds((current) => {
+      const next = new Set(current);
+      if (next.has(siblingTournamentId)) next.delete(siblingTournamentId); else next.add(siblingTournamentId);
+      return next;
+    });
+  }
+
+  function countPairsAvailableAtHour(block: CategoryBlock, dayKey: string, hourMinutes: number): number {
+    return block.confirmedRegistrations.filter((registration: any) => isSlotAvailable(registration, dayKey, hourMinutes)).length;
+  }
+
+  function getCourtsAvailableAtHour(dayKey: string, hourMinutes: number): number {
+    let total = 0;
+    zoneSchedulesForMatches
+      .filter((schedule) => schedule.dayKey === dayKey)
+      .forEach((schedule) => {
+        const from = parseTimeToMinutes(schedule.from);
+        const to = parseTimeToMinutes(schedule.to);
+        if (hourMinutes >= from && hourMinutes < to) {
+          total += Array.isArray(schedule.selectedCourtIndices) && schedule.selectedCourtIndices.length
+            ? schedule.selectedCourtIndices.length
+            : Number(schedule.courts || 1);
+        }
+      });
+    return total;
+  }
+
+  function countMatchesAtHour(dayKey: string, hourMinutes: number): number {
+    return scheduledMatchesForOccupancy.filter(
+      (match) => match.dayKey === dayKey && match.startMinutes < hourMinutes + 60 && match.startMinutes + matchDurationMinutes > hourMinutes
+    ).length;
+  }
+
+  async function handleToggleAvailabilityCell(registration: any, dayKey: string, hourMinutes: number) {
+    const wasAvailable = isSlotAvailable(registration, dayKey, hourMinutes);
+    const hasAssignedMatchHere = (scheduleOccupancy.byPair.get(registration.id) || []).some(
+      (entry) => entry.dayKey === dayKey && hourMinutes < entry.endMinutes && hourMinutes + 60 > entry.startMinutes
+    );
+
+    const applyToggle = async () => {
+      const nextAvailability = buildAvailabilityAfterCellToggle(registration, dayKey, hourMinutes, tournamentDayOptions);
+      try {
+        await updateDoc(doc(db, "tournaments", torneoId, "registrations", registration.id), { availability: nextAvailability });
+      } catch {
+        showToast("No pudimos guardar la disponibilidad, intenta nuevamente", false);
+      }
+    };
+
+    if (wasAvailable && hasAssignedMatchHere) {
+      const confirmed = window.confirm(
+        `${getShortPairLabel(registration, registration.__colorIndex)} tiene un partido asignado el ${formatDayKey(dayKey)} ${formatMinutesToTime(hourMinutes)}. ¿Quitar igual esta disponibilidad?`
+      );
+      if (!confirmed) return;
+    }
+
+    await applyToggle();
+  }
+
+  function togglePairSelection(registrationId: string) {
+    setSelectedPairIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(registrationId)) next.delete(registrationId); else next.add(registrationId);
+      return next;
+    });
+  }
+
   function handleSetSub(s: FixSub) {
-    if (s === "manual" && !selectedDay && allDayKeys.length > 0) setSelectedDay(allDayKeys[0]);
     setSub(s);
   }
 
@@ -2168,262 +2171,20 @@ export default function FixtureTab({
       {/* ── ARMADO MANUAL — vista ZONAS ────────────────────────────────────── */}
       {sub === "manual" && view === "zonas" && (
         <div>
-              {/* Day selector chips */}
-              {allDayKeys.length === 0 ? (
-                <div className="rounded-2xl border px-5 py-6 mb-5 text-center" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-                  <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>Las parejas aún no cargaron disponibilidad.</p>
-                  <p className="text-xs mt-1" style={{ color: "#9BB8AE" }}>
-                    Cuando lo hagan, sus horarios disponibles aparecerán acá.
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-4">
-                  <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Seleccioná un día para ver disponibilidad</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {allDayKeys.map(dk => (
-                      <button key={dk} onClick={() => setSelectedDay(dk)}
-                        className="px-3 py-2 rounded-full text-xs font-bold border transition-all"
-                        style={selectedDay === dk
-                          ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
-                          : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
-                        {formatDayKey(dk)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Ver otras categorias del mismo evento (solo lectura) */}
-              {categorySiblingOptions.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>
-                    Ver también (solo lectura, {zoneCategoryLabel || "esta categoria"} sigue siendo la editable)
-                  </p>
-                  <div className="flex gap-2 flex-wrap">
-                    {categorySiblingOptions.map((opt) => {
-                      const isSelected = extraCategoryIds.includes(opt.id);
-                      return (
-                        <button key={opt.id}
-                          onClick={() => setExtraCategoryIds((current) =>
-                            current.includes(opt.id) ? current.filter((id) => id !== opt.id) : [...current, opt.id]
-                          )}
-                          className="px-3 py-2 rounded-full text-xs font-bold border transition-all"
-                          style={isSelected
-                            ? { background: "#086847", color: "#FFF", borderColor: "#086847" }
-                            : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}>
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Availability grid: TODAS las parejas activas, asignadas o no */}
-              {selectedDay && !isMultiCategoryView && (
-                <div className="mb-5">
-                  {manualPlanningRegs.length === 0 ? (
-                    <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>
-                      No hay parejas inscriptas todavía.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>
-                        Hacé click en el encabezado de una pareja para seleccionarla
-                      </p>
-                      <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: "#CFE7DC" }}>
-                        <table className="text-xs border-collapse" style={{ minWidth: 200 + manualPlanningRegs.length * 90 }}>
-                          <thead>
-                            <tr style={{ borderBottom: "2px solid #CFE7DC" }}>
-                              <th className="py-3 px-3 text-left font-black text-[10px] uppercase sticky left-0 bg-white"
-                                style={{ color: "#9BB8AE", minWidth: 52 }}>HORA</th>
-                              {manualPlanningRegs.map((reg: any) => {
-                                const color = PAIR_COLORS[reg.__colorIndex % 6];
-                                const selected = selectedPairIds.has(reg.id);
-                                const zoneLetter = assignedZoneLetterByRegId[reg.id];
-                                return (
-                                  <th key={reg.id}
-                                    className="py-2 px-2 text-center cursor-pointer transition-all relative"
-                                    onClick={() => setSelectedPairIds(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(reg.id)) next.delete(reg.id); else next.add(reg.id);
-                                      return next;
-                                    })}
-                                    style={{
-                                      background: color.bg,
-                                      minWidth: 92,
-                                      userSelect: "none",
-                                      opacity: zoneLetter ? 0.72 : 1,
-                                      boxShadow: selected ? `inset 0 0 0 3px #086847` : undefined,
-                                    }}>
-                                    {zoneLetter && (
-                                      <span className="absolute top-1 right-1 w-5 h-5 rounded-full text-[11px] font-bold leading-none flex items-center justify-center text-white border"
-                                        style={{ background: "#086847", borderColor: "#FFFFFF" }}>
-                                        {zoneLetter}
-                                      </span>
-                                    )}
-                                    <div className="font-black text-[10px] mb-0.5" style={{ color: color.text }}>P{reg.__colorIndex + 1}</div>
-                                    <div className="font-semibold text-[10px] leading-tight break-words" style={{ color: color.text, maxWidth: 84 }}>
-                                      {getShortPairLabel(reg, reg.__colorIndex)}
-                                    </div>
-                                    <div className="font-semibold text-[9px] leading-tight break-words mt-0.5" style={{ color: color.text, maxWidth: 84 }}>
-                                      {(() => {
-                                        const ranges = getAvailabilityRangeLabelsForDay(reg.availability, selectedDay!);
-                                        return ranges.length ? ranges.join(" / ") : "Sin horario";
-                                      })()}
-                                    </div>
-                                    {selected && <Check size={10} className="mx-auto mt-1" style={{ color: color.text }} />}
-                                  </th>
-                                );
-                              })}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {TIME_SLOTS.map((slot, si) => (
-                              <tr key={slot} style={{ background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF" }}>
-                                <td className="py-1.5 px-3 font-mono text-[11px] font-semibold sticky left-0"
-                                  style={{ color: "#5F7D72", background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF", borderRight: "1px solid #F0F7F4" }}>
-                                  {slot}
-                                </td>
-                                {manualPlanningRegs.map((reg: any) => {
-                                  const avail = isAvailableAtMinutes(reg.availability, selectedDay!, parseTimeToMinutes(slot));
-                                  const color = PAIR_COLORS[reg.__colorIndex % 6];
-                                  return (
-                                    <td key={reg.id} className="py-1.5 px-2 text-center">
-                                      <div className="rounded h-5 mx-auto" style={{
-                                        background: avail ? color.fill : "transparent",
-                                        border: avail ? "none" : "1px solid #EFF4F2",
-                                        width: 36,
-                                      }} />
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Availability grid combinada: categoria activa + categorias adicionales
-                  de solo lectura, una columna por zona ya armada (parejas apiladas) y
-                  una columna por pareja sin asignar, ordenadas por numero de categoria */}
-              {selectedDay && isMultiCategoryView && (
-                <div className="mb-5">
-                  {combinedColumns.length === 0 ? (
-                    <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>
-                      No hay parejas inscriptas todavía.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>
-                        Hacé click en el encabezado de una pareja de {zoneCategoryLabel || "la categoria activa"} para seleccionarla
-                      </p>
-                      <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: "#CFE7DC" }}>
-                        <table className="text-xs border-collapse" style={{ minWidth: 200 + combinedColumns.length * 90 }}>
-                          <thead>
-                            <tr style={{ borderBottom: "2px solid #CFE7DC" }}>
-                              <th className="py-3 px-3 text-left font-black text-[10px] uppercase sticky left-0 bg-white"
-                                style={{ color: "#9BB8AE", minWidth: 52 }}>HORA</th>
-                              {combinedColumns.map((column) => {
-                                if (column.type === "zone") {
-                                  return (
-                                    <th key={column.key}
-                                      className="py-2 px-2 text-center relative"
-                                      style={{ background: "#EEF3F0", minWidth: 92, opacity: column.isActive ? 1 : 0.85 }}>
-                                      <div className="inline-block rounded px-1.5 py-0.5 mb-1 text-[8px] font-black"
-                                        style={{ background: "rgba(255,255,255,0.85)", color: "#086847" }}>
-                                        {column.categoryLabel || "-"}
-                                      </div>
-                                      <div className="font-black text-sm" style={{ color: "#173A2E" }}>{column.zoneLabel}</div>
-                                    </th>
-                                  );
-                                }
-                                const reg = column.registration;
-                                const color = PAIR_COLORS[reg.__colorIndex % 6];
-                                const selected = column.isActive && selectedPairIds.has(reg.id);
-                                const ranges = getAvailabilityRangeLabelsForDay(reg.availability, selectedDay!);
-                                return (
-                                  <th key={column.key}
-                                    className={`py-2 px-2 text-center transition-all relative ${column.isActive ? "cursor-pointer" : ""}`}
-                                    onClick={column.isActive ? () => setSelectedPairIds(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(reg.id)) next.delete(reg.id); else next.add(reg.id);
-                                      return next;
-                                    }) : undefined}
-                                    style={{
-                                      background: color.bg,
-                                      minWidth: 92,
-                                      userSelect: "none",
-                                      opacity: column.isActive ? 1 : 0.85,
-                                      boxShadow: selected ? `inset 0 0 0 3px #086847` : undefined,
-                                    }}>
-                                    <div className="inline-block rounded px-1.5 py-0.5 mb-1 text-[8px] font-black"
-                                      style={{ background: "rgba(255,255,255,0.75)", color: "#086847" }}>
-                                      {column.categoryLabel || "-"}
-                                    </div>
-                                    <div className="font-semibold text-[10px] leading-tight break-words" style={{ color: color.text, maxWidth: 84 }}>
-                                      {getShortPairLabel(reg, reg.__colorIndex)}
-                                    </div>
-                                    <div className="font-semibold text-[9px] leading-tight break-words mt-0.5" style={{ color: color.text, maxWidth: 84 }}>
-                                      {ranges.length ? ranges.join(" / ") : "Sin horario"}
-                                    </div>
-                                    {selected && <Check size={10} className="mx-auto mt-1" style={{ color: color.text }} />}
-                                  </th>
-                                );
-                              })}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {TIME_SLOTS.map((slot, si) => (
-                              <tr key={slot} style={{ background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF" }}>
-                                <td className="py-1.5 px-3 font-mono text-[11px] font-semibold sticky left-0"
-                                  style={{ color: "#5F7D72", background: si % 2 === 0 ? "#FAFCFB" : "#FFFFFF", borderRight: "1px solid #F0F7F4" }}>
-                                  {slot}
-                                </td>
-                                {combinedColumns.map((column) => (
-                                  <td key={column.key} className="px-2 text-center align-middle" style={{ height: 76 }}>
-                                    <div className="flex flex-col items-center justify-center gap-0.5 mx-auto" style={{ height: 64 }}>
-                                      {column.type === "zone"
-                                        ? column.pairs.map((pair: any) => {
-                                            const pairColor = PAIR_COLORS[pair.__colorIndex % 6];
-                                            const avail = isAvailableAtMinutes(pair.availability, selectedDay!, parseTimeToMinutes(slot));
-                                            return (
-                                              <div key={`${column.key}-${pair.id}`} className="rounded" style={{
-                                                background: avail ? pairColor.fill : "transparent",
-                                                border: avail ? "none" : "1px solid #EFF4F2",
-                                                width: 32,
-                                                height: 14,
-                                              }} />
-                                            );
-                                          })
-                                        : (() => {
-                                            const pairColor = PAIR_COLORS[column.registration.__colorIndex % 6];
-                                            const avail = isAvailableAtMinutes(column.registration.availability, selectedDay!, parseTimeToMinutes(slot));
-                                            return (
-                                              <div className="rounded" style={{
-                                                background: avail ? pairColor.fill : "transparent",
-                                                border: avail ? "none" : "1px solid #EFF4F2",
-                                                width: 32,
-                                                height: 14,
-                                              }} />
-                                            );
-                                          })()}
-                                    </div>
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
+              <AvailabilityGrid
+                dayBlocks={dayBlocks}
+                gridRows={gridRows}
+                selectedPairIds={selectedPairIds}
+                onTogglePairSelect={togglePairSelection}
+                onToggleCell={handleToggleAvailabilityCell}
+                onToggleSiblingCollapsed={toggleSiblingCollapsed}
+                countPairsAvailableAtHour={(block, dayKey, hourMinutes) => countPairsAvailableAtHour(block, dayKey, hourMinutes)}
+                getCourtsAvailableAtHour={getCourtsAvailableAtHour}
+                countMatchesAtHour={countMatchesAtHour}
+                gridFilter={gridFilter}
+                setGridFilter={setGridFilter}
+                categoryFilterOptions={categoryFilterOptions}
+              />
 
               {/* Resumen de seleccion */}
               {selectedPairIds.size > 0 && (
