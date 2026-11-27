@@ -9,11 +9,11 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
 import { sendPushNotification } from "@/lib/pushNotifications";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
-import FixtureTab from "./FixtureTab";
+import FixtureTab, { type FixSub, type FixView } from "./FixtureTab";
 import {
-  ChevronLeft, ChevronRight, Users, GitBranch, CreditCard, Settings,
+  ChevronLeft, ChevronRight, Users, Calendar, CreditCard, Settings,
   Trophy, CheckCircle, Clock, PencilLine, Trash2,
   Loader2, X, Plus, Banknote, ArrowLeftRight, Eye, Shield, MapPin, Printer, Bell, Send,
   Link2, Phone, MessageSquare, Bold, ImageIcon, Building2,
@@ -914,12 +914,18 @@ export default function TorneoDetailPage() {
   const router = useRouter();
   const params = useParams();
   const torneoId = params.id as string;
+  const searchParams = useSearchParams();
 
   const [torneo, setTorneo]               = useState<any>(null);
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [players, setPlayers]             = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
-  const [tab, setTab]                     = useState<Tab>("inscripciones");
+  // tab/fixtureSub/fixtureView se inicializan desde la URL (?tab=...) para
+  // que cambiar de categoria desde el selector lateral pueda volver a abrir
+  // en la misma pestana/subpestana en la que estaba (ver handleSelectCategory).
+  const [tab, setTab]                     = useState<Tab>((searchParams.get("tab") as Tab | null) || "inscripciones");
+  const [fixtureSub, setFixtureSub]       = useState<FixSub>((searchParams.get("fixtureSub") as FixSub | null) || "configurar");
+  const [fixtureView, setFixtureView]     = useState<FixView>((searchParams.get("fixtureView") as FixView | null) || "zonas");
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
   const [categorySiblings, setCategorySiblings] = useState<any[]>([]);
 
@@ -1028,7 +1034,13 @@ export default function TorneoDetailPage() {
 
   function handleSelectCategory(nextTournamentId: string) {
     if (!nextTournamentId || nextTournamentId === torneoId) return;
-    router.push(`/dashboard/torneos/${nextTournamentId}`);
+    const nextParams = new URLSearchParams();
+    nextParams.set("tab", tab);
+    if (tab === "fixture") {
+      nextParams.set("fixtureSub", fixtureSub);
+      nextParams.set("fixtureView", fixtureView);
+    }
+    router.push(`/dashboard/torneos/${nextTournamentId}?${nextParams.toString()}`);
   }
 
   // ── Confirmar pareja ────────────────────────────────────────────────────
@@ -1351,7 +1363,7 @@ export default function TorneoDetailPage() {
       id: "fixture",
       label: "Fixture",
       description: hasGrupos && hasBracket ? "Zonas + Bracket" : hasGrupos ? "Zonas de grupos" : hasBracket ? "Bracket eliminatorio" : "Sin fixture generado",
-      icon: GitBranch,
+      icon: Calendar,
       color: "bg-emerald-600",
       lightBg: "bg-emerald-50",
       lightText: "text-emerald-700",
@@ -1966,6 +1978,10 @@ export default function TorneoDetailPage() {
                   registrations={registrations}
                   showToast={showToast}
                   tournament={torneo}
+                  sub={fixtureSub}
+                  onSubChange={setFixtureSub}
+                  view={fixtureView}
+                  onViewChange={setFixtureView}
                 />
               )}
 

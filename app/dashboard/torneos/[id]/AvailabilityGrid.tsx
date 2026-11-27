@@ -39,26 +39,40 @@ export type GridRow =
   | { type: "coinciden"; key: string; block: CategoryBlock; colorIndex: number }
   | { type: "canchas-ocupadas"; key: string };
 
-type FlatColumn = { kind: "divider"; id: string } | { kind: "hour"; id: string; dayKey: string; minutes: number; label: string };
+type FlatColumn =
+  | { kind: "divider"; id: string }
+  | { kind: "hour"; id: string; dayKey: string; minutes: number; label: string; blockIndex: number };
 
 const NAME_COL_W = 176;
 const HOUR_COL_W = 44;
-const DIVIDER_W = 14;
-const DAY_TITLE_H = 22;
+const DIVIDER_W = 18;
+const DAY_TITLE_H = 26;
 const HOUR_LABEL_H = 24;
 const HEADER_H = DAY_TITLE_H + HOUR_LABEL_H;
 const PAIR_ROW_H = 52;
 const SMALL_ROW_H = 26;
+// Fondo levemente distinto por dia (alternando), para que se note que son
+// bloques separados y no una sola tira continua de cuadraditos.
+const DAY_BG_TINTS = ["#FFFFFF", "#F4F9F6"];
 
 function buildFlatColumns(dayBlocks: DayBlock[]): FlatColumn[] {
   const columns: FlatColumn[] = [];
   dayBlocks.forEach((block, blockIndex) => {
     if (blockIndex > 0) columns.push({ kind: "divider", id: `div-${block.key}` });
     block.hourColumns.forEach((hour) => {
-      columns.push({ kind: "hour", id: `${block.key}:${hour.minutes}`, dayKey: block.key, minutes: hour.minutes, label: hour.label });
+      columns.push({ kind: "hour", id: `${block.key}:${hour.minutes}`, dayKey: block.key, minutes: hour.minutes, label: hour.label, blockIndex });
     });
   });
   return columns;
+}
+
+// Separador vertical bien visible entre dias (una linea, no solo un hueco).
+function DividerCell({ height }: { height: number }) {
+  return (
+    <div style={{ width: DIVIDER_W, flexShrink: 0, height, display: "flex", justifyContent: "center" }}>
+      <div style={{ width: 2, height: "100%", background: "#CFE7DC" }} />
+    </div>
+  );
 }
 
 function CellsRow({ flatColumns, height, renderCell }: {
@@ -68,9 +82,9 @@ function CellsRow({ flatColumns, height, renderCell }: {
     <div className="flex" style={{ height }}>
       {flatColumns.map((col) =>
         col.kind === "divider" ? (
-          <div key={col.id} style={{ width: DIVIDER_W, flexShrink: 0 }} />
+          <DividerCell key={col.id} height={height} />
         ) : (
-          <div key={col.id} style={{ width: HOUR_COL_W, flexShrink: 0 }} className="flex items-center justify-center">
+          <div key={col.id} style={{ width: HOUR_COL_W, flexShrink: 0, background: DAY_BG_TINTS[col.blockIndex % DAY_BG_TINTS.length] }} className="flex items-center justify-center">
             {renderCell(col)}
           </div>
         )
@@ -310,12 +324,16 @@ export default function AvailabilityGrid({
                 <div className="flex" style={{ height: DAY_TITLE_H }}>
                   {dayBlocks.map((block, blockIndex) => (
                     <Fragment key={block.key}>
-                      {blockIndex > 0 && <div style={{ width: DIVIDER_W, flexShrink: 0 }} />}
+                      {blockIndex > 0 && <DividerCell height={DAY_TITLE_H} />}
                       <div
-                        style={{ width: block.hourColumns.length * HOUR_COL_W, flexShrink: 0, background: "#F6FBF8" }}
-                        className="flex items-center justify-center text-[10px] font-black"
+                        style={{
+                          width: block.hourColumns.length * HOUR_COL_W, flexShrink: 0,
+                          background: DAY_BG_TINTS[blockIndex % DAY_BG_TINTS.length],
+                          borderBottom: "2px solid #086847",
+                        }}
+                        className="flex items-center justify-center text-[11px] font-black uppercase"
                       >
-                        <span style={{ color: "#5F7D72" }}>{block.label}</span>
+                        <span style={{ color: "#086847" }}>{block.label}</span>
                       </div>
                     </Fragment>
                   ))}

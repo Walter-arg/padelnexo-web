@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, Fragment } from "react";
+import { useRouter } from "next/navigation";
 import { doc, updateDoc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
@@ -40,11 +41,13 @@ import {
   sortRegistrationsUnassignedFirst,
   isSlotAvailable,
   buildAvailabilityAfterCellToggle,
+  getCategoryColor,
 } from "@/lib/availabilityGrid";
 import AvailabilityGrid, { type CategoryBlock, type GridFilter, type GridRow } from "./AvailabilityGrid";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type FixSub = "configurar" | "automatico" | "manual";
+export type FixSub = "configurar" | "automatico" | "manual";
+export type FixView = "zonas" | "llaves";
 type MatchFmt = "third_set" | "super_tiebreak";
 type BracketFinalOverride = "none" | "final_only" | "semifinal_and_final";
 
@@ -433,6 +436,38 @@ function ResultModal({ match, format, onClose, onSave }: {
 }
 
 // ── Standings Modal ───────────────────────────────────────────────────────────
+// Modal propio de confirmacion (reemplaza a window.confirm/alert nativos en
+// todo el flujo de armado/horarios): mismo cartel visual que el resto de los
+// modales de esta pantalla. Se dispara con requestConfirm (mas abajo, en
+// FixtureTab), que devuelve una Promise<boolean> para poder seguir usando
+// `await` en las funciones que antes usaban window.confirm de forma
+// sincronica.
+function ConfirmDialog({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", tone = "default", onConfirm, onCancel }: {
+  title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger";
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+      <div className="w-full max-w-sm rounded-[22px] p-6 shadow-xl" style={{ background: "#FFFFFF" }}>
+        <h3 className="font-black text-base mb-2" style={{ color: "#173A2E" }}>{title}</h3>
+        <p className="text-sm mb-5 whitespace-pre-line" style={{ color: "#5F7D72" }}>{message}</p>
+        <div className="flex gap-2">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-black text-xs border"
+            style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+            {cancelLabel}
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-black text-xs text-white"
+            style={{ background: tone === "danger" ? "#B24343" : "#086847" }}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StandingsModal({ zone, regMap, onClose }: {
   zone: any; regMap: Record<string, any>; onClose: () => void;
 }) {
@@ -529,9 +564,11 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
   zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
   categoryLabel?: string;
   getMatchConflict?: (zone: any, matchKey: string) => { hasConflict: boolean; conflictReason: string };
-  onResultClick: (matchKey: string, match: any) => void;
-  onStandingsClick: () => void;
-  onScheduleClick: (matchKey: string) => void;
+  // Ausentes => la zona se muestra en solo lectura (categorias hermanas,
+  // que no se editan desde esta pantalla).
+  onResultClick?: (matchKey: string, match: any) => void;
+  onStandingsClick?: () => void;
+  onScheduleClick?: (matchKey: string) => void;
   onRemovePair?: (regId: string) => void;
 }) {
   const regIds = toArray(zone.registrationIds);
@@ -558,11 +595,13 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs" style={{ color: "#9BB8AE" }}>{completedCount}/{matchKeys.length} partidos</span>
-          <button onClick={onStandingsClick}
-            className="text-xs font-black px-3 py-1.5 rounded-full border"
-            style={{ background: "#EEF8F1", borderColor: "#C5E5CF", color: "#0B8457" }}>
-            PUNTAJES
-          </button>
+          {onStandingsClick && (
+            <button onClick={onStandingsClick}
+              className="text-xs font-black px-3 py-1.5 rounded-full border"
+              style={{ background: "#EEF8F1", borderColor: "#C5E5CF", color: "#0B8457" }}>
+              PUNTAJES
+            </button>
+          )}
         </div>
       </div>
 
@@ -647,29 +686,43 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
                           <span className="text-xs font-semibold truncate block" style={{ color: "#173A2E" }}>{pairDisplay}</span>
                         </td>
                         <td className="py-2.5 pr-3 whitespace-nowrap">
-                          <button onClick={() => onScheduleClick(matchKey)}
-                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                            {dayStr}
-                          </button>
+                          {onScheduleClick ? (
+                            <button onClick={() => onScheduleClick(matchKey)}
+                              className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                              {dayStr}
+                            </button>
+                          ) : (
+                            <span className="text-xs" style={{ color: "#5F7D72" }}>{dayStr}</span>
+                          )}
                         </td>
                         <td className="py-2.5 pr-3 whitespace-nowrap">
-                          <button onClick={() => onScheduleClick(matchKey)}
-                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                            {md.startTime || "—"}
-                          </button>
+                          {onScheduleClick ? (
+                            <button onClick={() => onScheduleClick(matchKey)}
+                              className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                              {md.startTime || "—"}
+                            </button>
+                          ) : (
+                            <span className="text-xs" style={{ color: "#5F7D72" }}>{md.startTime || "—"}</span>
+                          )}
                         </td>
                         <td className="py-2.5 pr-3 truncate max-w-[90px]">
-                          <button onClick={() => onScheduleClick(matchKey)}
-                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                            {placeLabel}
-                          </button>
+                          {onScheduleClick ? (
+                            <button onClick={() => onScheduleClick(matchKey)}
+                              className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                              {placeLabel}
+                            </button>
+                          ) : (
+                            <span className="text-xs" style={{ color: "#5F7D72" }}>{placeLabel}</span>
+                          )}
                         </td>
                         <td className="py-2.5">
-                          <button onClick={() => onResultClick(matchKey, matchObj)}
-                            className="text-[10px] font-black px-2.5 py-1 rounded-full border whitespace-nowrap"
-                            style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
-                            {isDone ? "Editar" : "Resultado"}
-                          </button>
+                          {onResultClick ? (
+                            <button onClick={() => onResultClick(matchKey, matchObj)}
+                              className="text-[10px] font-black px-2.5 py-1 rounded-full border whitespace-nowrap"
+                              style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
+                              {isDone ? "Editar" : "Resultado"}
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                       {matchConflict?.hasConflict && (
@@ -699,14 +752,27 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
 // ── Main FixtureTab ───────────────────────────────────────────────────────────
 export default function FixtureTab({
   torneoId, fixtureSetup, registrations = [], showToast, tournament = {},
+  // sub/view se pueden controlar desde afuera (page.tsx) para que, al
+  // cambiar de categoria desde el selector lateral, la proxima pantalla
+  // pueda abrir en la misma pestana/subpestana en la que estaba (ver
+  // handleSelectCategory en page.tsx). Si no se pasan, el componente
+  // funciona igual que antes con su propio estado interno.
+  sub: controlledSub, onSubChange, view: controlledView, onViewChange,
 }: {
   torneoId: string; fixtureSetup: any; registrations?: any[];
   showToast: (msg: string, ok?: boolean) => void; tournament?: any;
+  sub?: FixSub; onSubChange?: (sub: FixSub) => void;
+  view?: FixView; onViewChange?: (view: FixView) => void;
 }) {
   const zoneCategoryLabel: string =
     tournament?.compositionConfig?.label ?? tournament?.compositionLabel ?? "";
-  const [sub, setSub] = useState<FixSub>("configurar");
-  const [view, setView] = useState<"zonas" | "llaves">("zonas");
+  const [internalSub, setInternalSub] = useState<FixSub>("configurar");
+  const [internalView, setInternalView] = useState<FixView>("zonas");
+  const sub = controlledSub ?? internalSub;
+  const view = controlledView ?? internalView;
+  const setSub = (next: FixSub) => (onSubChange ? onSubChange(next) : setInternalSub(next));
+  const setView = (next: FixView) => (onViewChange ? onViewChange(next) : setInternalView(next));
+  const router = useRouter();
   const [zoom, setZoom] = useState(1);
 
   // ── Config state ────────────────────────────────────────────────────────────
@@ -1033,6 +1099,18 @@ export default function FixtureTab({
   const [bracketScheduleModal, setBracketScheduleModal] = useState<{ ri: number; mi: number } | null>(null);
   const [savingAutoSchedule, setSavingAutoSchedule] = useState(false);
 
+  // Reemplazo de window.confirm en todo el flujo de armado/horarios: abre
+  // ConfirmDialog y devuelve una Promise<boolean> que se resuelve cuando el
+  // organizador elige una de las dos opciones.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger";
+    resolve: (value: boolean) => void;
+  } | null>(null);
+
+  function requestConfirm(options: { title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger" }): Promise<boolean> {
+    return new Promise((resolve) => setConfirmDialog({ ...options, resolve }));
+  }
+
   // ── Computed ────────────────────────────────────────────────────────────────
   const zones: any[] = toArray(fixtureSetup?.zonePlanning?.zones);
   const bracketRounds: any[][] = normalizeBracketRounds(fixtureSetup?.bracketPreview);
@@ -1189,7 +1267,10 @@ export default function FixtureTab({
   const dayBlocks = useMemo(
     () => tournamentDayOptions.map((day) => ({
       key: day.key,
-      label: formatDayKey(day.key),
+      // "Viernes 28 de noviembre" en vez de la forma corta ("vie. 28 nov")
+      // que usa formatDayKey en el resto de la pantalla: en el encabezado de
+      // cada bloque de dia conviene que se lea clarisimo cual es cual.
+      label: day.label.charAt(0).toUpperCase() + day.label.slice(1),
       hourColumns: getHourColumnsForDay(zoneSchedulesForMatches, day.key),
     })),
     [tournamentDayOptions, zoneSchedulesForMatches]
@@ -1284,24 +1365,33 @@ export default function FixtureTab({
     const hasAssignedMatchHere = (scheduleOccupancy.byPair.get(registration.id) || []).some(
       (entry) => entry.dayKey === dayKey && hourMinutes < entry.endMinutes && hourMinutes + 60 > entry.startMinutes
     );
+    const pairLabel = getShortPairLabel(registration, registration.__colorIndex);
+    const whenLabel = `${formatDayKey(dayKey)} ${formatMinutesToTime(hourMinutes)}`;
 
-    const applyToggle = async () => {
-      const nextAvailability = buildAvailabilityAfterCellToggle(registration, dayKey, hourMinutes, tournamentDayOptions);
-      try {
-        await updateDoc(doc(db, "tournaments", torneoId, "registrations", registration.id), { availability: nextAvailability });
-      } catch {
-        showToast("No pudimos guardar la disponibilidad, intenta nuevamente", false);
-      }
-    };
-
+    // Pintar/despintar es facil de tocar por error: SIEMPRE se confirma
+    // (antes solo se confirmaba al quitar disponibilidad con un partido ya
+    // asignado ahi; agregar disponibilidad no pedia nada).
+    let message = wasAvailable
+      ? `¿Quitar disponibilidad ${whenLabel} a ${pairLabel}?`
+      : `¿Agregar disponibilidad ${whenLabel} a ${pairLabel}? Este horario no lo cargó la pareja.`;
     if (wasAvailable && hasAssignedMatchHere) {
-      const confirmed = window.confirm(
-        `${getShortPairLabel(registration, registration.__colorIndex)} tiene un partido asignado el ${formatDayKey(dayKey)} ${formatMinutesToTime(hourMinutes)}. ¿Quitar igual esta disponibilidad?`
-      );
-      if (!confirmed) return;
+      message += ` Tiene un partido asignado en ese horario.`;
     }
 
-    await applyToggle();
+    const confirmed = await requestConfirm({
+      title: wasAvailable ? "Quitar disponibilidad" : "Agregar disponibilidad",
+      message,
+      confirmLabel: wasAvailable ? "Quitar" : "Agregar",
+      tone: wasAvailable && hasAssignedMatchHere ? "danger" : "default",
+    });
+    if (!confirmed) return;
+
+    const nextAvailability = buildAvailabilityAfterCellToggle(registration, dayKey, hourMinutes, tournamentDayOptions);
+    try {
+      await updateDoc(doc(db, "tournaments", torneoId, "registrations", registration.id), { availability: nextAvailability });
+    } catch {
+      showToast("No pudimos guardar la disponibilidad, intenta nuevamente", false);
+    }
   }
 
   function togglePairSelection(registrationId: string) {
@@ -1444,8 +1534,14 @@ export default function FixtureTab({
       showToast("Necesitás al menos 6 parejas confirmadas", false);
       return;
     }
-    if (zones.length > 0 && !window.confirm("Ya hay zonas armadas. ¿Las reemplazamos por el armado automático?")) {
-      return;
+    if (zones.length > 0) {
+      const confirmed = await requestConfirm({
+        title: "Reemplazar zonas",
+        message: "Ya hay zonas armadas. ¿Las reemplazamos por el armado automático?",
+        confirmLabel: "Reemplazar",
+        tone: "danger",
+      });
+      if (!confirmed) return;
     }
     setSavingZones(true);
     try {
@@ -1470,9 +1566,13 @@ export default function FixtureTab({
     const warning = unassignedCount > 0
       ? `\n\nTodavia quedan ${unassignedCount} pareja${unassignedCount === 1 ? "" : "s"} sin zona asignada.`
       : "";
-    if (!window.confirm(`${conflictWarning}El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`)) {
-      return;
-    }
+    const confirmed = await requestConfirm({
+      title: "Confirmar armado",
+      message: `${conflictWarning}El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`,
+      confirmLabel: "Confirmar",
+      tone: conflictCount > 0 ? "danger" : "default",
+    });
+    if (!confirmed) return;
     setSavingZones(true);
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
@@ -1577,8 +1677,14 @@ export default function FixtureTab({
         });
 
         const reason = result.conflictReason || result.availabilityWarning;
-        if (reason && !window.confirm(`${reason}. ¿Asignar igual?`)) {
-          return false;
+        if (reason) {
+          const confirmed = await requestConfirm({
+            title: "Horario con conflicto",
+            message: `${reason}. ¿Asignar igual?`,
+            confirmLabel: "Asignar igual",
+            tone: "danger",
+          });
+          if (!confirmed) return false;
         }
       }
 
@@ -2231,21 +2337,67 @@ export default function FixtureTab({
                 </div>
               )}
 
-              {/* Existing zones */}
-              {zones.length > 0 && (
-                <div className="flex flex-col gap-4 mb-5">
-                  <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>Zonas creadas</p>
-                  {zones.map(zone => (
-                    <ZoneCard key={zone.id}
-                      zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
-                      getMatchConflict={getMatchConflict}
-                      onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
-                      onStandingsClick={() => setStandingsModal(zone)}
-                      onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })}
-                      onRemovePair={(regId) => handleRemovePairFromZone(zone.id, regId)} />
-                  ))}
-                </div>
-              )}
+              {/* Existing zones: propia categoria (editable) + hermanas (solo
+                  lectura, con boton para abrir esa categoria), agrupadas por
+                  categoria con su color. Respeta el chip de filtro elegido en
+                  la grilla: "Todas" muestra todas, un chip de categoria deja
+                  solo esa. "Con problemas"/"Sin zona" son filtros de filas de
+                  la grilla (no de zonas ya armadas), asi que para esta lista
+                  se comportan igual que "Todas". */}
+              {(() => {
+                const zoneBlocks = (
+                  gridFilter.type === "category"
+                    ? allCategoryBlocks.filter((block) => block.tournamentId === gridFilter.tournamentId)
+                    : allCategoryBlocks
+                ).filter((block) => block.zones.length > 0);
+
+                if (!zoneBlocks.length) return null;
+
+                return (
+                  <div className="flex flex-col gap-6 mb-5">
+                    {zoneBlocks.map((block) => {
+                      const blockIndex = allCategoryBlocks.indexOf(block);
+                      const blockRegMap: Record<string, any> = {};
+                      block.confirmedRegistrations.forEach((r: any) => { blockRegMap[r.id] = r; });
+
+                      return (
+                        <div key={block.tournamentId}>
+                          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: getCategoryColor(blockIndex) }} />
+                              <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>
+                                Zonas creadas — {block.categoryLabel || (block.isActive ? "Esta categoria" : "Categoria")}
+                              </p>
+                            </div>
+                            {!block.isActive && (
+                              <button
+                                onClick={() => router.push(`/dashboard/torneos/${block.tournamentId}?tab=fixture&fixtureSub=manual&fixtureView=zonas`)}
+                                className="text-[10px] font-black px-2.5 py-1 rounded-full border"
+                                style={{ borderColor: "#CFE7DC", color: "#086847", background: "#FFFFFF" }}>
+                                Abrir esta categoría
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-4">
+                            {block.zones.map((zone: any) => (
+                              <ZoneCard key={`${block.tournamentId}:${zone.id}`}
+                                zone={zone}
+                                regMap={block.isActive ? regMap : blockRegMap}
+                                zonesFormat={savedZonesFormat}
+                                venueNameById={venueNameById}
+                                getMatchConflict={block.isActive ? getMatchConflict : undefined}
+                                onResultClick={block.isActive ? (matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match }) : undefined}
+                                onStandingsClick={block.isActive ? () => setStandingsModal(zone) : undefined}
+                                onScheduleClick={block.isActive ? (matchKey) => setScheduleModal({ zoneId: zone.id, matchKey }) : undefined}
+                                onRemovePair={block.isActive ? (regId) => handleRemovePairFromZone(zone.id, regId) : undefined} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* GUARDAR BORRADOR | CONFIRMAR ARMADO */}
               <div className="flex gap-3">
@@ -2410,6 +2562,17 @@ export default function FixtureTab({
             );
             setBracketResultModal(null);
           }} />
+      )}
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          cancelLabel={confirmDialog.cancelLabel}
+          tone={confirmDialog.tone}
+          onConfirm={() => { confirmDialog.resolve(true); setConfirmDialog(null); }}
+          onCancel={() => { confirmDialog.resolve(false); setConfirmDialog(null); }}
+        />
       )}
       {scheduleModal && (() => {
         const zone = zones.find((z: any) => z.id === scheduleModal.zoneId);
