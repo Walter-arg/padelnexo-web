@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { useRouter } from "next/navigation";
 import { doc, updateDoc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
@@ -42,6 +41,8 @@ import {
   isSlotAvailable,
   buildAvailabilityAfterCellToggle,
   getCategoryColor,
+  buildPairSelectionKey,
+  parsePairSelectionKey,
 } from "@/lib/availabilityGrid";
 import AvailabilityGrid, { type CategoryBlock, type GridFilter, type GridRow } from "./AvailabilityGrid";
 
@@ -571,9 +572,7 @@ function StandingsModal({ zone, regMap, onClose }: {
 function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, getMatchConflict, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
   zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
   categoryLabel?: string;
-  getMatchConflict?: (zone: any, matchKey: string) => { hasConflict: boolean; conflictReason: string };
-  // Ausentes => la zona se muestra en solo lectura (categorias hermanas,
-  // que no se editan desde esta pantalla).
+  getMatchConflict?: (zone: any, matchKey: string) => { hasIssue: boolean; reason: string };
   onResultClick?: (matchKey: string, match: any) => void;
   onStandingsClick?: () => void;
   onScheduleClick?: (matchKey: string) => void;
@@ -680,7 +679,7 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
 
                   return (
                     <Fragment key={matchKey}>
-                      <tr style={{ borderBottom: matchConflict?.hasConflict ? "none" : "1px solid #F0F7F4", background: matchConflict?.hasConflict ? "rgba(176,64,64,0.06)" : undefined }}>
+                      <tr style={{ borderBottom: matchConflict?.hasIssue ? "none" : "1px solid #F0F7F4", background: matchConflict?.hasIssue ? "rgba(200,130,15,0.08)" : undefined }}>
                         <td className="py-2.5 pr-3">
                           {isDone ? (
                             <span className="text-[10px] font-black px-2 py-1 rounded-lg text-white whitespace-nowrap"
@@ -733,12 +732,12 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, get
                           ) : null}
                         </td>
                       </tr>
-                      {matchConflict?.hasConflict && (
-                        <tr style={{ borderBottom: "1px solid #F0F7F4", background: "rgba(176,64,64,0.06)" }}>
+                      {matchConflict?.hasIssue && (
+                        <tr style={{ borderBottom: "1px solid #F0F7F4", background: "rgba(200,130,15,0.08)" }}>
                           <td colSpan={6} className="pb-2 px-0">
                             <div className="flex items-center gap-1.5 px-0">
-                              <Info size={11} style={{ color: "#B24343", flexShrink: 0 }} />
-                              <span className="text-[10px] font-bold" style={{ color: "#B24343" }}>{matchConflict.conflictReason}</span>
+                              <Info size={11} style={{ color: "#B8860B", flexShrink: 0 }} />
+                              <span className="text-[10px] font-bold" style={{ color: "#B8860B" }}>{matchConflict.reason}</span>
                             </div>
                           </td>
                         </tr>
@@ -766,11 +765,16 @@ export default function FixtureTab({
   // handleSelectCategory en page.tsx). Si no se pasan, el componente
   // funciona igual que antes con su propio estado interno.
   sub: controlledSub, onSubChange, view: controlledView, onViewChange,
+  // Le avisa a page.tsx si hay cambios sin guardar en esta pantalla (alguna
+  // categoria tocada, propia o hermana), para que confirme antes de
+  // cambiar de categoria desde el selector lateral.
+  onUnsavedChangesChange,
 }: {
   torneoId: string; fixtureSetup: any; registrations?: any[];
   showToast: (msg: string, ok?: boolean) => void; tournament?: any;
   sub?: FixSub; onSubChange?: (sub: FixSub) => void;
   view?: FixView; onViewChange?: (view: FixView) => void;
+  onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
 }) {
   const zoneCategoryLabel: string =
     tournament?.compositionConfig?.label ?? tournament?.compositionLabel ?? "";
@@ -780,7 +784,6 @@ export default function FixtureTab({
   const view = controlledView ?? internalView;
   const setSub = (next: FixSub) => (onSubChange ? onSubChange(next) : setInternalSub(next));
   const setView = (next: FixView) => (onViewChange ? onViewChange(next) : setInternalView(next));
-  const router = useRouter();
   const [zoom, setZoom] = useState(1);
 
   // ── Config state ────────────────────────────────────────────────────────────
@@ -828,16 +831,41 @@ export default function FixtureTab({
   const pathType: "strict" | "flex" = "strict";
 
   // ── Grilla de disponibilidad (filas = pareja, columnas = hora) ──────────────
-  // Las categorias hermanas del evento se muestran SIEMPRE (solo lectura,
-  // plegables), no como un "Ver tambien" opt-in: los datos salen de
-  // siblingCategoriesData, poblado junto con siblingZonesForOccupancy mas
-  // abajo (misma consulta, sin pedirle a Firestore los mismos documentos dos
-  // veces). Igual que TournamentZonePlanningScreen.js de la app.
+  // Las categorias hermanas del evento se muestran SIEMPRE, plegables, y se
+  // pueden editar igual que la propia (armar zona, asignar horario, pintar
+  // disponibilidad): los datos salen de siblingCategoriesData, poblado junto
+  // con siblingZonesForOccupancy mas abajo (misma consulta, sin pedirle a
+  // Firestore los mismos documentos dos veces). Cada escritura a una
+  // categoria hermana relee su fixtureSetup fresco antes de guardar (ver
+  // getWritableFixtureSetup), porque esta pantalla no tiene un listener en
+  // tiempo real de las hermanas como si tiene de la propia (registrations prop).
   const [siblingCategoriesData, setSiblingCategoriesData] = useState<Record<string, {
-    categoryLabel: string; confirmedRegistrations: any[]; zones: any[];
+    categoryLabel: string; confirmedRegistrations: any[]; zones: any[]; matchDurationMinutes: number; zonesFormat: MatchFmt;
   }>>({});
+  // Categorias (tournamentId) con cambios sin guardar en esta sesion de
+  // pantalla. GUARDAR BORRADOR / CONFIRMAR ARMADO actuan sobre todas estas
+  // + siempre la propia. Tambien dispara el aviso de "cambios sin guardar"
+  // al salir de la pantalla.
+  const [touchedTournamentIds, setTouchedTournamentIds] = useState<Set<string>>(new Set());
   const [collapsedSiblingIds, setCollapsedSiblingIds] = useState<Set<string>>(new Set());
   const [gridFilter, setGridFilter] = useState<GridFilter>({ type: "all" });
+
+  // Aviso de "cambios sin guardar" al cerrar/recargar la pestaña (navegacion
+  // de navegador, no de Next.js). Para la navegacion DENTRO de la app (ej.
+  // cambiar de categoria desde el selector lateral) se usa onUnsavedChangesChange,
+  // que le avisa a page.tsx el estado actual para que confirme antes de salir.
+  useEffect(() => {
+    const hasUnsavedChanges = touchedTournamentIds.size > 0;
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [touchedTournamentIds]);
 
   // ── Horarios de cancha para zonas (zoneVenueSchedules) ──────────────────────
   // Cuando el torneo pertenece a un evento multi-categoria (creationBatchId),
@@ -980,7 +1008,7 @@ export default function FixtureTab({
       );
 
       // Ademas de las zonas (para ocupacion de cancha), se traen las parejas
-      // de cada hermana para mostrarlas en solo lectura en la grilla.
+      // de cada hermana para mostrarlas y poder editarlas en la grilla.
       const entries = await Promise.all(siblings.map(async (t) => {
         const regsSnap = await getDocs(collection(db, "tournaments", t.id, "registrations"));
         const regs = regsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
@@ -991,6 +1019,8 @@ export default function FixtureTab({
           categoryLabel: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "",
           confirmedRegistrations: confirmed,
           zones: toArray(t.fixtureSetup?.zonePlanning?.zones),
+          matchDurationMinutes: Number(t.fixtureSetup?.matchDurationMinutes || 75),
+          zonesFormat: (t.fixtureSetup?.matchFormat?.zones ?? "super_tiebreak") as MatchFmt,
         }] as const;
       }));
       setSiblingCategoriesData(Object.fromEntries(entries));
@@ -1005,15 +1035,81 @@ export default function FixtureTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournament?.creationBatchId, torneoId]);
 
+  // ── Helpers para leer/escribir cualquier categoria del evento (propia o
+  // hermana) desde esta misma pantalla, no solo la activa ───────────────────
+  function getMatchDurationMinutesFor(tournamentId: string): number {
+    if (tournamentId === torneoId) return matchDurationMinutes;
+    return siblingCategoriesData[tournamentId]?.matchDurationMinutes || 75;
+  }
+
+  function getRegistrationsByIdFor(tournamentId: string): Map<string, any> {
+    if (tournamentId === torneoId) return registrationsById;
+    const map = new Map<string, any>();
+    (siblingCategoriesData[tournamentId]?.confirmedRegistrations || []).forEach((r: any) => map.set(r.id, r));
+    return map;
+  }
+
+  function getRegMapFor(tournamentId: string): Record<string, any> {
+    if (tournamentId === torneoId) return regMap;
+    const map: Record<string, any> = {};
+    getRegistrationsByIdFor(tournamentId).forEach((r, id) => { map[id] = r; });
+    return map;
+  }
+
+  function getPairLabelsByIdFor(tournamentId: string): Record<string, string> {
+    if (tournamentId === torneoId) return pairLabelsById;
+    const map: Record<string, string> = {};
+    (siblingCategoriesData[tournamentId]?.confirmedRegistrations || []).forEach((r: any, i: number) => { map[r.id] = getShortPairLabel(r, i); });
+    return map;
+  }
+
+  function getCategoryLabelFor(tournamentId: string): string {
+    if (tournamentId === torneoId) return zoneCategoryLabel;
+    return siblingCategoriesData[tournamentId]?.categoryLabel || "";
+  }
+
+  function getZonesFor(tournamentId: string): any[] {
+    if (tournamentId === torneoId) return zones;
+    return siblingCategoriesData[tournamentId]?.zones || [];
+  }
+
+  function getZonesFormatFor(tournamentId: string): MatchFmt {
+    if (tournamentId === torneoId) return savedZonesFormat;
+    return siblingCategoriesData[tournamentId]?.zonesFormat || "super_tiebreak";
+  }
+
+  function markTournamentTouched(tournamentId: string) {
+    setTouchedTournamentIds((prev) => {
+      if (prev.has(tournamentId)) return prev;
+      const next = new Set(prev);
+      next.add(tournamentId);
+      return next;
+    });
+  }
+
+  // Lee el fixtureSetup mas actual de una categoria para escribir sobre el.
+  // La propia ya lo tiene siempre fresco via el listener en tiempo real del
+  // padre (prop fixtureSetup); las hermanas no, asi que se releen de
+  // Firestore justo antes de cada guardado, para no pisar un cambio hecho
+  // desde otra pestana/sesion con datos viejos.
+  async function getWritableFixtureSetup(tournamentId: string): Promise<any> {
+    if (tournamentId === torneoId) {
+      return JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+    }
+    const snap = await getDoc(doc(db, "tournaments", tournamentId));
+    return JSON.parse(JSON.stringify(snap.exists() ? (snap.data()?.fixtureSetup ?? {}) : {}));
+  }
+
   // Para zonas de 4: en que horario terminan (si ya lo tienen) los partidos
   // de ida de esa zona, para que G vs G / P vs P no puedan empezar antes.
-  function getZoneOpeningMatchesEndTimes(zone: any): { dayKey: string; endMinutes: number }[] {
+  function getZoneOpeningMatchesEndTimes(zone: any, tournamentId: string = torneoId): { dayKey: string; endMinutes: number }[] {
+    const durationForZone = getMatchDurationMinutesFor(tournamentId);
     if (toArray(zone?.registrationIds).length !== 4) return [];
     return ["1 vs 2", "3 vs 4"]
       .map((openingMatchKey) => {
         const schedule = zone.matchSchedules?.[openingMatchKey];
         if (!schedule?.startTime || !schedule?.dayKey) return null;
-        return { dayKey: schedule.dayKey, endMinutes: parseTimeToMinutes(schedule.startTime) + matchDurationMinutes };
+        return { dayKey: schedule.dayKey, endMinutes: parseTimeToMinutes(schedule.startTime) + durationForZone };
       })
       .filter((entry): entry is { dayKey: string; endMinutes: number } => Boolean(entry));
   }
@@ -1100,10 +1196,10 @@ export default function FixtureTab({
   }
 
   // ── Modal state ─────────────────────────────────────────────────────────────
-  const [zoneResultModal, setZoneResultModal] = useState<{ zoneId: string; matchKey: string; match: any } | null>(null);
-  const [standingsModal, setStandingsModal] = useState<any>(null);
+  const [zoneResultModal, setZoneResultModal] = useState<{ tournamentId: string; zoneId: string; matchKey: string; match: any } | null>(null);
+  const [standingsModal, setStandingsModal] = useState<{ tournamentId: string; zone: any } | null>(null);
   const [bracketResultModal, setBracketResultModal] = useState<{ match: any; ri: number; mi: number } | null>(null);
-  const [scheduleModal, setScheduleModal] = useState<{ zoneId: string; matchKey: string } | null>(null);
+  const [scheduleModal, setScheduleModal] = useState<{ tournamentId: string; zoneId: string; matchKey: string } | null>(null);
   const [bracketScheduleModal, setBracketScheduleModal] = useState<{ ri: number; mi: number } | null>(null);
   const [savingAutoSchedule, setSavingAutoSchedule] = useState(false);
 
@@ -1148,6 +1244,12 @@ export default function FixtureTab({
       });
     });
 
+    // Las parejas de una hermana SI importan para su propia ocupacion por
+    // pareja (una zona de 3 o 4 tiene varios partidos con la misma pareja, y
+    // esta pantalla ahora puede editar el horario de esos partidos): solo
+    // nunca pueden chocar por pareja CONTRA la categoria activa (eso lo
+    // impide la regla de "no inscripto en 2 categorias del mismo evento"),
+    // pero si contra otros partidos de SU MISMA categoria.
     const siblingMatches: ScheduledMatch[] = [];
     siblingZonesForOccupancy.forEach((sibling) => {
       sibling.zones.forEach((zone: any) => {
@@ -1163,7 +1265,7 @@ export default function FixtureTab({
             startMinutes: parseTimeToMinutes(schedule.startTime),
             venueId: schedule.venueId || "",
             courtIndex: Number(schedule.courtIndex || 0),
-            participantIds: [],
+            participantIds: getZoneMatchParticipantIds(zone, matchKey),
           });
         });
       });
@@ -1180,37 +1282,47 @@ export default function FixtureTab({
   // Conflicto EN VIVO de un partido YA guardado (para marcarlo en rojo en la
   // tabla de cruces), recalculado contra el resto de la ocupacion (propia +
   // hermanas) en cada render. No bloquea nada; solo informa.
-  function getMatchConflict(zone: any, matchKey: string): { hasConflict: boolean; conflictReason: string } {
+  // Problema EN VIVO de un partido YA guardado (para marcarlo en naranja en
+  // la tabla de cruces), recalculado contra el resto de la ocupacion
+  // (propia + hermanas) y la disponibilidad cargada en cada render. No
+  // bloquea nada; solo informa. "hasIssue" junta conflicto real (cancha/
+  // pareja/dependencia G-P) y advertencia de disponibilidad: las dos se
+  // muestran igual (naranja), la diferencia es solo el motivo del aviso.
+  function getMatchConflict(zone: any, matchKey: string, tournamentId: string = torneoId): { hasIssue: boolean; reason: string } {
     const schedule = zone?.matchSchedules?.[matchKey] ?? {};
     if (!schedule.startTime || !schedule.dayKey) {
-      return { hasConflict: false, conflictReason: "" };
+      return { hasIssue: false, reason: "" };
     }
 
     const participantIds = getZoneMatchParticipantIds(zone, matchKey);
-    const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone, tournamentId) : [];
+    const startMinutes = parseTimeToMinutes(schedule.startTime);
+    const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, getRegistrationsByIdFor(tournamentId), schedule.dayKey, startMinutes);
 
     const result = validateMatchSlot({
       dayKey: schedule.dayKey,
-      startMinutes: parseTimeToMinutes(schedule.startTime),
+      startMinutes,
       venueId: schedule.venueId || "",
       courtIndex: Number(schedule.courtIndex || 0),
       participantIds,
-      excludeKey: { tournamentId: torneoId, zoneId: zone.id, matchKey },
+      excludeKey: { tournamentId, zoneId: zone.id, matchKey },
       occupancy: scheduleOccupancy,
-      matchDurationMinutes,
+      matchDurationMinutes: getMatchDurationMinutesFor(tournamentId),
       restMinutes: DEFAULT_REST_MINUTES,
       dependsOn,
-      pairLabelsById,
+      pairLabelsById: getPairLabelsByIdFor(tournamentId),
+      availabilityWarning,
     });
 
-    return { hasConflict: result.hasConflict, conflictReason: result.conflictReason };
+    const reason = result.conflictReason || result.availabilityWarning;
+    return { hasIssue: Boolean(reason), reason };
   }
 
-  function countConflictedMatches(): number {
+  function countMatchesWithIssuesFor(tournamentId: string, tournamentZones: any[]): number {
     let count = 0;
-    zones.forEach((zone: any) => {
+    tournamentZones.forEach((zone: any) => {
       Object.keys(zone.matchSchedules ?? {}).forEach((matchKey) => {
-        if (getMatchConflict(zone, matchKey).hasConflict) count += 1;
+        if (getMatchConflict(zone, matchKey, tournamentId).hasIssue) count += 1;
       });
     });
     return count;
@@ -1227,16 +1339,10 @@ export default function FixtureTab({
     for (const z of zones) for (const id of toArray(z.registrationIds)) s.add(id);
     return s;
   }, [zones]);
-
-  const unassignedRegs = useMemo(
-    () => registrations.filter(r => !assignedRegIds.has(r.id) && r.status !== "rejected" && r.withdrawalStatus !== "confirmed"),
-    [registrations, assignedRegIds]
-  );
-
-  // Bloques por categoria para la grilla (activa + TODAS las hermanas, en
-  // solo lectura), ordenados por el numero de la categoria (5ta antes que
-  // 7ma antes que 8va). Las hermanas no son opcionales: se muestran siempre
-  // que existan, plegables (igual que TournamentZonePlanningScreen.js).
+  // Bloques por categoria para la grilla (activa + TODAS las hermanas),
+  // ordenados por el numero de la categoria (5ta antes que 7ma antes que
+  // 8va). Las hermanas no son opcionales: se muestran siempre que existan,
+  // plegables, y son totalmente editables igual que la propia.
   const allCategoryBlocks: CategoryBlock[] = useMemo(() => {
     const activeZones = zones;
     const activeConfirmed = registrations
@@ -1268,6 +1374,11 @@ export default function FixtureTab({
       (a, b) => extractCategoryOrderNumber(a.categoryLabel) - extractCategoryOrderNumber(b.categoryLabel)
     );
   }, [torneoId, zoneCategoryLabel, registrations, zones, assignedRegIds, siblingCategoriesData]);
+
+  const categoryBlockByTournamentId = useMemo(
+    () => new Map(allCategoryBlocks.map((block) => [block.tournamentId, block])),
+    [allCategoryBlocks]
+  );
 
   // Columnas de hora: una por cada dia del torneo, lado a lado dentro del
   // mismo scroll horizontal (a diferencia de la app, que muestra un dia a la
@@ -1368,7 +1479,7 @@ export default function FixtureTab({
     ).length;
   }
 
-  async function handleToggleAvailabilityCell(registration: any, dayKey: string, hourMinutes: number) {
+  async function handleToggleAvailabilityCell(tournamentId: string, registration: any, dayKey: string, hourMinutes: number) {
     const wasAvailable = isSlotAvailable(registration, dayKey, hourMinutes);
     const hasAssignedMatchHere = (scheduleOccupancy.byPair.get(registration.id) || []).some(
       (entry) => entry.dayKey === dayKey && hourMinutes < entry.endMinutes && hourMinutes + 60 > entry.startMinutes
@@ -1396,16 +1507,19 @@ export default function FixtureTab({
 
     const nextAvailability = buildAvailabilityAfterCellToggle(registration, dayKey, hourMinutes, tournamentDayOptions);
     try {
-      await updateDoc(doc(db, "tournaments", torneoId, "registrations", registration.id), { availability: nextAvailability });
+      await updateDoc(doc(db, "tournaments", tournamentId, "registrations", registration.id), { availability: nextAvailability });
+      markTournamentTouched(tournamentId);
+      if (tournamentId !== torneoId) await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("No pudimos guardar la disponibilidad, intenta nuevamente", false);
     }
   }
 
-  function togglePairSelection(registrationId: string) {
+  function togglePairSelection(tournamentId: string, registrationId: string) {
+    const key = buildPairSelectionKey(tournamentId, registrationId);
     setSelectedPairIds((prev) => {
       const next = new Set(prev);
-      if (next.has(registrationId)) next.delete(registrationId); else next.add(registrationId);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }
@@ -1436,9 +1550,24 @@ export default function FixtureTab({
     setSavingConfig(false);
   }
 
+  // Resuelve a que categoria pertenece la seleccion actual. Si hay parejas
+  // de mas de una categoria seleccionadas a la vez, avisa y no deja armar
+  // (una zona solo puede tener parejas de UNA misma categoria).
+  function resolveSelectionTournamentId(): string | null {
+    const tournamentIds = new Set(Array.from(selectedPairIds).map((key) => parsePairSelectionKey(key).tournamentId));
+    if (tournamentIds.size > 1) {
+      showToast("Las parejas seleccionadas son de categorias distintas. Elegi parejas de una sola categoria para armar la zona.", false);
+      return null;
+    }
+    return Array.from(tournamentIds)[0] ?? null;
+  }
+
   async function handleArmarZona() {
-    const regIdList = Array.from(selectedPairIds);
-    const alreadyAssigned = regIdList.filter((id) => assignedRegIds.has(id));
+    const tournamentId = resolveSelectionTournamentId();
+    if (!tournamentId) return;
+    const regIdList = Array.from(selectedPairIds).map((key) => parsePairSelectionKey(key).registrationId);
+    const assignedIdsForTournament = categoryBlockByTournamentId.get(tournamentId)?.assignedIds ?? new Set<string>();
+    const alreadyAssigned = regIdList.filter((id) => assignedIdsForTournament.has(id));
     if (alreadyAssigned.length) {
       showToast("Una de las parejas seleccionadas ya esta en una zona. Para usarla en otra, primero agregala a una zona existente o quitala de la actual.", false);
       return;
@@ -1449,7 +1578,7 @@ export default function FixtureTab({
     }
     setSavingZones(true);
     try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const fs = await getWritableFixtureSetup(tournamentId);
       if (!fs.zonePlanning) fs.zonePlanning = {};
       const currentZones = toArray(fs.zonePlanning.zones);
       const matchRows = getMatchRows(regIdList.length);
@@ -1459,21 +1588,24 @@ export default function FixtureTab({
       fs.zonePlanning.zones = currentZones;
       fs.zonePlanning.status = fs.zonePlanning.status ?? "draft";
       fs.lastViewedSection = "newzones";
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+      markTournamentTouched(tournamentId);
       setSelectedPairIds(new Set());
       showToast("Zona creada");
+      if (tournamentId !== torneoId) await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al crear la zona", false);
     }
     setSavingZones(false);
   }
 
-  async function handleAddPairToExistingZone(zoneId: string) {
-    const selectedId = Array.from(selectedPairIds)[0];
+  async function handleAddPairToExistingZone(tournamentId: string, zoneId: string) {
+    const selectedKey = Array.from(selectedPairIds).find((key) => parsePairSelectionKey(key).tournamentId === tournamentId);
+    const selectedId = selectedKey ? parsePairSelectionKey(selectedKey).registrationId : null;
     if (!selectedId) return;
     setSavingZones(true);
     try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const fs = await getWritableFixtureSetup(tournamentId);
       const currentZones = toArray(fs.zonePlanning?.zones);
       const targetZone = currentZones.find((z: any) => z.id === zoneId);
       if (!targetZone) { setSavingZones(false); return; }
@@ -1494,17 +1626,19 @@ export default function FixtureTab({
           ? [...toArray(z.registrationIds).filter((id: string) => id !== selectedId), selectedId]
           : toArray(z.registrationIds).filter((id: string) => id !== selectedId),
       }));
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+      markTournamentTouched(tournamentId);
       setSelectedPairIds(new Set());
       showToast("Pareja agregada a la zona.");
+      if (tournamentId !== torneoId) await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al agregar la pareja a la zona", false);
     }
     setSavingZones(false);
   }
 
-  async function handleRemovePairFromZone(zoneId: string, regId: string) {
-    const zone = zones.find((z: any) => z.id === zoneId);
+  async function handleRemovePairFromZone(tournamentId: string, zoneId: string, regId: string) {
+    const zone = getZonesFor(tournamentId).find((z: any) => z.id === zoneId);
     const zoneHasResult = Object.values(zone?.matchSchedules ?? {}).some(
       (m: any) => m?.result?.winnerRegistrationId || m?.result?.walkover
     );
@@ -1514,12 +1648,14 @@ export default function FixtureTab({
     }
     setSavingZones(true);
     try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const fs = await getWritableFixtureSetup(tournamentId);
       const currentZones = toArray(fs.zonePlanning?.zones);
       fs.zonePlanning.zones = currentZones.map((z: any) =>
         z.id === zoneId ? { ...z, registrationIds: toArray(z.registrationIds).filter((id: string) => id !== regId) } : z
       );
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+      markTournamentTouched(tournamentId);
+      if (tournamentId !== torneoId) await fetchSiblingZonesForOccupancy();
       showToast("Pareja quitada de la zona.");
     } catch {
       showToast("Error al quitar la pareja de la zona", false);
@@ -1565,55 +1701,117 @@ export default function FixtureTab({
     setSavingZones(false);
   }
 
+  // Categorias sobre las que actuan GUARDAR BORRADOR / CONFIRMAR ARMADO:
+  // siempre la propia + cualquier hermana tocada en esta sesion de pantalla.
+  function getTournamentIdsToSave(): string[] {
+    return Array.from(new Set<string>([torneoId, ...touchedTournamentIds]));
+  }
+
+  function buildSaveSummary(): { tournamentId: string; label: string; issueCount: number; unassignedCount: number }[] {
+    return getTournamentIdsToSave().map((tournamentId) => {
+      const block = categoryBlockByTournamentId.get(tournamentId);
+      return {
+        tournamentId,
+        label: getCategoryLabelFor(tournamentId) || (tournamentId === torneoId ? "Esta categoria" : "Categoria"),
+        issueCount: countMatchesWithIssuesFor(tournamentId, getZonesFor(tournamentId)),
+        unassignedCount: block ? block.confirmedRegistrations.filter((r: any) => !block.assignedIds.has(r.id)).length : 0,
+      };
+    });
+  }
+
+  // Guarda cada categoria por separado (un updateDoc por categoria, no una
+  // transaccion): si una falla, las demas quedan guardadas igual. Devuelve
+  // cuales se guardaron bien y cuales no (con el motivo).
+  async function saveZonesStatusForTournaments(targetStatus: "confirmed" | "keep-or-draft"): Promise<{ succeeded: string[]; failed: { tournamentId: string; error: string }[] }> {
+    const succeeded: string[] = [];
+    const failed: { tournamentId: string; error: string }[] = [];
+    for (const tournamentId of getTournamentIdsToSave()) {
+      try {
+        const fs = await getWritableFixtureSetup(tournamentId);
+        if (!fs.zonePlanning) fs.zonePlanning = {};
+        if (targetStatus === "confirmed") {
+          fs.zonePlanning.status = "confirmed";
+          fs.lastViewedSection = "newzones";
+        } else {
+          fs.zonePlanning.status = fs.zonePlanning.status === "confirmed" ? "confirmed" : "draft";
+        }
+        await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+        succeeded.push(tournamentId);
+      } catch (error: any) {
+        failed.push({ tournamentId, error: error?.message || "error desconocido" });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  function reportSaveOutcome(succeeded: string[], failed: { tournamentId: string; error: string }[], okMessage: string) {
+    if (failed.length) {
+      const failedLabels = failed.map((f) => getCategoryLabelFor(f.tournamentId) || f.tournamentId).join(", ");
+      showToast(
+        succeeded.length
+          ? `No se pudo guardar ${failedLabels}. Las demas categorias quedaron guardadas.`
+          : `No se pudo guardar: ${failedLabels}.`,
+        false
+      );
+    } else {
+      showToast(okMessage);
+    }
+    // Las categorias que se guardaron bien dejan de estar "tocadas"; si
+    // alguna fallo, sigue marcada para poder reintentar despues.
+    setTouchedTournamentIds((prev) => {
+      const next = new Set(prev);
+      succeeded.forEach((id) => next.delete(id));
+      return next;
+    });
+  }
+
   async function confirmZones() {
-    const unassignedCount = unassignedRegs.length;
-    const conflictCount = countConflictedMatches();
-    const conflictWarning = conflictCount > 0
-      ? `Hay ${conflictCount} partido${conflictCount === 1 ? "" : "s"} con conflicto de horario. ¿Guardar igual?\n\n`
+    const summary = buildSaveSummary();
+    const totalIssues = summary.reduce((sum, s) => sum + s.issueCount, 0);
+    const totalUnassigned = summary.reduce((sum, s) => sum + s.unassignedCount, 0);
+    const categoriesLine = summary.length > 1 ? `Se va a guardar en: ${summary.map((s) => s.label).join(", ")}.\n\n` : "";
+    const issuesLine = totalIssues > 0
+      ? `Hay ${totalIssues} partido${totalIssues === 1 ? "" : "s"} con advertencias (conflicto de horario o fuera de disponibilidad)${
+          summary.length > 1 ? summary.filter((s) => s.issueCount > 0).map((s) => ` — ${s.label}: ${s.issueCount}`).join("") : ""
+        }. ¿Guardar igual?\n\n`
       : "";
-    const warning = unassignedCount > 0
-      ? `\n\nTodavia quedan ${unassignedCount} pareja${unassignedCount === 1 ? "" : "s"} sin zona asignada.`
+    const unassignedLine = totalUnassigned > 0
+      ? `\n\nTodavia quedan ${totalUnassigned} pareja${totalUnassigned === 1 ? "" : "s"} sin zona asignada.`
       : "";
     const confirmed = await requestConfirm({
       title: "Confirmar armado",
-      message: `${conflictWarning}El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`,
+      message: `${categoriesLine}${issuesLine}El fixture se va a actualizar con este armado de zonas.${unassignedLine}\n\n¿Confirmar?`,
       confirmLabel: "Confirmar",
-      tone: conflictCount > 0 ? "danger" : "default",
+      tone: totalIssues > 0 ? "danger" : "default",
     });
     if (!confirmed) return;
     setSavingZones(true);
-    try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-      if (!fs.zonePlanning) fs.zonePlanning = {};
-      fs.zonePlanning.status = "confirmed";
-      fs.lastViewedSection = "newzones";
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      showToast("Armado confirmado");
-      await fetchSiblingZonesForOccupancy();
-    } catch {
-      showToast("Error al confirmar", false);
-    }
+    const { succeeded, failed } = await saveZonesStatusForTournaments("confirmed");
+    reportSaveOutcome(succeeded, failed, "Armado confirmado");
+    await fetchSiblingZonesForOccupancy();
     setSavingZones(false);
   }
 
   async function saveDraftZones() {
-    setSavingZones(true);
-    try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
-      if (!fs.zonePlanning) fs.zonePlanning = {};
-      fs.zonePlanning.status = fs.zonePlanning.status === "confirmed" ? "confirmed" : "draft";
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      showToast("Borrador guardado");
-      await fetchSiblingZonesForOccupancy();
-    } catch {
-      showToast("Error al guardar el borrador", false);
+    const summary = buildSaveSummary();
+    if (summary.length > 1) {
+      const confirmed = await requestConfirm({
+        title: "Guardar borrador",
+        message: `Se va a guardar en: ${summary.map((s) => s.label).join(", ")}.\n\n¿Guardar?`,
+        confirmLabel: "Guardar",
+      });
+      if (!confirmed) return;
     }
+    setSavingZones(true);
+    const { succeeded, failed } = await saveZonesStatusForTournaments("keep-or-draft");
+    reportSaveOutcome(succeeded, failed, "Borrador guardado");
+    await fetchSiblingZonesForOccupancy();
     setSavingZones(false);
   }
 
-  async function saveZoneMatchResult(zoneId: string, matchKey: string, result: any) {
+  async function saveZoneMatchResult(tournamentId: string, zoneId: string, matchKey: string, result: any) {
     try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const fs = await getWritableFixtureSetup(tournamentId);
       const zoneList = toArray(fs.zonePlanning?.zones);
       const zone = zoneList.find((z: any) => z.id === zoneId);
       if (zone) {
@@ -1626,11 +1824,13 @@ export default function FixtureTab({
         // Si ya existe una llave, se resincroniza con el resultado nuevo
         // (igual que hace la app automaticamente al cambiar un resultado de zona).
         if (fs.bracketPreview) {
+          const tournamentRegMap: Record<string, any> = {};
+          getRegistrationsByIdFor(tournamentId).forEach((r, id) => { tournamentRegMap[id] = r; });
           const pairsByZoneId = new Map<string, BracketPair[]>(
             zoneList.map((z: any) => [
               z.id,
               toArray(z.registrationIds).map((id: string, idx: number) => ({
-                id, label: regMap[id] ? getPairLabel(regMap[id], idx) : `Pareja ${idx + 1}`,
+                id, label: tournamentRegMap[id] ? getPairLabel(tournamentRegMap[id], idx) : `Pareja ${idx + 1}`,
               })),
             ])
           );
@@ -1638,7 +1838,8 @@ export default function FixtureTab({
           if (synced) fs.bracketPreview = synced;
         }
 
-        await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+        await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+        markTournamentTouched(tournamentId);
         showToast("Resultado guardado");
       }
     } catch {
@@ -1653,9 +1854,9 @@ export default function FixtureTab({
   // devuelto false hace parecer que "no se puede asignar nada" cuando en
   // realidad el organizador solo cancelo el cartel de conflicto y deberia
   // poder elegir otro horario sin que el selector se cierre solo.
-  async function saveZoneMatchSchedule(zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null): Promise<boolean> {
+  async function saveZoneMatchSchedule(tournamentId: string, zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null): Promise<boolean> {
     try {
-      const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
+      const fs = await getWritableFixtureSetup(tournamentId);
       const zoneList = toArray(fs.zonePlanning?.zones);
       const zone = zoneList.find((z: any) => z.id === zoneId);
       if (!zone) return false;
@@ -1666,8 +1867,8 @@ export default function FixtureTab({
       if (schedule?.dayKey && schedule?.startTime) {
         const participantIds = getZoneMatchParticipantIds(zone, matchKey);
         const startMinutes = parseTimeToMinutes(schedule.startTime);
-        const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
-        const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, registrationsById, schedule.dayKey, startMinutes);
+        const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone, tournamentId) : [];
+        const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, getRegistrationsByIdFor(tournamentId), schedule.dayKey, startMinutes);
 
         const result = validateMatchSlot({
           dayKey: schedule.dayKey,
@@ -1675,12 +1876,12 @@ export default function FixtureTab({
           venueId: schedule.venueId,
           courtIndex: schedule.courtIndex,
           participantIds,
-          excludeKey: { tournamentId: torneoId, zoneId, matchKey },
+          excludeKey: { tournamentId, zoneId, matchKey },
           occupancy: scheduleOccupancy,
-          matchDurationMinutes,
+          matchDurationMinutes: getMatchDurationMinutesFor(tournamentId),
           restMinutes: DEFAULT_REST_MINUTES,
           dependsOn,
-          pairLabelsById,
+          pairLabelsById: getPairLabelsByIdFor(tournamentId),
           availabilityWarning,
         });
 
@@ -1702,7 +1903,8 @@ export default function FixtureTab({
         ? { ...existing, ...schedule }
         : { ...existing, dayKey: "", startTime: "", venueId: "", courtIndex: 0 };
       fs.zonePlanning.zones = zoneList;
-      await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
+      await updateDoc(doc(db, "tournaments", tournamentId), { fixtureSetup: fs });
+      markTournamentTouched(tournamentId);
       showToast(schedule ? "Horario asignado" : "Horario borrado");
       await fetchSiblingZonesForOccupancy();
       return true;
@@ -1750,7 +1952,7 @@ export default function FixtureTab({
           return;
         }
 
-        const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedulesAcrossZones(
+        const { zones: scheduledZones, needsReviewCount } = buildAutoMatchSchedulesAcrossZones(
           combinedZones, combinedRegistrationsById, zoneSchedulesForMatches, matchDurationMinutes
         );
 
@@ -1768,18 +1970,22 @@ export default function FixtureTab({
         }
 
         showToast(
-          unassignedCount > 0
-            ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.`
+          needsReviewCount > 0
+            ? `${needsReviewCount} partido(s) quedaron con advertencias. Revisalos en Editar zonas.`
             : "Horarios asignados entre todas las categorias del evento, sin pisarse"
         );
       } else {
-        const { zones: scheduledZones, unassignedCount } = buildAutoMatchSchedules(
+        const { zones: scheduledZones, needsReviewCount } = buildAutoMatchSchedules(
           zones as ZonePlanningZone[], registrationsById, zoneSchedulesForMatches, matchDurationMinutes
         );
         const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
         fs.zonePlanning = { ...(fs.zonePlanning ?? {}), zones: scheduledZones };
         await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-        showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
+        showToast(
+          needsReviewCount > 0
+            ? `${needsReviewCount} partido(s) quedaron con advertencias. Revisalos en Editar zonas.`
+            : "Horarios asignados"
+        );
       }
       await fetchSiblingZonesForOccupancy();
     } catch {
@@ -2273,13 +2479,15 @@ export default function FixtureTab({
                 style={{ borderColor: "#086847", color: "#086847", background: "#EEF8F1" }}>
                 {savingAutoSchedule ? "Asignando..." : "ASIGNAR HORARIO/CANCHA AUTOMÁTICAMENTE"}
               </button>
+              {/* Sin getMatchConflict aca a proposito: ARMADO AUTOMATICO
+                  tiene que quedar limpio, sin recuadros ni avisos. Los
+                  partidos con problemas se revisan en ARMADO MANUAL - EDITAR. */}
               {zones.map((zone) => (
                 <ZoneCard key={zone.id}
                   zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
-                  getMatchConflict={getMatchConflict}
-                  onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
-                  onStandingsClick={() => setStandingsModal(zone)}
-                  onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
+                  onResultClick={(matchKey, match) => setZoneResultModal({ tournamentId: torneoId, zoneId: zone.id, matchKey, match })}
+                  onStandingsClick={() => setStandingsModal({ tournamentId: torneoId, zone })}
+                  onScheduleClick={(matchKey) => setScheduleModal({ tournamentId: torneoId, zoneId: zone.id, matchKey })} />
               ))}
             </div>
           )}
@@ -2305,14 +2513,23 @@ export default function FixtureTab({
               />
 
               {/* Resumen de seleccion */}
-              {selectedPairIds.size > 0 && (
+              {selectedPairIds.size > 0 && (() => {
+                const selectedEntries = Array.from(selectedPairIds).map((key) => parsePairSelectionKey(key));
+                const selectionTournamentId = new Set(selectedEntries.map((e) => e.tournamentId)).size === 1
+                  ? selectedEntries[0].tournamentId
+                  : null;
+                const zonesForSelection = selectionTournamentId ? getZonesFor(selectionTournamentId) : [];
+                return (
                 <div className="rounded-2xl border p-4 mb-5" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
                   <p className="text-sm font-black mb-1" style={{ color: "#173A2E" }}>
                     {selectedPairIds.size} pareja{selectedPairIds.size === 1 ? "" : "s"} seleccionada{selectedPairIds.size === 1 ? "" : "s"}
                   </p>
                   <p className="text-xs mb-3" style={{ color: "#5F7D72" }}>
-                    {Array.from(selectedPairIds)
-                      .map((id) => regMap[id] ? getPairLabel(regMap[id], 0) : "Pareja")
+                    {selectedEntries
+                      .map(({ tournamentId, registrationId }) => {
+                        const reg = getRegMapFor(tournamentId)[registrationId];
+                        return reg ? getPairLabel(reg, 0) : "Pareja";
+                      })
                       .join(" / ")}
                   </p>
                   <div className="flex gap-2">
@@ -2328,12 +2545,12 @@ export default function FixtureTab({
                     </button>
                   </div>
 
-                  {selectedPairIds.size === 1 && zones.length > 0 && (
+                  {selectedPairIds.size === 1 && selectionTournamentId && zonesForSelection.length > 0 && (
                     <div className="mt-3 pt-3 border-t" style={{ borderColor: "#E3EFE8" }}>
                       <p className="text-[10px] font-bold uppercase mb-2" style={{ color: "#5F7D72" }}>Agregar a zona existente</p>
                       <div className="flex gap-2 flex-wrap">
-                        {zones.map((zone: any) => (
-                          <button key={zone.id} disabled={savingZones} onClick={() => handleAddPairToExistingZone(zone.id)}
+                        {zonesForSelection.map((zone: any) => (
+                          <button key={zone.id} disabled={savingZones} onClick={() => handleAddPairToExistingZone(selectionTournamentId, zone.id)}
                             className="text-xs font-bold px-3 py-1.5 rounded-full border disabled:opacity-40"
                             style={{ borderColor: "#CFE7DC", color: "#086847", background: "#FFFFFF" }}>
                             {zone.label ?? "Zona"}
@@ -2343,13 +2560,15 @@ export default function FixtureTab({
                     </div>
                   )}
                 </div>
-              )}
+                );
+              })()}
 
-              {/* Existing zones: propia categoria (editable) + hermanas (solo
-                  lectura, con boton para abrir esa categoria), agrupadas por
-                  categoria con su color. Respeta el chip de filtro elegido en
-                  la grilla: "Todas" muestra todas, un chip de categoria deja
-                  solo esa. "Con problemas"/"Sin zona" son filtros de filas de
+              {/* Existing zones: cada categoria del evento es totalmente
+                  editable desde esta pantalla (armar zona, horario/cancha,
+                  disponibilidad), agrupadas por categoria con su color.
+                  Respeta el chip de filtro elegido en la grilla: "Todas"
+                  muestra todas, un chip de categoria deja solo esa.
+                  "Con problemas"/"Sin zona" son filtros de filas de
                   la grilla (no de zonas ya armadas), asi que para esta lista
                   se comportan igual que "Todas". */}
               {(() => {
@@ -2365,39 +2584,27 @@ export default function FixtureTab({
                   <div className="flex flex-col gap-6 mb-5">
                     {zoneBlocks.map((block) => {
                       const blockIndex = allCategoryBlocks.indexOf(block);
-                      const blockRegMap: Record<string, any> = {};
-                      block.confirmedRegistrations.forEach((r: any) => { blockRegMap[r.id] = r; });
 
                       return (
                         <div key={block.tournamentId}>
-                          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: getCategoryColor(blockIndex) }} />
-                              <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>
-                                Zonas creadas — {block.categoryLabel || (block.isActive ? "Esta categoria" : "Categoria")}
-                              </p>
-                            </div>
-                            {!block.isActive && (
-                              <button
-                                onClick={() => router.push(`/dashboard/torneos/${block.tournamentId}?tab=fixture&fixtureSub=manual&fixtureView=zonas`)}
-                                className="text-[10px] font-black px-2.5 py-1 rounded-full border"
-                                style={{ borderColor: "#CFE7DC", color: "#086847", background: "#FFFFFF" }}>
-                                Abrir esta categoría
-                              </button>
-                            )}
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: getCategoryColor(blockIndex) }} />
+                            <p className="text-xs font-black uppercase" style={{ color: "#9BB8AE", letterSpacing: "0.5px" }}>
+                              Zonas creadas — {block.categoryLabel || (block.isActive ? "Esta categoria" : "Categoria")}
+                            </p>
                           </div>
                           <div className="flex flex-col gap-4">
                             {block.zones.map((zone: any) => (
                               <ZoneCard key={`${block.tournamentId}:${zone.id}`}
                                 zone={zone}
-                                regMap={block.isActive ? regMap : blockRegMap}
-                                zonesFormat={savedZonesFormat}
+                                regMap={getRegMapFor(block.tournamentId)}
+                                zonesFormat={getZonesFormatFor(block.tournamentId)}
                                 venueNameById={venueNameById}
-                                getMatchConflict={block.isActive ? getMatchConflict : undefined}
-                                onResultClick={block.isActive ? (matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match }) : undefined}
-                                onStandingsClick={block.isActive ? () => setStandingsModal(zone) : undefined}
-                                onScheduleClick={block.isActive ? (matchKey) => setScheduleModal({ zoneId: zone.id, matchKey }) : undefined}
-                                onRemovePair={block.isActive ? (regId) => handleRemovePairFromZone(zone.id, regId) : undefined} />
+                                getMatchConflict={(z, matchKey) => getMatchConflict(z, matchKey, block.tournamentId)}
+                                onResultClick={(matchKey, match) => setZoneResultModal({ tournamentId: block.tournamentId, zoneId: zone.id, matchKey, match })}
+                                onStandingsClick={() => setStandingsModal({ tournamentId: block.tournamentId, zone })}
+                                onScheduleClick={(matchKey) => setScheduleModal({ tournamentId: block.tournamentId, zoneId: zone.id, matchKey })}
+                                onRemovePair={(regId) => handleRemovePairFromZone(block.tournamentId, zone.id, regId)} />
                             ))}
                           </div>
                         </div>
@@ -2544,7 +2751,7 @@ export default function FixtureTab({
             const m = zoneResultModal.match;
             const winner = result.winnerId === m.pairAId ? "teamA" : result.winnerId === m.pairBId ? "teamB" : "";
             const sets = (result.sets ?? []).map((s: any) => ({ teamA: String(s.a ?? ""), teamB: String(s.b ?? "") }));
-            await saveZoneMatchResult(zoneResultModal.zoneId, zoneResultModal.matchKey, {
+            await saveZoneMatchResult(zoneResultModal.tournamentId, zoneResultModal.zoneId, zoneResultModal.matchKey, {
               winnerRegistrationId: result.walkover ? "" : result.winnerId,
               winner, winnerSource: "manual", walkover: result.walkover, sets, scoreText: result.scoreText,
             });
@@ -2552,7 +2759,7 @@ export default function FixtureTab({
           }} />
       )}
       {standingsModal && (
-        <StandingsModal zone={standingsModal} regMap={regMap} onClose={() => setStandingsModal(null)} />
+        <StandingsModal zone={standingsModal.zone} regMap={getRegMapFor(standingsModal.tournamentId)} onClose={() => setStandingsModal(null)} />
       )}
       {bracketResultModal && (
         <ResultModal
@@ -2583,20 +2790,21 @@ export default function FixtureTab({
         />
       )}
       {scheduleModal && (() => {
-        const zone = zones.find((z: any) => z.id === scheduleModal.zoneId);
+        const tournamentId = scheduleModal.tournamentId;
+        const zone = getZonesFor(tournamentId).find((z: any) => z.id === scheduleModal.zoneId);
         if (!zone) return null;
         const currentSchedule = zone.matchSchedules?.[scheduleModal.matchKey] ?? {};
-        const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, matchDurationMinutes);
+        const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, getMatchDurationMinutesFor(tournamentId));
         const participantIds = getZoneMatchParticipantIds(zone, scheduleModal.matchKey);
         const dependsOn = ["G vs G", "P vs P"].includes(scheduleModal.matchKey)
-          ? getZoneOpeningMatchesEndTimes(zone)
+          ? getZoneOpeningMatchesEndTimes(zone, tournamentId)
           : [];
 
         // No se oculta ni se deshabilita ningun horario: el que tiene
         // conflicto o advertencia se muestra igual, marcado con el motivo
         // (con estilos distintos: ver ScheduleMatchModal).
         const freeSlots = allSlots.map((slot) => {
-          const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, registrationsById, slot.dayKey, slot.startMinutes);
+          const availabilityWarning = buildAvailabilityWarningForParticipants(participantIds, getRegistrationsByIdFor(tournamentId), slot.dayKey, slot.startMinutes);
 
           const result = validateMatchSlot({
             dayKey: slot.dayKey,
@@ -2604,12 +2812,12 @@ export default function FixtureTab({
             venueId: slot.venueId,
             courtIndex: slot.courtIndex,
             participantIds,
-            excludeKey: { tournamentId: torneoId, zoneId: scheduleModal.zoneId, matchKey: scheduleModal.matchKey },
+            excludeKey: { tournamentId, zoneId: scheduleModal.zoneId, matchKey: scheduleModal.matchKey },
             occupancy: scheduleOccupancy,
-            matchDurationMinutes,
+            matchDurationMinutes: getMatchDurationMinutesFor(tournamentId),
             restMinutes: DEFAULT_REST_MINUTES,
             dependsOn,
-            pairLabelsById,
+            pairLabelsById: getPairLabelsByIdFor(tournamentId),
             availabilityWarning,
           });
 
@@ -2629,7 +2837,7 @@ export default function FixtureTab({
             hasCurrentSchedule={Boolean(currentSchedule.dayKey && currentSchedule.startTime && currentSchedule.venueId)}
             onClose={() => setScheduleModal(null)}
             onClear={async () => {
-              const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, null);
+              const saved = await saveZoneMatchSchedule(tournamentId, scheduleModal.zoneId, scheduleModal.matchKey, null);
               if (saved) setScheduleModal(null);
             }}
             onAssign={async (slot) => {
@@ -2637,7 +2845,7 @@ export default function FixtureTab({
               // devuelve false y el selector tiene que seguir abierto para que pueda
               // elegir otro horario (cerrarlo igual hacia parecer que no se puede
               // asignar nada, aunque el organizador solo haya cancelado ESE horario).
-              const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, {
+              const saved = await saveZoneMatchSchedule(tournamentId, scheduleModal.zoneId, scheduleModal.matchKey, {
                 dayKey: slot.dayKey, startTime: formatMinutesToTime(slot.startMinutes), venueId: slot.venueId, courtIndex: slot.courtIndex,
               });
               if (saved) setScheduleModal(null);

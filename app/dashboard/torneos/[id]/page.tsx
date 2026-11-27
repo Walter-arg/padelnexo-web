@@ -926,6 +926,7 @@ export default function TorneoDetailPage() {
   const [tab, setTab]                     = useState<Tab>((searchParams.get("tab") as Tab | null) || "inscripciones");
   const [fixtureSub, setFixtureSub]       = useState<FixSub>((searchParams.get("fixtureSub") as FixSub | null) || "configurar");
   const [fixtureView, setFixtureView]     = useState<FixView>((searchParams.get("fixtureView") as FixView | null) || "zonas");
+  const [hasUnsavedFixtureChanges, setHasUnsavedFixtureChanges] = useState(false);
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
   const [categorySiblings, setCategorySiblings] = useState<any[]>([]);
 
@@ -1034,6 +1035,9 @@ export default function TorneoDetailPage() {
 
   function handleSelectCategory(nextTournamentId: string) {
     if (!nextTournamentId || nextTournamentId === torneoId) return;
+    if (hasUnsavedFixtureChanges && !window.confirm("Hay cambios sin guardar en Fixture. ¿Cambiar de categoria igual? Los cambios sin guardar se van a perder.")) {
+      return;
+    }
     const nextParams = new URLSearchParams();
     nextParams.set("tab", tab);
     if (tab === "fixture") {
@@ -1982,6 +1986,7 @@ export default function TorneoDetailPage() {
                   onSubChange={setFixtureSub}
                   view={fixtureView}
                   onViewChange={setFixtureView}
+                  onUnsavedChangesChange={setHasUnsavedFixtureChanges}
                 />
               )}
 

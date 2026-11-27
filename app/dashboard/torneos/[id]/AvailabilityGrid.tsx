@@ -3,17 +3,19 @@
 // GEMELO: d:\PROYECTO-APP\padel-amateur-app\src\screens\TournamentZonePlanningScreen.js
 // (grilla nueva de "Armado Manual - Editar": PairNameCell, PairCellsRow, fila
 // "Coinciden", fila "Canchas ocupadas", chips de filtro, bloques por
-// categoria plegables). A diferencia de la app (que muestra un solo dia a la
-// vez con chips), en la web se muestran TODOS los dias del torneo lado a
-// lado dentro del mismo scroll horizontal, porque hay espacio de sobra en
-// pantalla de escritorio. El resto del diseno (fila=pareja, columna=hora,
-// columna de nombres fija, hermanas en solo lectura y plegables, colores por
+// categoria plegables). Dos diferencias deliberadas con la app: 1) en la web
+// se muestran TODOS los dias del torneo lado a lado dentro del mismo scroll
+// horizontal (la app muestra un dia a la vez con chips, por el espacio
+// reducido de pantalla); 2) en la web las categorias hermanas son
+// totalmente editables desde esta misma pantalla (armar zona, horario,
+// disponibilidad), no solo de lectura como en la app. El resto del diseno
+// (fila=pareja, columna=hora, columna de nombres fija, colores por
 // categoria) es el mismo. Cualquier cambio de ese diseno compartido tiene
 // que replicarse tambien alla, y viceversa.
 
 import { memo, Fragment, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
-import { getCategoryColor, getHoursStatusTag, getTotalLoadedHours, isSlotAvailable, type HourColumn } from "@/lib/availabilityGrid";
+import { getCategoryColor, getHoursStatusTag, getTotalLoadedHours, isSlotAvailable, buildPairSelectionKey, type HourColumn } from "@/lib/availabilityGrid";
 import { PAIR_COLORS, getShortPairLabel } from "./FixtureTab";
 
 export type DayBlock = { key: string; label: string; hourColumns: HourColumn[] };
@@ -213,8 +215,8 @@ export default function AvailabilityGrid({
   dayBlocks: DayBlock[];
   gridRows: GridRow[];
   selectedPairIds: Set<string>;
-  onTogglePairSelect: (id: string) => void;
-  onToggleCell: (registration: any, dayKey: string, hourMinutes: number) => void;
+  onTogglePairSelect: (tournamentId: string, registrationId: string) => void;
+  onToggleCell: (tournamentId: string, registration: any, dayKey: string, hourMinutes: number) => void;
   onToggleSiblingCollapsed: (tournamentId: string) => void;
   countPairsAvailableAtHour: (block: CategoryBlock, dayKey: string, hourMinutes: number) => number;
   getCourtsAvailableAtHour: (dayKey: string, hourMinutes: number) => number;
@@ -281,7 +283,6 @@ export default function AvailabilityGrid({
                         </p>
                         <p className="text-[9px] truncate" style={{ color: "#9BB8AE" }}>
                           {row.block.confirmedRegistrations.length} pareja{row.block.confirmedRegistrations.length === 1 ? "" : "s"}
-                          {!row.block.isActive ? " · Solo lectura" : ""}
                         </p>
                       </div>
                       {!row.block.isActive ? (row.isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />) : null}
@@ -294,10 +295,10 @@ export default function AvailabilityGrid({
                     <PairNameCell
                       key={row.key}
                       registration={row.registration}
-                      isEditable={row.block.isActive}
-                      isSelected={row.block.isActive && selectedPairIds.has(row.registration.id)}
+                      isEditable
+                      isSelected={selectedPairIds.has(buildPairSelectionKey(row.block.tournamentId, row.registration.id))}
                       zoneLetter={row.zoneLetter}
-                      onPress={onTogglePairSelect}
+                      onPress={(id) => onTogglePairSelect(row.block.tournamentId, id)}
                     />
                   );
                 }
@@ -356,8 +357,8 @@ export default function AvailabilityGrid({
                         key={row.key}
                         registration={row.registration}
                         flatColumns={flatColumns}
-                        isEditable={row.block.isActive}
-                        onToggleCell={onToggleCell}
+                        isEditable
+                        onToggleCell={(registration, dayKey, hourMinutes) => onToggleCell(row.block.tournamentId, registration, dayKey, hourMinutes)}
                       />
                     );
                   }

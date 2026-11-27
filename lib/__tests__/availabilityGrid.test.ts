@@ -14,6 +14,8 @@ import {
   sortRegistrationsUnassignedFirst,
   isSlotAvailable,
   buildAvailabilityAfterCellToggle,
+  buildPairSelectionKey,
+  parsePairSelectionKey,
 } from "../availabilityGrid.ts";
 
 const DAY_OPTIONS = [
@@ -114,4 +116,16 @@ test("buildAvailabilityAfterCellToggle: despintar el extremo de una franja custo
   const registration = { availability: { "2026-03-06": { quickSlots: [], customSlots: [{ from: "19:00", to: "21:00" }] } } };
   const next = buildAvailabilityAfterCellToggle(registration, "2026-03-06", 20 * 60, DAY_OPTIONS);
   assert.deepEqual(next["2026-03-06"].customSlots, [{ from: "19:00", to: "20:00" }]);
+});
+
+test("buildPairSelectionKey / parsePairSelectionKey: ida y vuelta sin perder datos", () => {
+  const key = buildPairSelectionKey("tournament-a", "reg-1");
+  assert.equal(key, "tournament-a::reg-1");
+  assert.deepEqual(parsePairSelectionKey(key), { tournamentId: "tournament-a", registrationId: "reg-1" });
+});
+
+test("buildPairSelectionKey: dos categorias distintas con el mismo id de pareja no colisionan", () => {
+  const keyA = buildPairSelectionKey("tournament-a", "reg-1");
+  const keyB = buildPairSelectionKey("tournament-b", "reg-1");
+  assert.notEqual(keyA, keyB);
 });

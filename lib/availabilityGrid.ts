@@ -332,3 +332,18 @@ export function buildAvailabilityAfterCellToggle(
 
   return normalizeTournamentAvailability(normalized, tournamentDayOptions);
 }
+
+// Solo web: la app mantiene las categorias hermanas en solo lectura (no
+// hace falta distinguir de que categoria es una pareja seleccionada), pero
+// en la web ahora se puede armar zona en CUALQUIER categoria del evento
+// desde la misma pantalla, asi que el id de una pareja sola no alcanza para
+// identificarla (dos categorias distintas podrian, en teoria, tener el
+// mismo id si se llegaran a comparar mal). Se usa una clave compuesta.
+export function buildPairSelectionKey(tournamentId: string, registrationId: string): string {
+  return `${tournamentId}::${registrationId}`;
+}
+
+export function parsePairSelectionKey(key: string): { tournamentId: string; registrationId: string } {
+  const [tournamentId, registrationId] = key.split("::");
+  return { tournamentId: tournamentId || "", registrationId: registrationId || "" };
+}

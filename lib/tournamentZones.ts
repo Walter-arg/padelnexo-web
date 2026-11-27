@@ -682,22 +682,103 @@ export function isPairAvailableForSlot(
   );
 }
 
+export type AutoSchedulePick = {
+  slot: any;
+  // "none": cancha y parejas libres, dentro de la disponibilidad cargada
+  // (el caso ideal). "availability": cancha y parejas libres pero el
+  // horario elegido queda afuera de lo que alguna pareja cargo. "conflict":
+  // no existia NINGUN horario con cancha y parejas libres; se eligio el de
+  // menos choques (puede compartir cancha/horario con otro partido, o
+  // hacer jugar 2 partidos superpuestos a la misma pareja).
+  issue: "none" | "availability" | "conflict";
+};
+
+// Elige el horario para UN partido, con 3 niveles de prioridad (nunca deja
+// un partido sin horario, a diferencia de antes que lo dejaba vacio cuando
+// no encontraba nada ideal):
+//   1. Cancha libre + ambas parejas libres + dentro de su disponibilidad
+//      cargada (con los mismos sub-niveles de tolerancia de siempre:
+//      estricto, extendido, doblemente extendido).
+//   2. Si no hay ninguno asi: cancha libre + ambas parejas libres, sin
+//      importar la disponibilidad cargada.
+//   3. Si ni eso existe (no hay ningun horario con cancha y parejas
+//      libres): el horario que menos choques acumula.
+function pickScheduleSlotForMatch(
+  slots: any[],
+  usedSlotIds: Set<string>,
+  occA: any[],
+  occB: any[],
+  availA: any,
+  availB: any,
+  overlaps: (a: any, b: any) => boolean
+): AutoSchedulePick {
+  const isFree = (slot: any) =>
+    !usedSlotIds.has(slot.id) && !occA.some((u) => overlaps(slot, u)) && !occB.some((u) => overlaps(slot, u));
+
+  const findWithinAvailability = (extensionMinutes: number) =>
+    slots.filter(
+      (slot) =>
+        isFree(slot) &&
+        isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+        isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
+    );
+
+  const sortBySameVenuePreferenceThenTime = (candidates: any[]) => {
+    const allOcc = [...occA, ...occB];
+    return [...candidates].sort((a, b) => {
+      const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
+      const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
+      if (bVenue !== aVenue) return bVenue - aVenue;
+      if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      return a.courtIndex - b.courtIndex;
+    });
+  };
+
+  // Nivel 1: dentro de la disponibilidad (estricto -> extendido -> doble extendido).
+  const strict = findWithinAvailability(0);
+  const extended = strict.length ? strict : findWithinAvailability(AVAILABILITY_EXTENSION_MINUTES);
+  const ideal = extended.length ? extended : findWithinAvailability(AVAILABILITY_EXTENSION_MINUTES * 2);
+  if (ideal.length) {
+    return { slot: sortBySameVenuePreferenceThenTime(ideal)[0], issue: "none" };
+  }
+
+  // Nivel 2: cancha y parejas libres, ignorando la disponibilidad cargada.
+  const free = slots.filter(isFree);
+  if (free.length) {
+    return { slot: sortBySameVenuePreferenceThenTime(free)[0], issue: "availability" };
+  }
+
+  // Nivel 3: no hay ningun horario libre; el de menos choques.
+  const conflictScore = (slot: any) => {
+    let score = usedSlotIds.has(slot.id) ? 1 : 0;
+    score += occA.filter((u) => overlaps(slot, u)).length;
+    score += occB.filter((u) => overlaps(slot, u)).length;
+    return score;
+  };
+  const byLeastConflict = [...slots].sort((a, b) => conflictScore(a) - conflictScore(b));
+  return { slot: byLeastConflict[0], issue: "conflict" };
+}
+
 // Equivalente a buildAutoMatchSchedules: asigna dia/horario/cancha a cada
 // partido numerico (no a "G vs G"/"P vs P", que dependen de resultados que
 // todavia no existen) cruzando la disponibilidad real de ambas parejas y
-// evitando que una misma pareja juegue 2 partidos superpuestos.
+// evitando que una misma pareja juegue 2 partidos superpuestos. SIEMPRE
+// asigna un horario a cada partido (ver pickScheduleSlotForMatch); el
+// llamador puede fijarse en needsReviewCount para saber cuantos quedaron
+// fuera del caso ideal.
 export function buildAutoMatchSchedules(
   zones: ZonePlanningZone[],
   registrationsById: Map<string, any>,
   venueSchedules: ZoneVenueSchedule[],
   matchDurationMinutes = ZONE_MATCH_DURATION_MINUTES
-): { zones: ZonePlanningZone[]; unassignedCount: number } {
+): { zones: ZonePlanningZone[]; unassignedCount: number; needsReviewCount: number } {
   const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
-  if (!slots.length) return { zones, unassignedCount: 0 };
+  if (!slots.length) return { zones, unassignedCount: 0, needsReviewCount: 0 };
 
   const usedSlotIds = new Set<string>();
   const pairOccupancy = new Map<string, any[]>();
-  let unassignedCount = 0;
+  let needsReviewCount = 0;
 
   const overlaps = (a: any, b: any) => a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
 
@@ -719,36 +800,9 @@ export function buildAutoMatchSchedules(
       const occA = pairOccupancy.get(idA) || [];
       const occB = pairOccupancy.get(idB) || [];
 
-      const findCandidates = (extensionMinutes: number) =>
-        slots.filter(
-          (slot) =>
-            !usedSlotIds.has(slot.id) &&
-            !occA.some((u) => overlaps(slot, u)) &&
-            !occB.some((u) => overlaps(slot, u)) &&
-            isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
-            isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
-        );
+      const { slot: chosen, issue } = pickScheduleSlotForMatch(slots, usedSlotIds, occA, occB, availA, availB, overlaps);
+      if (issue !== "none") needsReviewCount++;
 
-      const strictCandidates = findCandidates(0);
-      const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
-      const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
-
-      if (!candidates.length) {
-        unassignedCount++;
-        return;
-      }
-
-      const allOcc = [...occA, ...occB];
-      candidates.sort((a, b) => {
-        const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
-        const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
-        if (bVenue !== aVenue) return bVenue - aVenue;
-        if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
-        if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
-        return a.courtIndex - b.courtIndex;
-      });
-
-      const chosen = candidates[0];
       usedSlotIds.add(chosen.id);
       pairOccupancy.set(idA, [...occA, chosen]);
       pairOccupancy.set(idB, [...occB, chosen]);
@@ -765,7 +819,7 @@ export function buildAutoMatchSchedules(
     return { ...zone, matchSchedules };
   });
 
-  return { zones: scheduledZones, unassignedCount };
+  return { zones: scheduledZones, unassignedCount: 0, needsReviewCount };
 }
 
 // Equivalente a buildAutoMatchSchedules, pero para eventos multi-categoria:
@@ -781,13 +835,13 @@ export function buildAutoMatchSchedulesAcrossZones(
   registrationsById: Map<string, any>,
   venueSchedules: ZoneVenueSchedule[],
   matchDurationMinutes = ZONE_MATCH_DURATION_MINUTES
-): { zones: (ZonePlanningZone & { __tournamentId: string })[]; unassignedCount: number } {
+): { zones: (ZonePlanningZone & { __tournamentId: string })[]; unassignedCount: number; needsReviewCount: number } {
   const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
-  if (!slots.length) return { zones, unassignedCount: 0 };
+  if (!slots.length) return { zones, unassignedCount: 0, needsReviewCount: 0 };
 
   const usedSlotIds = new Set<string>();
   const pairOccupancy = new Map<string, any[]>();
-  let unassignedCount = 0;
+  let needsReviewCount = 0;
 
   const overlaps = (a: any, b: any) => a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
 
@@ -821,36 +875,9 @@ export function buildAutoMatchSchedulesAcrossZones(
     const occA = pairOccupancy.get(idA) || [];
     const occB = pairOccupancy.get(idB) || [];
 
-    const findCandidates = (extensionMinutes: number) =>
-      slots.filter(
-        (slot) =>
-          !usedSlotIds.has(slot.id) &&
-          !occA.some((u) => overlaps(slot, u)) &&
-          !occB.some((u) => overlaps(slot, u)) &&
-          isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
-          isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
-      );
+    const { slot: chosen, issue } = pickScheduleSlotForMatch(slots, usedSlotIds, occA, occB, availA, availB, overlaps);
+    if (issue !== "none") needsReviewCount++;
 
-    const strictCandidates = findCandidates(0);
-    const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
-    const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
-
-    if (!candidates.length) {
-      unassignedCount++;
-      return;
-    }
-
-    const allOcc = [...occA, ...occB];
-    candidates.sort((a, b) => {
-      const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
-      const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
-      if (bVenue !== aVenue) return bVenue - aVenue;
-      if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
-      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
-      return a.courtIndex - b.courtIndex;
-    });
-
-    const chosen = candidates[0];
     usedSlotIds.add(chosen.id);
     pairOccupancy.set(idA, [...occA, chosen]);
     pairOccupancy.set(idB, [...occB, chosen]);
@@ -872,7 +899,7 @@ export function buildAutoMatchSchedulesAcrossZones(
     return { ...zone, matchSchedules: matchSchedulesByZoneKey.get(zoneKey) || zone.matchSchedules || {} };
   });
 
-  return { zones: scheduledZones, unassignedCount };
+  return { zones: scheduledZones, unassignedCount: 0, needsReviewCount };
 }
 
 // Slots ya ocupados por OTRO partido (de cualquier zona) en el mismo
