@@ -1654,15 +1654,11 @@ export default function FixtureTab({
   // realidad el organizador solo cancelo el cartel de conflicto y deberia
   // poder elegir otro horario sin que el selector se cierre solo.
   async function saveZoneMatchSchedule(zoneId: string, matchKey: string, schedule: { dayKey: string; startTime: string; venueId: string; courtIndex: number } | null): Promise<boolean> {
-    console.log("[HORARIOS] saveZoneMatchSchedule llamado con", { zoneId, matchKey, schedule });
     try {
       const fs = JSON.parse(JSON.stringify(fixtureSetup ?? {}));
       const zoneList = toArray(fs.zonePlanning?.zones);
       const zone = zoneList.find((z: any) => z.id === zoneId);
-      if (!zone) {
-        console.log("[HORARIOS] saveZoneMatchSchedule: NO encontro la zona dentro de fixtureSetup -> no guarda nada", { zoneId, zoneListIds: zoneList.map((z: any) => z.id) });
-        return false;
-      }
+      if (!zone) return false;
 
       // Conflicto (cancha contra categorias hermanas, pareja superpuesta,
       // dependencia G vs G/P vs P, o fuera de disponibilidad cargada): nunca
@@ -1689,7 +1685,6 @@ export default function FixtureTab({
         });
 
         const reason = result.conflictReason || result.availabilityWarning;
-        console.log("[HORARIOS] saveZoneMatchSchedule: resultado de validateMatchSlot", { participantIds, result, reason });
         if (reason) {
           const confirmed = await requestConfirm({
             title: "Horario con conflicto",
@@ -1697,7 +1692,6 @@ export default function FixtureTab({
             confirmLabel: "Asignar igual",
             tone: "danger",
           });
-          console.log("[HORARIOS] saveZoneMatchSchedule: el organizador", confirmed ? "confirmo 'Asignar igual'" : "cancelo el cartel de conflicto -> NO se guarda");
           if (!confirmed) return false;
         }
       }
@@ -1708,14 +1702,11 @@ export default function FixtureTab({
         ? { ...existing, ...schedule }
         : { ...existing, dayKey: "", startTime: "", venueId: "", courtIndex: 0 };
       fs.zonePlanning.zones = zoneList;
-      console.log("[HORARIOS] saveZoneMatchSchedule: escribiendo en Firestore", { torneoId, matchSchedule: zone.matchSchedules[matchKey] });
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
-      console.log("[HORARIOS] saveZoneMatchSchedule: updateDoc OK");
       showToast(schedule ? "Horario asignado" : "Horario borrado");
       await fetchSiblingZonesForOccupancy();
       return true;
-    } catch (error) {
-      console.log("[HORARIOS] saveZoneMatchSchedule: ERROR, no se guardo", error);
+    } catch {
       showToast("Error al guardar el horario", false);
       return false;
     }
@@ -2593,31 +2584,13 @@ export default function FixtureTab({
       )}
       {scheduleModal && (() => {
         const zone = zones.find((z: any) => z.id === scheduleModal.zoneId);
-        if (!zone) {
-          console.log("[HORARIOS] no se encontro la zona", { zoneId: scheduleModal.zoneId, zonesIds: zones.map((z: any) => z.id) });
-          return null;
-        }
+        if (!zone) return null;
         const currentSchedule = zone.matchSchedules?.[scheduleModal.matchKey] ?? {};
         const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, matchDurationMinutes);
         const participantIds = getZoneMatchParticipantIds(zone, scheduleModal.matchKey);
         const dependsOn = ["G vs G", "P vs P"].includes(scheduleModal.matchKey)
           ? getZoneOpeningMatchesEndTimes(zone)
           : [];
-
-        // LOG TEMPORAL [HORARIOS]: entrada completa al abrir el selector,
-        // para diagnosticar por que se marcan horarios que no deberian.
-        console.log("[HORARIOS] abriendo selector", {
-          zoneId: scheduleModal.zoneId,
-          matchKey: scheduleModal.matchKey,
-          zoneRegistrationIds: zone.registrationIds,
-          participantIds,
-          participantsAvailability: participantIds.map((id: string) => ({ id, availability: registrationsById.get(id)?.availability ?? "SIN FICHA EN registrationsById" })),
-          matchDurationMinutes,
-          zoneSchedulesForMatches,
-          allSlotsCount: allSlots.length,
-          dependsOn,
-          scheduledMatchesForOccupancy,
-        });
 
         // No se oculta ni se deshabilita ningun horario: el que tiene
         // conflicto o advertencia se muestra igual, marcado con el motivo
@@ -2648,20 +2621,6 @@ export default function FixtureTab({
           };
         });
 
-        // LOG TEMPORAL [HORARIOS]: resumen de como quedo la lista de
-        // opciones (cuantas libres, cuantas con advertencia, cuantas con
-        // conflicto real) y el detalle de cada una.
-        console.log("[HORARIOS] resumen de opciones", {
-          total: freeSlots.length,
-          conflicto: freeSlots.filter((s) => s.hasConflict).length,
-          advertencia: freeSlots.filter((s) => !s.hasConflict && s.availabilityWarning).length,
-          libres: freeSlots.filter((s) => !s.hasConflict && !s.availabilityWarning).length,
-        });
-        console.log("[HORARIOS] detalle de cada opcion", freeSlots.map((s) => ({
-          dia: s.dayKey, hora: s.timeLabel, sede: s.venueName, cancha: s.courtIndex,
-          hasConflict: s.hasConflict, conflictReason: s.conflictReason, availabilityWarning: s.availabilityWarning,
-        })));
-
         return (
           <ScheduleMatchModal
             matchKey={scheduleModal.matchKey}
@@ -2670,16 +2629,10 @@ export default function FixtureTab({
             hasCurrentSchedule={Boolean(currentSchedule.dayKey && currentSchedule.startTime && currentSchedule.venueId)}
             onClose={() => setScheduleModal(null)}
             onClear={async () => {
-              console.log("[HORARIOS] tocaste 'Borrar horario asignado'");
               const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, null);
-              console.log("[HORARIOS] resultado de borrar horario", { saved });
               if (saved) setScheduleModal(null);
             }}
             onAssign={async (slot) => {
-              console.log("[HORARIOS] tocaste una opcion", {
-                dia: slot.dayKey, hora: slot.timeLabel, sede: slot.venueName, cancha: slot.courtIndex,
-                hasConflict: slot.hasConflict, conflictReason: slot.conflictReason, availabilityWarning: slot.availabilityWarning,
-              });
               // Si el organizador cancela el cartel de conflicto, saveZoneMatchSchedule
               // devuelve false y el selector tiene que seguir abierto para que pueda
               // elegir otro horario (cerrarlo igual hacia parecer que no se puede
@@ -2687,7 +2640,6 @@ export default function FixtureTab({
               const saved = await saveZoneMatchSchedule(scheduleModal.zoneId, scheduleModal.matchKey, {
                 dayKey: slot.dayKey, startTime: formatMinutesToTime(slot.startMinutes), venueId: slot.venueId, courtIndex: slot.courtIndex,
               });
-              console.log("[HORARIOS] resultado de asignar", { saved });
               if (saved) setScheduleModal(null);
             }}
           />
