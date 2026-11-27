@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { doc, updateDoc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
@@ -16,7 +16,6 @@ import {
   buildZoneMatchSchedulingSlots,
   buildAutoMatchSchedules,
   buildAutoMatchSchedulesAcrossZones,
-  getOccupiedSlotKeys,
   formatMinutesToTime,
   normalizeTypedTimeInput,
   parseMatchDurationToMinutes,
@@ -28,6 +27,13 @@ import {
   type ZonePlanningZone,
 } from "@/lib/tournamentZones";
 import { buildBracketPreview, applyBracketProgressions, assignSchedulesToBracketMatches, syncBracketWithZones, type BracketPair } from "@/lib/tournamentBracket";
+import {
+  DEFAULT_REST_MINUTES,
+  buildScheduleOccupancy,
+  validateMatchSlot,
+  type ScheduledMatch,
+  type ScheduleOccupancy,
+} from "@/lib/scheduleValidation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type FixSub = "configurar" | "automatico" | "manual";
@@ -525,9 +531,10 @@ function StandingsModal({ zone, regMap, onClose }: {
 }
 
 // ── Zone card ─────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
+function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, getMatchConflict, onResultClick, onStandingsClick, onScheduleClick, onRemovePair }: {
   zone: any; regMap: Record<string, any>; zonesFormat: MatchFmt; venueNameById: Record<string, string>;
   categoryLabel?: string;
+  getMatchConflict?: (zone: any, matchKey: string) => { hasConflict: boolean; conflictReason: string };
   onResultClick: (matchKey: string, match: any) => void;
   onStandingsClick: () => void;
   onScheduleClick: (matchKey: string) => void;
@@ -628,47 +635,60 @@ function ZoneCard({ zone, regMap, zonesFormat, venueNameById, categoryLabel, onR
                   const placeLabel = venueName
                     ? `${venueName}${md.courtIndex ? " · Cancha " + md.courtIndex : ""}`
                     : "—";
+                  const matchConflict = getMatchConflict?.(zone, matchKey);
 
                   return (
-                    <tr key={matchKey} style={{ borderBottom: "1px solid #F0F7F4" }}>
-                      <td className="py-2.5 pr-3">
-                        {isDone ? (
-                          <span className="text-[10px] font-black px-2 py-1 rounded-lg text-white whitespace-nowrap"
-                            style={{ background: "#173A2E" }}>{score || "•"}</span>
-                        ) : (
-                          <span className="text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap"
-                            style={{ background: "#F0F7F4", color: "#9BB8AE" }}>vs</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3 max-w-[140px]">
-                        <span className="text-xs font-semibold truncate block" style={{ color: "#173A2E" }}>{pairDisplay}</span>
-                      </td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
-                        <button onClick={() => onScheduleClick(matchKey)}
-                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                          {dayStr}
-                        </button>
-                      </td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
-                        <button onClick={() => onScheduleClick(matchKey)}
-                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                          {md.startTime || "—"}
-                        </button>
-                      </td>
-                      <td className="py-2.5 pr-3 truncate max-w-[90px]">
-                        <button onClick={() => onScheduleClick(matchKey)}
-                          className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
-                          {placeLabel}
-                        </button>
-                      </td>
-                      <td className="py-2.5">
-                        <button onClick={() => onResultClick(matchKey, matchObj)}
-                          className="text-[10px] font-black px-2.5 py-1 rounded-full border whitespace-nowrap"
-                          style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
-                          {isDone ? "Editar" : "Resultado"}
-                        </button>
-                      </td>
-                    </tr>
+                    <Fragment key={matchKey}>
+                      <tr style={{ borderBottom: matchConflict?.hasConflict ? "none" : "1px solid #F0F7F4", background: matchConflict?.hasConflict ? "rgba(176,64,64,0.06)" : undefined }}>
+                        <td className="py-2.5 pr-3">
+                          {isDone ? (
+                            <span className="text-[10px] font-black px-2 py-1 rounded-lg text-white whitespace-nowrap"
+                              style={{ background: "#173A2E" }}>{score || "•"}</span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap"
+                              style={{ background: "#F0F7F4", color: "#9BB8AE" }}>vs</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-3 max-w-[140px]">
+                          <span className="text-xs font-semibold truncate block" style={{ color: "#173A2E" }}>{pairDisplay}</span>
+                        </td>
+                        <td className="py-2.5 pr-3 whitespace-nowrap">
+                          <button onClick={() => onScheduleClick(matchKey)}
+                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                            {dayStr}
+                          </button>
+                        </td>
+                        <td className="py-2.5 pr-3 whitespace-nowrap">
+                          <button onClick={() => onScheduleClick(matchKey)}
+                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                            {md.startTime || "—"}
+                          </button>
+                        </td>
+                        <td className="py-2.5 pr-3 truncate max-w-[90px]">
+                          <button onClick={() => onScheduleClick(matchKey)}
+                            className="text-xs underline-offset-2 hover:underline" style={{ color: "#5F7D72" }}>
+                            {placeLabel}
+                          </button>
+                        </td>
+                        <td className="py-2.5">
+                          <button onClick={() => onResultClick(matchKey, matchObj)}
+                            className="text-[10px] font-black px-2.5 py-1 rounded-full border whitespace-nowrap"
+                            style={{ borderColor: "#CFE7DC", color: "#086847", background: "#F6FBF8" }}>
+                            {isDone ? "Editar" : "Resultado"}
+                          </button>
+                        </td>
+                      </tr>
+                      {matchConflict?.hasConflict && (
+                        <tr style={{ borderBottom: "1px solid #F0F7F4", background: "rgba(176,64,64,0.06)" }}>
+                          <td colSpan={6} className="pb-2 px-0">
+                            <div className="flex items-center gap-1.5 px-0">
+                              <Info size={11} style={{ color: "#B24343", flexShrink: 0 }} />
+                              <span className="text-[10px] font-bold" style={{ color: "#B24343" }}>{matchConflict.conflictReason}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -911,6 +931,61 @@ export default function FixtureTab({
     return m;
   }, [registrations]);
 
+  const pairLabelsById = useMemo(() => {
+    const map: Record<string, string> = {};
+    registrations.forEach((r: any, i: number) => { map[r.id] = getShortPairLabel(r, i); });
+    return map;
+  }, [registrations]);
+
+  // Zonas (con sus matchSchedules) de TODAS las categorias hermanas del
+  // evento, solo para saber que canchas ya estan ocupadas por otras
+  // categorias (una pareja nunca puede estar en 2 categorias del mismo
+  // evento, asi que las hermanas nunca aportan ocupacion por pareja, solo por
+  // cancha). Se refresca al entrar a la pestaña y despues de cada guardado de
+  // horario, para no validar contra datos viejos.
+  const [siblingZonesForOccupancy, setSiblingZonesForOccupancy] = useState<{
+    tournamentId: string; categoryLabel: string; zones: any[];
+  }[]>([]);
+
+  async function fetchSiblingZonesForOccupancy() {
+    const batchId = tournament?.creationBatchId || "";
+    if (!batchId) {
+      setSiblingZonesForOccupancy([]);
+      return;
+    }
+    try {
+      const snap = await getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", batchId)));
+      const siblings = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)).filter((t) => t.id !== torneoId);
+      setSiblingZonesForOccupancy(
+        siblings.map((t) => ({
+          tournamentId: t.id,
+          categoryLabel: t.compositionConfig?.label ?? t.compositionLabel ?? t.name ?? "",
+          zones: toArray(t.fixtureSetup?.zonePlanning?.zones),
+        }))
+      );
+    } catch {
+      setSiblingZonesForOccupancy([]);
+    }
+  }
+
+  useEffect(() => {
+    fetchSiblingZonesForOccupancy();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament?.creationBatchId, torneoId]);
+
+  // Para zonas de 4: en que horario terminan (si ya lo tienen) los partidos
+  // de ida de esa zona, para que G vs G / P vs P no puedan empezar antes.
+  function getZoneOpeningMatchesEndTimes(zone: any): { dayKey: string; endMinutes: number }[] {
+    if (toArray(zone?.registrationIds).length !== 4) return [];
+    return ["1 vs 2", "3 vs 4"]
+      .map((openingMatchKey) => {
+        const schedule = zone.matchSchedules?.[openingMatchKey];
+        if (!schedule?.startTime || !schedule?.dayKey) return null;
+        return { dayKey: schedule.dayKey, endMinutes: parseTimeToMinutes(schedule.startTime) + matchDurationMinutes };
+      })
+      .filter((entry): entry is { dayKey: string; endMinutes: number } => Boolean(entry));
+  }
+
   function getVenueDraft(venueId: string) {
     return scheduleVenueDrafts[venueId] ?? {
       selectedDayKey: "", from: "09:00", to: "18:00", selectedCourtIndices: null, useForZones: false, useForBracket: false,
@@ -1004,6 +1079,98 @@ export default function FixtureTab({
   const zones: any[] = toArray(fixtureSetup?.zonePlanning?.zones);
   const bracketRounds: any[][] = normalizeBracketRounds(fixtureSetup?.bracketPreview);
   const hasBracket = bracketRounds.length > 0;
+
+  // Partidos ya agendados (propia categoria + hermanas del evento) para la
+  // ocupacion de cancha/pareja que usa el modulo de validacion compartido.
+  // Las hermanas solo pueden pisar cancha, nunca pareja (una pareja no puede
+  // estar inscripta en 2 categorias del mismo evento).
+  const scheduledMatchesForOccupancy: ScheduledMatch[] = useMemo(() => {
+    const ownMatches: ScheduledMatch[] = [];
+    zones.forEach((zone: any) => {
+      Object.entries(zone.matchSchedules ?? {}).forEach(([matchKey, schedule]: [string, any]) => {
+        if (!schedule?.startTime || !schedule?.dayKey) return;
+        ownMatches.push({
+          tournamentId: torneoId,
+          zoneId: zone.id,
+          matchKey,
+          categoryLabel: zoneCategoryLabel,
+          zoneLabel: zone.label,
+          dayKey: schedule.dayKey,
+          startMinutes: parseTimeToMinutes(schedule.startTime),
+          venueId: schedule.venueId || "",
+          courtIndex: Number(schedule.courtIndex || 0),
+          participantIds: getZoneMatchParticipantIds(zone, matchKey),
+        });
+      });
+    });
+
+    const siblingMatches: ScheduledMatch[] = [];
+    siblingZonesForOccupancy.forEach((sibling) => {
+      sibling.zones.forEach((zone: any) => {
+        Object.entries(zone.matchSchedules ?? {}).forEach(([matchKey, schedule]: [string, any]) => {
+          if (!schedule?.startTime || !schedule?.dayKey) return;
+          siblingMatches.push({
+            tournamentId: sibling.tournamentId,
+            zoneId: zone.id,
+            matchKey,
+            categoryLabel: sibling.categoryLabel,
+            zoneLabel: zone.label,
+            dayKey: schedule.dayKey,
+            startMinutes: parseTimeToMinutes(schedule.startTime),
+            venueId: schedule.venueId || "",
+            courtIndex: Number(schedule.courtIndex || 0),
+            participantIds: [],
+          });
+        });
+      });
+    });
+
+    return [...ownMatches, ...siblingMatches];
+  }, [zones, zoneCategoryLabel, torneoId, siblingZonesForOccupancy]);
+
+  const scheduleOccupancy: ScheduleOccupancy = useMemo(
+    () => buildScheduleOccupancy(scheduledMatchesForOccupancy, matchDurationMinutes),
+    [scheduledMatchesForOccupancy, matchDurationMinutes]
+  );
+
+  // Conflicto EN VIVO de un partido YA guardado (para marcarlo en rojo en la
+  // tabla de cruces), recalculado contra el resto de la ocupacion (propia +
+  // hermanas) en cada render. No bloquea nada; solo informa.
+  function getMatchConflict(zone: any, matchKey: string): { hasConflict: boolean; conflictReason: string } {
+    const schedule = zone?.matchSchedules?.[matchKey] ?? {};
+    if (!schedule.startTime || !schedule.dayKey) {
+      return { hasConflict: false, conflictReason: "" };
+    }
+
+    const participantIds = getZoneMatchParticipantIds(zone, matchKey);
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
+
+    const result = validateMatchSlot({
+      dayKey: schedule.dayKey,
+      startMinutes: parseTimeToMinutes(schedule.startTime),
+      venueId: schedule.venueId || "",
+      courtIndex: Number(schedule.courtIndex || 0),
+      participantIds,
+      excludeKey: { tournamentId: torneoId, zoneId: zone.id, matchKey },
+      occupancy: scheduleOccupancy,
+      matchDurationMinutes,
+      restMinutes: DEFAULT_REST_MINUTES,
+      dependsOn,
+      pairLabelsById,
+    });
+
+    return { hasConflict: result.hasConflict, conflictReason: result.conflictReason };
+  }
+
+  function countConflictedMatches(): number {
+    let count = 0;
+    zones.forEach((zone: any) => {
+      Object.keys(zone.matchSchedules ?? {}).forEach((matchKey) => {
+        if (getMatchConflict(zone, matchKey).hasConflict) count += 1;
+      });
+    });
+    return count;
+  }
 
   const regMap = useMemo(() => {
     const m: Record<string, any> = {};
@@ -1284,6 +1451,7 @@ export default function FixtureTab({
       fs.lastViewedSection = "newzones";
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Zonas generadas automáticamente");
+      await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al generar las zonas", false);
     }
@@ -1292,10 +1460,14 @@ export default function FixtureTab({
 
   async function confirmZones() {
     const unassignedCount = unassignedRegs.length;
+    const conflictCount = countConflictedMatches();
+    const conflictWarning = conflictCount > 0
+      ? `Hay ${conflictCount} partido${conflictCount === 1 ? "" : "s"} con conflicto de horario. ¿Guardar igual?\n\n`
+      : "";
     const warning = unassignedCount > 0
       ? `\n\nTodavia quedan ${unassignedCount} pareja${unassignedCount === 1 ? "" : "s"} sin zona asignada.`
       : "";
-    if (!window.confirm(`El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`)) {
+    if (!window.confirm(`${conflictWarning}El fixture del torneo se va a actualizar con este armado de zonas.${warning}\n\n¿Confirmar?`)) {
       return;
     }
     setSavingZones(true);
@@ -1306,6 +1478,7 @@ export default function FixtureTab({
       fs.lastViewedSection = "newzones";
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Armado confirmado");
+      await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al confirmar", false);
     }
@@ -1320,6 +1493,7 @@ export default function FixtureTab({
       fs.zonePlanning.status = fs.zonePlanning.status === "confirmed" ? "confirmed" : "draft";
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast("Borrador guardado");
+      await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al guardar el borrador", false);
     }
@@ -1368,26 +1542,37 @@ export default function FixtureTab({
       const zone = zoneList.find((z: any) => z.id === zoneId);
       if (!zone) return;
 
-      // Ninguna de las dos parejas de este partido puede tener otro partido de
-      // zona ya programado que se superponga con este horario, respetando la
-      // duracion de partido configurada por el organizador.
+      // Conflicto (cancha contra categorias hermanas, pareja superpuesta,
+      // dependencia G vs G/P vs P, o fuera de disponibilidad cargada): nunca
+      // bloquea, se confirma con el organizador antes de guardar igual.
       if (schedule?.dayKey && schedule?.startTime) {
         const participantIds = getZoneMatchParticipantIds(zone, matchKey);
-        const nextStart = parseTimeToMinutes(schedule.startTime);
-        const nextEnd = nextStart + matchDurationMinutes;
-        const hasOverlap = participantIds.length > 0 && zoneList.some((z: any) =>
-          Object.entries(z.matchSchedules ?? {}).some(([mk, s]: [string, any]) => {
-            if (z.id === zoneId && mk === matchKey) return false;
-            if (s?.dayKey !== schedule.dayKey || !s?.startTime) return false;
-            const start = parseTimeToMinutes(s.startTime);
-            const end = start + matchDurationMinutes;
-            if (!(nextStart < end && nextEnd > start)) return false;
-            const otherIds = getZoneMatchParticipantIds(z, mk);
-            return participantIds.some((id) => otherIds.includes(id));
-          })
-        );
-        if (hasOverlap) {
-          showToast("Una de las parejas de este partido ya tiene otro partido de zona programado que se superpone con ese horario.", false);
+        const startMinutes = parseTimeToMinutes(schedule.startTime);
+        const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
+        const availabilityWarning = participantIds.some((pairId) => {
+          const reg = registrationsById.get(pairId);
+          return reg && !isAvailableAtMinutes(reg.availability, schedule.dayKey, startMinutes);
+        })
+          ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+          : "";
+
+        const result = validateMatchSlot({
+          dayKey: schedule.dayKey,
+          startMinutes,
+          venueId: schedule.venueId,
+          courtIndex: schedule.courtIndex,
+          participantIds,
+          excludeKey: { tournamentId: torneoId, zoneId, matchKey },
+          occupancy: scheduleOccupancy,
+          matchDurationMinutes,
+          restMinutes: DEFAULT_REST_MINUTES,
+          dependsOn,
+          pairLabelsById,
+          availabilityWarning,
+        });
+
+        const reason = result.conflictReason || result.availabilityWarning;
+        if (reason && !window.confirm(`${reason}. ¿Asignar igual?`)) {
           return;
         }
       }
@@ -1400,6 +1585,7 @@ export default function FixtureTab({
       fs.zonePlanning.zones = zoneList;
       await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
       showToast(schedule ? "Horario asignado" : "Horario borrado");
+      await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al guardar el horario", false);
     }
@@ -1474,6 +1660,7 @@ export default function FixtureTab({
         await updateDoc(doc(db, "tournaments", torneoId), { fixtureSetup: fs });
         showToast(unassignedCount > 0 ? `Asignado. ${unassignedCount} partido(s) sin horario disponible.` : "Horarios asignados");
       }
+      await fetchSiblingZonesForOccupancy();
     } catch {
       showToast("Error al asignar horarios", false);
     }
@@ -1968,6 +2155,7 @@ export default function FixtureTab({
               {zones.map((zone) => (
                 <ZoneCard key={zone.id}
                   zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
+                  getMatchConflict={getMatchConflict}
                   onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
                   onStandingsClick={() => setStandingsModal(zone)}
                   onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })} />
@@ -2285,6 +2473,7 @@ export default function FixtureTab({
                   {zones.map(zone => (
                     <ZoneCard key={zone.id}
                       zone={zone} regMap={regMap} zonesFormat={savedZonesFormat} venueNameById={venueNameById} categoryLabel={zoneCategoryLabel}
+                      getMatchConflict={getMatchConflict}
                       onResultClick={(matchKey, match) => setZoneResultModal({ zoneId: zone.id, matchKey, match })}
                       onStandingsClick={() => setStandingsModal(zone)}
                       onScheduleClick={(matchKey) => setScheduleModal({ zoneId: zone.id, matchKey })}
@@ -2461,37 +2650,43 @@ export default function FixtureTab({
         const zone = zones.find((z: any) => z.id === scheduleModal.zoneId);
         if (!zone) return null;
         const currentSchedule = zone.matchSchedules?.[scheduleModal.matchKey] ?? {};
-        const occupied = getOccupiedSlotKeys(zones as ZonePlanningZone[], scheduleModal.zoneId, scheduleModal.matchKey);
         const allSlots = buildZoneMatchSchedulingSlots(zoneSchedulesForMatches, matchDurationMinutes);
-
-        // Ocupacion por pareja: ninguna de las dos parejas de este partido
-        // puede jugar otro partido de zona que se superponga en el tiempo.
         const participantIds = getZoneMatchParticipantIds(zone, scheduleModal.matchKey);
-        const pairOccupancy = new Map<string, { dayKey: string; startMinutes: number; endMinutes: number }[]>();
-        (zones as any[]).forEach((z) => {
-          Object.entries(z.matchSchedules ?? {}).forEach(([mk, s]: [string, any]) => {
-            if (z.id === scheduleModal.zoneId && mk === scheduleModal.matchKey) return;
-            if (!s?.dayKey || !s?.startTime) return;
-            const startMinutes = parseTimeToMinutes(s.startTime);
-            const entry = { dayKey: s.dayKey, startMinutes, endMinutes: startMinutes + matchDurationMinutes };
-            getZoneMatchParticipantIds(z, mk).forEach((pairId) => {
-              const list = pairOccupancy.get(pairId) ?? [];
-              list.push(entry);
-              pairOccupancy.set(pairId, list);
-            });
-          });
-        });
+        const dependsOn = ["G vs G", "P vs P"].includes(scheduleModal.matchKey)
+          ? getZoneOpeningMatchesEndTimes(zone)
+          : [];
 
-        const freeSlots = allSlots.filter((slot) => {
-          if (occupied.has(`${slot.dayKey}|${slot.startMinutes}|${slot.venueId}|${slot.courtIndex}`)) return false;
-          return !participantIds.some((pairId) =>
-            (pairOccupancy.get(pairId) ?? []).some(
-              (entry) =>
-                entry.dayKey === slot.dayKey &&
-                slot.startMinutes < entry.endMinutes &&
-                slot.startMinutes + matchDurationMinutes > entry.startMinutes
-            )
-          );
+        // No se oculta ni se deshabilita ningun horario: el que tiene
+        // conflicto o advertencia se muestra igual, marcado con el motivo.
+        const freeSlots = allSlots.map((slot) => {
+          const availabilityWarning = participantIds.some((pairId) => {
+            const reg = registrationsById.get(pairId);
+            return reg && !isAvailableAtMinutes(reg.availability, slot.dayKey, slot.startMinutes);
+          })
+            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+            : "";
+
+          const result = validateMatchSlot({
+            dayKey: slot.dayKey,
+            startMinutes: slot.startMinutes,
+            venueId: slot.venueId,
+            courtIndex: slot.courtIndex,
+            participantIds,
+            excludeKey: { tournamentId: torneoId, zoneId: scheduleModal.zoneId, matchKey: scheduleModal.matchKey },
+            occupancy: scheduleOccupancy,
+            matchDurationMinutes,
+            restMinutes: DEFAULT_REST_MINUTES,
+            dependsOn,
+            pairLabelsById,
+            availabilityWarning,
+          });
+
+          return {
+            ...slot,
+            hasConflict: result.hasConflict,
+            conflictReason: result.conflictReason,
+            availabilityWarning: result.availabilityWarning,
+          };
         });
         return (
           <ScheduleMatchModal
@@ -2580,7 +2775,10 @@ export default function FixtureTab({
 // ── Modal: asignar horario/cancha a un partido ───────────────────────────────
 function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurrentSchedule, onClose, onClear, onAssign }: {
   matchKey: string;
-  freeSlots: { id: string; dayKey: string; startMinutes: number; venueId: string; venueName: string; courtIndex: number; timeLabel: string }[];
+  freeSlots: {
+    id: string; dayKey: string; startMinutes: number; venueId: string; venueName: string; courtIndex: number; timeLabel: string;
+    hasConflict?: boolean; conflictReason?: string; availabilityWarning?: string;
+  }[];
   tournamentDayOptions: { key: string; shortLabel: string }[];
   hasCurrentSchedule: boolean;
   onClose: () => void;
@@ -2618,14 +2816,25 @@ function ScheduleMatchModal({ matchKey, freeSlots, tournamentDayOptions, hasCurr
             </div>
             <p className="text-xs font-bold mb-2" style={{ color: "#5F7D72" }}>Horario libre</p>
             <div className="flex flex-col gap-2 mb-2 max-h-60 overflow-y-auto">
-              {slotsForDay.map((slot) => (
-                <button key={slot.id} disabled={saving}
-                  onClick={async () => { setSaving(true); await onAssign(slot); setSaving(false); }}
-                  className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold disabled:opacity-40"
-                  style={{ borderColor: "#CFE7DC", color: "#173A2E", background: "#F6FBF8" }}>
-                  {slot.timeLabel} · {slot.venueName} · Cancha {slot.courtIndex}
-                </button>
-              ))}
+              {slotsForDay.map((slot) => {
+                const reason = slot.conflictReason || slot.availabilityWarning;
+                return (
+                  <button key={slot.id} disabled={saving}
+                    onClick={async () => { setSaving(true); await onAssign(slot); setSaving(false); }}
+                    className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold disabled:opacity-40"
+                    style={reason
+                      ? { borderColor: "#E6C0C0", color: "#173A2E", background: "#FFF6F6" }
+                      : { borderColor: "#CFE7DC", color: "#173A2E", background: "#F6FBF8" }}>
+                    <div className="flex items-center gap-1.5">
+                      {reason && <Info size={12} style={{ color: "#B24343", flexShrink: 0 }} />}
+                      <span>{slot.timeLabel} · {slot.venueName} · Cancha {slot.courtIndex}</span>
+                    </div>
+                    {reason && (
+                      <p className="text-[10px] font-bold mt-1" style={{ color: "#B24343" }}>{reason}</p>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
