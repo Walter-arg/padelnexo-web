@@ -5,6 +5,8 @@ import {
   parseEndTimeToMinutes,
   normalizeZoneVenueSchedules,
   buildZoneMatchSchedulingSlots,
+  dateInputToMillis,
+  millisToDateInputValue,
 } from "../tournamentZones.ts";
 
 test("buildAvailabilityWarningForParticipants: vacio si todas las parejas cargaron esa hora", () => {
@@ -93,4 +95,31 @@ test("regresion: buildZoneMatchSchedulingSlots genera horarios para una franja q
   const slots = buildZoneMatchSchedulingSlots([schedule], 75);
   assert.ok(slots.length > 0, "tiene que generar al menos un horario (antes quedaba vacio por el bug de medianoche)");
   assert.equal(slots[0].startMinutes, 22 * 60);
+});
+
+// ── Regresion: "cambio la fecha del torneo a 27/11, guardo, vuelvo a entrar
+// y aparece 26/11 (y se corre un dia mas por cada guardado)". Causa real:
+// new Date("2026-11-27").setHours(0,0,0,0) interpreta el string como
+// medianoche UTC y lo corre un dia al normalizarlo a hora local.
+
+test("regresion: dateInputToMillis + millisToDateInputValue dan ida y vuelta exacta, sin correrse un dia", () => {
+  const millis = dateInputToMillis("2026-11-27");
+  assert.equal(millisToDateInputValue(millis), "2026-11-27");
+});
+
+test("regresion: guardar la misma fecha varias veces seguidas (releer y volver a convertir) no acumula un corrimiento", () => {
+  let value = "2026-11-27";
+  for (let i = 0; i < 5; i++) {
+    const millis = dateInputToMillis(value);
+    value = millisToDateInputValue(millis);
+  }
+  assert.equal(value, "2026-11-27");
+});
+
+test("dateInputToMillis: fecha vacia da 0", () => {
+  assert.equal(dateInputToMillis(""), 0);
+});
+
+test("millisToDateInputValue: 0 o sin valor da string vacio", () => {
+  assert.equal(millisToDateInputValue(0), "");
 });

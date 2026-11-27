@@ -3,22 +3,18 @@
 // GEMELO: d:\PROYECTO-APP\padel-amateur-app\src\screens\TournamentZonePlanningScreen.js
 // (grilla nueva de "Armado Manual - Editar": PairNameCell, PairCellsRow, fila
 // "Coinciden", fila "Canchas ocupadas", chips de filtro, bloques por
-// categoria plegables). Dos diferencias deliberadas con la app: 1) en la web
-// se muestran TODOS los dias del torneo lado a lado dentro del mismo scroll
-// horizontal (la app muestra un dia a la vez con chips, por el espacio
-// reducido de pantalla); 2) en la web las categorias hermanas son
-// totalmente editables desde esta misma pantalla (armar zona, horario,
-// disponibilidad), no solo de lectura como en la app. El resto del diseno
-// (fila=pareja, columna=hora, columna de nombres fija, colores por
-// categoria) es el mismo. Cualquier cambio de ese diseno compartido tiene
-// que replicarse tambien alla, y viceversa.
+// categoria plegables, chips de dia). Una diferencia deliberada con la app:
+// en la web las categorias hermanas son totalmente editables desde esta
+// misma pantalla (armar zona, horario, disponibilidad), no solo de lectura
+// como en la app. El resto del diseno (fila=pareja, columna=hora, columna de
+// nombres fija, un dia a la vez con chips arriba, colores por categoria) es
+// el mismo. Cualquier cambio de ese diseno compartido tiene que replicarse
+// tambien alla, y viceversa.
 
-import { memo, Fragment, type ReactNode } from "react";
+import { memo } from "react";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
-import { getCategoryColor, getHoursStatusTag, getTotalLoadedHours, isSlotAvailable, buildPairSelectionKey, type HourColumn } from "@/lib/availabilityGrid";
+import { getCategoryColor, getHoursStatusTag, getTotalLoadedHours, isSlotAvailable, buildPairSelectionKey, formatHourRangeLabel, type HourColumn } from "@/lib/availabilityGrid";
 import { PAIR_COLORS, getShortPairLabel } from "./FixtureTab";
-
-export type DayBlock = { key: string; label: string; hourColumns: HourColumn[] };
 
 export type GridFilter =
   | { type: "all" }
@@ -41,71 +37,24 @@ export type GridRow =
   | { type: "coinciden"; key: string; block: CategoryBlock; colorIndex: number }
   | { type: "canchas-ocupadas"; key: string };
 
-type FlatColumn =
-  | { kind: "divider"; id: string }
-  | { kind: "empty-day"; id: string; blockIndex: number }
-  | { kind: "hour"; id: string; dayKey: string; minutes: number; label: string; blockIndex: number };
-
 const NAME_COL_W = 176;
-const HOUR_COL_W = 44;
-const DIVIDER_W = 18;
-const DAY_TITLE_H = 26;
+const HOUR_COL_W = 50;
+const DAY_CHIPS_H = 40;
 const HOUR_LABEL_H = 24;
-const HEADER_H = DAY_TITLE_H + HOUR_LABEL_H;
+const HEADER_H = HOUR_LABEL_H;
 const PAIR_ROW_H = 52;
 const SMALL_ROW_H = 26;
-// Ancho de un bloque de dia sin ningun horario de cancha cargado (en vez de
-// un rango inventado, o de desaparecer con ancho 0, se muestra el aviso).
-const EMPTY_DAY_W = 230;
-// Fondo levemente distinto por dia (alternando), para que se note que son
-// bloques separados y no una sola tira continua de cuadraditos.
-const DAY_BG_TINTS = ["#FFFFFF", "#F4F9F6"];
 
-function buildFlatColumns(dayBlocks: DayBlock[]): FlatColumn[] {
-  const columns: FlatColumn[] = [];
-  dayBlocks.forEach((block, blockIndex) => {
-    if (blockIndex > 0) columns.push({ kind: "divider", id: `div-${block.key}` });
-    if (!block.hourColumns.length) {
-      columns.push({ kind: "empty-day", id: `empty-${block.key}`, blockIndex });
-      return;
-    }
-    block.hourColumns.forEach((hour) => {
-      columns.push({ kind: "hour", id: `${block.key}:${hour.minutes}`, dayKey: block.key, minutes: hour.minutes, label: hour.label, blockIndex });
-    });
-  });
-  return columns;
-}
-
-// Separador vertical bien visible entre dias (una linea, no solo un hueco).
-function DividerCell({ height }: { height: number }) {
-  return (
-    <div style={{ width: DIVIDER_W, flexShrink: 0, height, display: "flex", justifyContent: "center" }}>
-      <div style={{ width: 2, height: "100%", background: "#CFE7DC" }} />
-    </div>
-  );
-}
-
-function CellsRow({ flatColumns, height, renderCell, renderEmptyDay }: {
-  flatColumns: FlatColumn[]; height: number; renderCell: (col: FlatColumn & { kind: "hour" }) => ReactNode;
-  renderEmptyDay?: (col: FlatColumn & { kind: "empty-day" }) => ReactNode;
+function CellsRow({ hourColumns, height, renderCell }: {
+  hourColumns: HourColumn[]; height: number; renderCell: (col: HourColumn) => React.ReactNode;
 }) {
   return (
     <div className="flex" style={{ height }}>
-      {flatColumns.map((col) => {
-        if (col.kind === "divider") return <DividerCell key={col.id} height={height} />;
-        if (col.kind === "empty-day") {
-          return (
-            <div key={col.id} style={{ width: EMPTY_DAY_W, flexShrink: 0, background: DAY_BG_TINTS[col.blockIndex % DAY_BG_TINTS.length] }} className="flex items-center justify-center">
-              {renderEmptyDay?.(col)}
-            </div>
-          );
-        }
-        return (
-          <div key={col.id} style={{ width: HOUR_COL_W, flexShrink: 0, background: DAY_BG_TINTS[col.blockIndex % DAY_BG_TINTS.length] }} className="flex items-center justify-center">
-            {renderCell(col)}
-          </div>
-        );
-      })}
+      {hourColumns.map((col) => (
+        <div key={col.minutes} style={{ width: HOUR_COL_W, flexShrink: 0 }} className="flex items-center justify-center">
+          {renderCell(col)}
+        </div>
+      ))}
     </div>
   );
 }
@@ -165,29 +114,30 @@ export const PairNameCell = memo(function PairNameCell({
   prev.zoneLetter === next.zoneLetter
 );
 
-// Fila de celdas de disponibilidad de una pareja. Tambien memoizada por la
-// misma razon que PairNameCell.
+// Fila de celdas de disponibilidad de una pareja, para el dia elegido.
+// Tambien memoizada por la misma razon que PairNameCell.
 export const PairCellsRow = memo(function PairCellsRow({
-  registration, flatColumns, isEditable, onToggleCell,
+  registration, hourColumns, selectedDayKey, isEditable, onToggleCell,
 }: {
-  registration: any; flatColumns: FlatColumn[]; isEditable: boolean; onToggleCell: (registration: any, dayKey: string, hourMinutes: number) => void;
+  registration: any; hourColumns: HourColumn[]; selectedDayKey: string; isEditable: boolean;
+  onToggleCell: (registration: any, dayKey: string, hourMinutes: number) => void;
 }) {
   const color = PAIR_COLORS[registration.__colorIndex % PAIR_COLORS.length];
 
   return (
     <CellsRow
-      flatColumns={flatColumns}
+      hourColumns={hourColumns}
       height={PAIR_ROW_H}
       renderCell={(col) => {
-        const available = isSlotAvailable(registration, col.dayKey, col.minutes);
+        const available = isSlotAvailable(registration, selectedDayKey, col.minutes);
         return (
           <button
             type="button"
             disabled={!isEditable}
-            onClick={isEditable ? () => onToggleCell(registration, col.dayKey, col.minutes) : undefined}
+            onClick={isEditable ? () => onToggleCell(registration, selectedDayKey, col.minutes) : undefined}
             className="rounded"
             style={{
-              width: 34,
+              width: 38,
               height: 30,
               background: available ? color.fill : "transparent",
               border: available ? "none" : "1px solid #EFF4F2",
@@ -203,7 +153,8 @@ export const PairCellsRow = memo(function PairCellsRow({
   prev.registration.id === next.registration.id &&
   prev.registration.availability === next.registration.availability &&
   prev.registration.__colorIndex === next.registration.__colorIndex &&
-  prev.flatColumns === next.flatColumns &&
+  prev.hourColumns === next.hourColumns &&
+  prev.selectedDayKey === next.selectedDayKey &&
   prev.isEditable === next.isEditable
 );
 
@@ -223,11 +174,17 @@ function FilterChip({ active, onClick, label, borderColor }: { active: boolean; 
 }
 
 export default function AvailabilityGrid({
-  dayBlocks, gridRows, selectedPairIds, onTogglePairSelect, onToggleCell, onToggleSiblingCollapsed,
+  dayOptions, selectedDayKey, onSelectDay, hourColumns,
+  gridRows, selectedPairIds, onTogglePairSelect, onToggleCell, onToggleSiblingCollapsed,
   countPairsAvailableAtHour, getCourtsAvailableAtHour, countMatchesAtHour,
   gridFilter, setGridFilter, categoryFilterOptions, onOpenPreferences,
 }: {
-  dayBlocks: DayBlock[];
+  // Dias con al menos una franja de cancha marcada para zonas, dentro de las
+  // fechas del torneo. Si esta vacio, no hay ningun dia para elegir.
+  dayOptions: { key: string; label: string }[];
+  selectedDayKey: string;
+  onSelectDay: (dayKey: string) => void;
+  hourColumns: HourColumn[];
   gridRows: GridRow[];
   selectedPairIds: Set<string>;
   onTogglePairSelect: (tournamentId: string, registrationId: string) => void;
@@ -239,24 +196,44 @@ export default function AvailabilityGrid({
   gridFilter: GridFilter;
   setGridFilter: (filter: GridFilter) => void;
   categoryFilterOptions: { tournamentId: string; label: string; count: number; colorIndex: number }[];
-  // Boton "Ir a Preferencias" dentro del aviso de un dia sin horarios de
+  // Boton "Ir a Preferencias" cuando no hay ningun dia con horarios de
   // cancha cargados. Si no se pasa, el aviso se muestra igual sin el boton.
   onOpenPreferences?: () => void;
 }) {
-  if (!dayBlocks.length) {
+  if (!dayOptions.length) {
     return (
       <div className="rounded-2xl border px-5 py-6 mb-5 text-center" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
-        <p className="text-sm font-semibold" style={{ color: "#5F7D72" }}>
-          Configura la disponibilidad de sedes/canchas en Preferencias para ver la grilla.
+        <p className="text-sm font-semibold mb-2" style={{ color: "#5F7D72" }}>
+          Sin horarios de cancha cargados para los días del torneo.
         </p>
+        {onOpenPreferences && (
+          <button type="button" onClick={onOpenPreferences} className="text-xs font-bold underline" style={{ color: "#086847" }}>
+            Ir a Preferencias
+          </button>
+        )}
       </div>
     );
   }
 
-  const flatColumns = buildFlatColumns(dayBlocks);
-
   return (
     <div className="mb-5">
+      {/* Chips de dia, como en la app: un dia a la vez */}
+      <div className="flex gap-2 flex-wrap mb-3" style={{ minHeight: DAY_CHIPS_H }}>
+        {dayOptions.map((day) => (
+          <button
+            key={day.key}
+            type="button"
+            onClick={() => onSelectDay(day.key)}
+            className="px-4 py-2 rounded-full text-xs font-bold border transition-all"
+            style={day.key === selectedDayKey
+              ? { background: "#0B8457", color: "#FFF", borderColor: "#0B8457" }
+              : { background: "#F6FBF8", color: "#086847", borderColor: "#CFE7DC" }}
+          >
+            {day.label}
+          </button>
+        ))}
+      </div>
+
       <p className="text-xs mb-2" style={{ color: "#9BB8AE" }}>Los cambios de horario se guardan al instante.</p>
 
       <div className="flex gap-2 flex-wrap mb-3">
@@ -276,6 +253,17 @@ export default function AvailabilityGrid({
 
       {gridRows.length === 0 ? (
         <p className="text-xs py-4 text-center" style={{ color: "#9BB8AE" }}>No hay parejas para mostrar.</p>
+      ) : !hourColumns.length ? (
+        <div className="rounded-2xl border px-5 py-6 mb-5 text-center" style={{ background: "#F6FBF8", borderColor: "#CFE7DC" }}>
+          <p className="text-sm font-semibold mb-2" style={{ color: "#5F7D72" }}>
+            Sin horarios de cancha cargados para este día.
+          </p>
+          {onOpenPreferences && (
+            <button type="button" onClick={onOpenPreferences} className="text-xs font-bold underline" style={{ color: "#086847" }}>
+              Ir a Preferencias
+            </button>
+          )}
+        </div>
       ) : (
         <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "#CFE7DC" }}>
           <div className="flex">
@@ -337,7 +325,7 @@ export default function AvailabilityGrid({
               })}
             </div>
 
-            {/* Lado que se desplaza horizontalmente: mismos dias uno al lado del otro.
+            {/* Lado que se desplaza horizontalmente (las horas del dia elegido).
                 minWidth: 0 es necesario: sin esto, un hijo de flex no se encoge
                 por debajo del ancho de su contenido (min-width: auto por
                 default), as que en vez de scrollear, empujaba a toda la fila
@@ -345,43 +333,10 @@ export default function AvailabilityGrid({
                 barra de scroll ni forma de desplazarse. */}
             <div className="overflow-x-auto" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ width: "max-content" }}>
-                <div className="flex" style={{ height: DAY_TITLE_H }}>
-                  {dayBlocks.map((block, blockIndex) => (
-                    <Fragment key={block.key}>
-                      {blockIndex > 0 && <DividerCell height={DAY_TITLE_H} />}
-                      <div
-                        style={{
-                          width: (block.hourColumns.length ? block.hourColumns.length * HOUR_COL_W : EMPTY_DAY_W), flexShrink: 0,
-                          background: DAY_BG_TINTS[blockIndex % DAY_BG_TINTS.length],
-                          borderBottom: "2px solid #086847",
-                          overflow: "hidden",
-                        }}
-                        className="flex items-center justify-center text-[11px] font-black uppercase px-1"
-                        title={block.label}
-                      >
-                        <span style={{ color: "#086847", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {block.label}
-                        </span>
-                      </div>
-                    </Fragment>
-                  ))}
-                </div>
-
                 <CellsRow
-                  flatColumns={flatColumns}
+                  hourColumns={hourColumns}
                   height={HOUR_LABEL_H}
-                  renderCell={(col) => <span className="text-[9px] font-mono" style={{ color: "#5F7D72" }}>{col.label}</span>}
-                  renderEmptyDay={() => (
-                    <button
-                      type="button"
-                      onClick={onOpenPreferences}
-                      title="Sin horarios de cancha cargados para este dia. Cargalos en Preferencias."
-                      className="text-[9px] font-bold underline-offset-2 hover:underline px-1 truncate"
-                      style={{ color: "#B8860B", maxWidth: EMPTY_DAY_W - 8 }}
-                    >
-                      Sin horarios — ver Preferencias
-                    </button>
-                  )}
+                  renderCell={(col) => <span className="text-[9px] font-mono" style={{ color: "#5F7D72" }}>{formatHourRangeLabel(col.minutes)}</span>}
                 />
 
                 {gridRows.map((row) => {
@@ -394,7 +349,8 @@ export default function AvailabilityGrid({
                       <PairCellsRow
                         key={row.key}
                         registration={row.registration}
-                        flatColumns={flatColumns}
+                        hourColumns={hourColumns}
+                        selectedDayKey={selectedDayKey}
                         isEditable
                         onToggleCell={(registration, dayKey, hourMinutes) => onToggleCell(row.block.tournamentId, registration, dayKey, hourMinutes)}
                       />
@@ -406,10 +362,10 @@ export default function AvailabilityGrid({
                     return (
                       <CellsRow
                         key={row.key}
-                        flatColumns={flatColumns}
+                        hourColumns={hourColumns}
                         height={SMALL_ROW_H}
                         renderCell={(col) => {
-                          const count = countPairsAvailableAtHour(row.block, col.dayKey, col.minutes);
+                          const count = countPairsAvailableAtHour(row.block, selectedDayKey, col.minutes);
                           const ratio = count / total;
                           return (
                             <div
@@ -427,11 +383,11 @@ export default function AvailabilityGrid({
                   return (
                     <CellsRow
                       key={row.key}
-                      flatColumns={flatColumns}
+                      hourColumns={hourColumns}
                       height={SMALL_ROW_H}
                       renderCell={(col) => {
-                        const courts = getCourtsAvailableAtHour(col.dayKey, col.minutes);
-                        const matches = countMatchesAtHour(col.dayKey, col.minutes);
+                        const courts = getCourtsAvailableAtHour(selectedDayKey, col.minutes);
+                        const matches = countMatchesAtHour(selectedDayKey, col.minutes);
                         const isFull = courts > 0 && matches >= courts;
                         return (
                           <span className="text-[9px] font-bold" style={{ color: isFull ? "#C0392B" : "#5F7D72" }}>

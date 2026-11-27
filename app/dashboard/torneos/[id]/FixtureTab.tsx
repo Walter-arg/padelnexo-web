@@ -1381,19 +1381,36 @@ export default function FixtureTab({
     [allCategoryBlocks]
   );
 
-  // Columnas de hora: una por cada dia del torneo, lado a lado dentro del
-  // mismo scroll horizontal (a diferencia de la app, que muestra un dia a la
-  // vez por el espacio reducido de pantalla).
-  const dayBlocks = useMemo(
-    () => tournamentDayOptions.map((day) => ({
-      key: day.key,
-      // "Viernes 28 de noviembre" en vez de la forma corta ("vie. 28 nov")
-      // que usa formatDayKey en el resto de la pantalla: en el encabezado de
-      // cada bloque de dia conviene que se lea clarisimo cual es cual.
-      label: day.label.charAt(0).toUpperCase() + day.label.slice(1),
-      hourColumns: getHourColumnsForDay(zoneSchedulesForMatches, day.key),
-    })),
+  // Un dia a la vez, como en la app: solo entran en los chips los dias
+  // dentro de las fechas del torneo que ademas tengan al menos una franja
+  // de cancha marcada para zonas (los demas dias del torneo, si los hay, no
+  // tienen nada para mostrar en esta grilla).
+  const gridDayOptions = useMemo(
+    () => tournamentDayOptions
+      .filter((day) => getHourColumnsForDay(zoneSchedulesForMatches, day.key).length > 0)
+      .map((day) => {
+        const d = new Date(day.key + "T12:00:00");
+        const raw = d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric" });
+        return { key: day.key, label: raw.charAt(0).toUpperCase() + raw.slice(1) };
+      }),
     [tournamentDayOptions, zoneSchedulesForMatches]
+  );
+
+  const [selectedGridDayKey, setSelectedGridDayKey] = useState("");
+  useEffect(() => {
+    if (!gridDayOptions.length) {
+      if (selectedGridDayKey) setSelectedGridDayKey("");
+      return;
+    }
+    if (!gridDayOptions.some((d) => d.key === selectedGridDayKey)) {
+      setSelectedGridDayKey(gridDayOptions[0].key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridDayOptions]);
+
+  const gridHourColumns = useMemo(
+    () => getHourColumnsForDay(zoneSchedulesForMatches, selectedGridDayKey),
+    [zoneSchedulesForMatches, selectedGridDayKey]
   );
 
   const zoneLetterMapsByBlock = useMemo(() => {
@@ -2499,7 +2516,10 @@ export default function FixtureTab({
       {sub === "manual" && view === "zonas" && (
         <div>
               <AvailabilityGrid
-                dayBlocks={dayBlocks}
+                dayOptions={gridDayOptions}
+                selectedDayKey={selectedGridDayKey}
+                onSelectDay={setSelectedGridDayKey}
+                hourColumns={gridHourColumns}
                 gridRows={gridRows}
                 selectedPairIds={selectedPairIds}
                 onTogglePairSelect={togglePairSelection}

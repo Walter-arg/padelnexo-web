@@ -163,6 +163,45 @@ export function normalizeZoneVenueSchedules(
     .filter(Boolean) as ZoneVenueSchedule[];
 }
 
+// Convierte el valor de un <input type="date"> ("YYYY-MM-DD", sin hora) a
+// milisegundos, anclado al MEDIODIA local (no a medianoche).
+//
+// Por que: new Date("2026-11-27") (un string sin hora) se interpreta segun
+// el spec de ECMAScript como medianoche UTC, no medianoche local. En
+// Argentina (UTC-3), medianoche UTC del 27/11 es 26/11 21:00 hora local. Si
+// despues se llama .setHours(0,0,0,0) sobre ese objeto, la hora se pone en 0
+// en terminos de hora LOCAL, y el resultado queda anclado al 26/11 00:00
+// local: un dia antes de lo tipeado. Cada vez que se releia esa fecha (ej.
+// al reabrir esta pantalla) y se volvia a guardar, se corria un dia mas.
+//
+// El arreglo usa el constructor de Date con year/month/day por separado
+// (new Date(year, monthIndex, day, ...)), que el spec SI interpreta en hora
+// local siempre, sin ambiguedad. Anclar al mediodia (no a medianoche) suma
+// un margen de +/-12h: aunque esta fecha se vuelva a leer desde un huso
+// horario distinto al de quien la guardo (ej. alguien mirando desde otro
+// pais), sigue cayendo del lado correcto del dia.
+export function dateInputToMillis(dateStr: string): number {
+  if (!dateStr) return 0;
+  const parts = dateStr.split("-").map((part) => Number.parseInt(part, 10));
+  const [year, month, day] = parts;
+  if (!year || !month || !day) return 0;
+  return new Date(year, month - 1, day, 12, 0, 0, 0).getTime();
+}
+
+// La inversa de dateInputToMillis, para precargar un <input type="date">
+// desde un valor ya guardado. Usa los getters LOCALES (no toISOString, que
+// es UTC) para leer el mismo dia calendario que ve quien esta mirando la
+// pantalla en su propio huso horario — el mismo criterio con el que se
+// guardo del lado de dateInputToMillis.
+export function millisToDateInputValue(millis: number): string {
+  if (!millis) return "";
+  const date = new Date(millis);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function buildTournamentDayOptions(startDateMillis = 0, endDateMillis = 0, maxDays = 30) {
   if (!startDateMillis || !endDateMillis || endDateMillis < startDateMillis) return [];
   const days: { key: string; label: string; shortLabel: string }[] = [];

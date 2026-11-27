@@ -16,6 +16,7 @@ import {
   buildAvailabilityAfterCellToggle,
   buildPairSelectionKey,
   parsePairSelectionKey,
+  formatHourRangeLabel,
 } from "../availabilityGrid.ts";
 
 const DAY_OPTIONS = [
@@ -135,4 +136,9 @@ test("regresion: getHourColumnsForDay con una franja que termina a medianoche cu
   assert.equal(columns[0].label, "18:00");
   assert.equal(columns[columns.length - 1].label, "23:00");
   assert.equal(columns.length, 6);
+});
+
+test("formatHourRangeLabel: cada columna es una hora completa, la ultima del dia se ve '23–00'", () => {
+  assert.equal(formatHourRangeLabel(7 * 60), "07–08");
+  assert.equal(formatHourRangeLabel(23 * 60), "23–00");
 });

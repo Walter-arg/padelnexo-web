@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, addDoc, doc, getDoc, getDocs, query, where, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebase";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import { ChevronLeft, Loader2, ImageIcon, Info } from "lucide-react";
 import { buildPublicationMercadoPagoConfig } from "@/lib/mercadoPago";
+import { dateInputToMillis, millisToDateInputValue, buildTournamentDayOptions } from "@/lib/tournamentZones";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type CategoryMode = "single" | "sum_fixed" | "sum_open";
@@ -151,6 +152,14 @@ function TorneoNuevaInner() {
   // S8 – Duración
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate]     = useState("");
+  // Si se esta editando un torneo que pertenece a un evento multi-categoria,
+  // las fechas se propagan tambien a las categorias hermanas al guardar.
+  const [editCreationBatchId, setEditCreationBatchId] = useState("");
+  // Fechas tal como estaban guardadas ANTES de este guardado (para saber si
+  // el organizador realmente las cambio y, si es asi, poder avisar sobre
+  // franjas de cancha que quedaron fuera del rango nuevo).
+  const [originalStartDate, setOriginalStartDate] = useState("");
+  const [originalEndDate, setOriginalEndDate]     = useState("");
 
   // Reglamento (se precarga con el ultimo reglamento usado por el organizador)
   const [rules, setRules] = useState("");
@@ -193,8 +202,13 @@ function TorneoNuevaInner() {
           setEntryFeeStr(d.entryFee ? fmtMoney(d.entryFee) : "");
           setPaymentAlias(d.paymentAlias ?? "");
           setRules(d.rules ?? "");
-          setStartDate(d.startDateMillis ? new Date(d.startDateMillis).toISOString().slice(0, 10) : "");
-          setEndDate(d.endDateMillis     ? new Date(d.endDateMillis).toISOString().slice(0, 10)   : "");
+          const loadedStartDate = millisToDateInputValue(d.startDateMillis);
+          const loadedEndDate = millisToDateInputValue(d.endDateMillis);
+          setStartDate(loadedStartDate);
+          setEndDate(loadedEndDate);
+          setOriginalStartDate(loadedStartDate);
+          setOriginalEndDate(loadedEndDate);
+          setEditCreationBatchId(d.creationBatchId ?? "");
           setSelectedVenues((d.venues ?? []).map((v: any) => v.name));
           if (d.coverImage) { setCoverImage(d.coverImage); setCoverPreview(d.coverImage); }
           if (d.compositionConfig) {
@@ -304,8 +318,8 @@ function TorneoNuevaInner() {
       paymentMethods: fee > 0 ? ["transferencia"] : [],
       mercadoPagoConfig: buildPublicationMercadoPagoConfig(userData?.mercadoPagoConfig || {}, "torneos"),
       paymentAlias: paymentAlias.trim(),
-      startDateMillis: startDate ? new Date(startDate).setHours(0, 0, 0, 0) : 0,
-      endDateMillis:   endDate   ? new Date(endDate).setHours(0, 0, 0, 0)   : 0,
+      startDateMillis: dateInputToMillis(startDate),
+      endDateMillis:   dateInputToMillis(endDate),
       buildMode: "automatic",
       recommendedGroupSize: 4,
       allowManualCorrection: true,
@@ -326,6 +340,48 @@ function TorneoNuevaInner() {
       return [name.trim().toUpperCase(), suffix].filter(Boolean).join(" ");
     });
   }, [creationMode, name, quantity, multiConfigs]);
+
+  // Al cambiar las fechas del torneo, las franjas de cancha ya cargadas
+  // (Preferencias) para un dia que quedo fuera del rango nuevo no se borran
+  // solas: se avisa y se ofrece borrarlas. Las franjas viven en
+  // tournamentEvents/{batchId} si es un evento multi-categoria (compartidas
+  // por todas las categorias hermanas), o si no en el propio
+  // fixtureSetup.zoneVenueSchedules del torneo.
+  async function warnAndOfferToRemoveOutOfRangeSchedules(
+    tournamentId: string, batchId: string, newStartDateMillis: number, newEndDateMillis: number
+  ) {
+    const validDayKeys = new Set(buildTournamentDayOptions(newStartDateMillis, newEndDateMillis).map((d) => d.key));
+    const sourceRef = batchId ? doc(db, "tournamentEvents", batchId) : doc(db, "tournaments", tournamentId);
+
+    try {
+      const snap = await getDoc(sourceRef);
+      if (!snap.exists()) return;
+      const data = snap.data() as any;
+      const schedules: any[] = batchId ? (data.zoneVenueSchedules ?? []) : (data.fixtureSetup?.zoneVenueSchedules ?? []);
+      if (!Array.isArray(schedules) || !schedules.length) return;
+
+      const outOfRange = schedules.filter((s) => s?.dayKey && !validDayKeys.has(s.dayKey));
+      if (!outOfRange.length) return;
+
+      const outOfRangeDays = Array.from(new Set(outOfRange.map((s) => s.dayKey))).sort().join(", ");
+      const confirmed = window.confirm(
+        `Hay ${outOfRange.length} franja(s) de cancha cargada(s) para día(s) que quedaron fuera del nuevo rango de fechas (${outOfRangeDays}). ¿Las borramos?`
+      );
+      if (!confirmed) return;
+
+      const remaining = schedules.filter((s) => !s?.dayKey || validDayKeys.has(s.dayKey));
+      if (batchId) {
+        await updateDoc(sourceRef, { zoneVenueSchedules: remaining });
+      } else {
+        const fs = JSON.parse(JSON.stringify(data.fixtureSetup ?? {}));
+        fs.zoneVenueSchedules = remaining;
+        await updateDoc(sourceRef, { fixtureSetup: fs });
+      }
+    } catch {
+      // Si falla la limpieza, no se bloquea el guardado de las fechas: el
+      // organizador puede borrar esas franjas a mano desde Preferencias.
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -353,14 +409,35 @@ function TorneoNuevaInner() {
       if (isEdit && editId) {
         const comp = buildComposition(singleCat);
         const fee  = parseMoney(entryFeeStr);
+        const newStartDateMillis = dateInputToMillis(startDate);
+        const newEndDateMillis   = dateInputToMillis(endDate);
+        const datesChanged = startDate !== originalStartDate || endDate !== originalEndDate;
+
         await updateDoc(doc(db, "tournaments", editId), {
           name: name.trim(), tournamentRuleSet, venues: buildVenues(), venueMode, ...comp,
           pairConfirmationMode: pairConfirmation, entryFee: fee,
           paymentMethods: fee > 0 ? ["transferencia"] : [], paymentAlias: paymentAlias.trim(),
-          startDateMillis: new Date(startDate).setHours(0, 0, 0, 0),
-          endDateMillis:   new Date(endDate).setHours(0, 0, 0, 0),
+          startDateMillis: newStartDateMillis,
+          endDateMillis:   newEndDateMillis,
           coverImage, updatedAt: serverTimestamp(),
         });
+
+        // Evento multi-categoria: las fechas (y la limpieza de franjas fuera
+        // de rango, mas abajo) tienen que verse igual desde cualquier
+        // categoria hermana, no solo la que se esta editando ahora.
+        let siblingTournamentIds: string[] = [];
+        if (datesChanged && editCreationBatchId) {
+          const siblingsSnap = await getDocs(query(collection(db, "tournaments"), where("creationBatchId", "==", editCreationBatchId)));
+          siblingTournamentIds = siblingsSnap.docs.map((d) => d.id).filter((id) => id !== editId);
+          await Promise.all(siblingTournamentIds.map((id) =>
+            updateDoc(doc(db, "tournaments", id), { startDateMillis: newStartDateMillis, endDateMillis: newEndDateMillis })
+          ));
+        }
+
+        if (datesChanged) {
+          await warnAndOfferToRemoveOutOfRangeSchedules(editId, editCreationBatchId, newStartDateMillis, newEndDateMillis);
+        }
+
         router.push(`/dashboard/torneos/${editId}`);
         return;
       }

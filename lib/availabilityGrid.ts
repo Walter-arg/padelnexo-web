@@ -350,3 +350,14 @@ export function parsePairSelectionKey(key: string): { tournamentId: string; regi
   const [tournamentId, registrationId] = key.split("::");
   return { tournamentId: tournamentId || "", registrationId: registrationId || "" };
 }
+
+// "07–08" en vez de "07:00": cada columna de la grilla es UNA HORA COMPLETA
+// (de la hora marcada a la siguiente), y "07:00" solo, sin mas contexto, se
+// presta a pensar que es un instante puntual en vez de todo el rango. La
+// ultima columna del dia se ve como "23–00", dejando claro que el dia llega
+// hasta la medianoche.
+export function formatHourRangeLabel(minutes: number): string {
+  const hour = Math.floor(minutes / 60) % 24;
+  const nextHour = (hour + 1) % 24;
+  return `${String(hour).padStart(2, "0")}–${String(nextHour).padStart(2, "0")}`;
+}
