@@ -117,6 +117,17 @@ export function parseEndTimeToMinutes(value = ""): number {
   return value === "00:00" ? 24 * 60 : parseTimeToMinutes(value);
 }
 
+// Dos franjas se superponen si se pisan en algun minuto; si solo se tocan en
+// la punta (ej. 12:00-16:00 y 16:00-20:00) NO cuenta como superposicion, por
+// eso la comparacion usa "<"/">" estrictos y no "<="/">=".
+export function doScheduleRangesOverlap(aFrom: string, aTo: string, bFrom: string, bTo: string): boolean {
+  const aStart = parseTimeToMinutes(aFrom);
+  const aEnd = parseEndTimeToMinutes(aTo);
+  const bStart = parseTimeToMinutes(bFrom);
+  const bEnd = parseEndTimeToMinutes(bTo);
+  return aStart < bEnd && aEnd > bStart;
+}
+
 export function normalizeZoneVenueSchedules(
   entries: any[] = [],
   tournamentDayKeys: string[] = [],

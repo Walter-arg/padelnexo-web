@@ -47,6 +47,26 @@ test("getHourColumnsForDay: toma el rango mas temprano a mas tardio entre varias
   assert.equal(columns.length, 14);
 });
 
+test("getHourColumnsForDay: las columnas del hueco entre dos franjas (13 a 18) quedan con covered=false", () => {
+  const columns = getHourColumnsForDay(
+    [
+      { dayKey: "2026-03-06", from: "09:00", to: "13:00" },
+      { dayKey: "2026-03-06", from: "18:00", to: "23:00" },
+    ],
+    "2026-03-06"
+  );
+  const gapColumns = columns.filter((col) => col.minutes >= 13 * 60 && col.minutes < 18 * 60);
+  const coveredColumns = columns.filter((col) => col.minutes < 13 * 60 || col.minutes >= 18 * 60);
+  assert.equal(gapColumns.length, 5, "9 a 23 son 14 columnas, de las cuales 13 a 18 son 5 de hueco");
+  assert.ok(gapColumns.every((col) => col.covered === false), "ninguna columna del hueco (13 a 18) puede quedar covered=true");
+  assert.ok(coveredColumns.every((col) => col.covered === true), "las columnas dentro de alguna franja tienen que quedar covered=true");
+});
+
+test("getHourColumnsForDay: sin huecos (una sola franja continua), todas las columnas quedan covered=true", () => {
+  const columns = getHourColumnsForDay([{ dayKey: "2026-03-06", from: "09:00", to: "13:00" }], "2026-03-06");
+  assert.ok(columns.every((col) => col.covered === true));
+});
+
 test("getTotalLoadedHours suma quickSlots y customSlots de todos los dias", () => {
   const registration = {
     availability: {

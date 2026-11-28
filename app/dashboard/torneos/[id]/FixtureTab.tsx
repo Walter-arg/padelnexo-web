@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, Fragment } from "react";
 import { doc, updateDoc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { upsertTournamentRankingEntry } from "@/lib/tournamentRanking";
-import { X, Plus, Minus, ChevronDown, ChevronUp, Clock, Check, MapPin, Trash2, Info } from "lucide-react";
+import { X, Plus, Minus, ChevronDown, ChevronUp, Clock, Check, MapPin, Trash2, Info, Pencil } from "lucide-react";
 import {
   normalizeZoneVenueSchedules,
   buildTournamentDayOptions,
@@ -22,6 +22,7 @@ import {
   formatMatchDurationValue,
   parseTimeToMinutes,
   parseEndTimeToMinutes,
+  doScheduleRangesOverlap,
   buildAvailabilityWarningForParticipants,
   type ZoneVenueSchedule,
   type ZonePlanningZone,
@@ -444,8 +445,8 @@ function ResultModal({ match, format, onClose, onSave }: {
 // FixtureTab), que devuelve una Promise<boolean> para poder seguir usando
 // `await` en las funciones que antes usaban window.confirm de forma
 // sincronica.
-function ConfirmDialog({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", tone = "default", onConfirm, onCancel }: {
-  title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger";
+function ConfirmDialog({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", tone = "default", singleButton = false, onConfirm, onCancel }: {
+  title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger"; singleButton?: boolean;
   onConfirm: () => void; onCancel: () => void;
 }) {
   return (
@@ -462,11 +463,13 @@ function ConfirmDialog({ title, message, confirmLabel = "Confirmar", cancelLabel
         <h3 className="font-black text-base mb-2" style={{ color: "#173A2E" }}>{title}</h3>
         <p className="text-sm mb-5 whitespace-pre-line" style={{ color: "#5F7D72" }}>{message}</p>
         <div className="flex gap-2">
-          <button onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl font-black text-xs border"
-            style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
-            {cancelLabel}
-          </button>
+          {!singleButton && (
+            <button onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl font-black text-xs border"
+              style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+              {cancelLabel}
+            </button>
+          )}
           <button onClick={onConfirm}
             className="flex-1 py-2.5 rounded-xl font-black text-xs text-white"
             style={{ background: tone === "danger" ? "#B24343" : "#086847" }}>
@@ -880,7 +883,7 @@ export default function FixtureTab({
   const [expandedVenueScheduleIds, setExpandedVenueScheduleIds] = useState<string[]>([]);
   const [scheduleVenueDrafts, setScheduleVenueDrafts] = useState<Record<string, {
     selectedDayKey: string; from: string; to: string; selectedCourtIndices: number[] | null;
-    useForZones: boolean; useForBracket: boolean;
+    useForZones: boolean; useForBracket: boolean; editingId: string | null;
   }>>({});
   const [savingSchedules, setSavingSchedules] = useState(false);
 
@@ -1117,7 +1120,7 @@ export default function FixtureTab({
 
   function getVenueDraft(venueId: string) {
     return scheduleVenueDrafts[venueId] ?? {
-      selectedDayKey: "", from: "09:00", to: "18:00", selectedCourtIndices: null, useForZones: false, useForBracket: false,
+      selectedDayKey: "", from: "09:00", to: "18:00", selectedCourtIndices: null, useForZones: false, useForBracket: false, editingId: null,
     };
   }
 
@@ -1150,6 +1153,26 @@ export default function FixtureTab({
     updateVenueDraft(venueId, { selectedCourtIndices: next });
   }
 
+  // Carga una franja ya guardada en el formulario para editarla (en vez de
+  // agregar una nueva al lado). Al guardar, handleAddZoneVenueSchedule
+  // reemplaza esa entrada puntual por id en vez de agregarla.
+  function handleEditZoneVenueSchedule(venueId: string, schedule: ZoneVenueSchedule) {
+    updateVenueDraft(venueId, {
+      selectedDayKey: schedule.dayKey,
+      from: schedule.from,
+      to: schedule.to,
+      selectedCourtIndices: schedule.selectedCourtIndices,
+      useForZones: schedule.useForZones,
+      useForBracket: schedule.useForBracket,
+      editingId: schedule.id,
+    });
+    setExpandedVenueScheduleIds((current) => (current.includes(venueId) ? current : [...current, venueId]));
+  }
+
+  function handleCancelEditZoneVenueSchedule(venueId: string) {
+    updateVenueDraft(venueId, { editingId: null });
+  }
+
   async function handleAddZoneVenueSchedule(venueId: string) {
     const venueDraft = getVenueDraft(venueId);
     const venue = tournamentVenueOptions.find((v) => v.id === venueId);
@@ -1170,8 +1193,9 @@ export default function FixtureTab({
       return;
     }
 
+    const editingId = venueDraft.editingId;
     const newEntry = {
-      id: `zone-schedule-${Date.now()}-${venueId}`,
+      id: editingId || `zone-schedule-${Date.now()}-${venueId}`,
       venueId: venue.id,
       venueName: venue.name,
       dayKey: venueDraft.selectedDayKey,
@@ -1182,13 +1206,30 @@ export default function FixtureTab({
       useForZones: Boolean(venueDraft.useForZones),
       useForBracket: Boolean(venueDraft.useForBracket),
     };
-    // Reemplazar entradas existentes de la misma sede+dia para no acumular duplicados
-    const nextSchedules = [
-      ...zoneVenueSchedules.filter((entry) => !(entry.venueId === venueId && entry.dayKey === newEntry.dayKey)),
-      newEntry,
-    ];
 
-    await persistZoneVenueSchedules(nextSchedules, "Franja horaria guardada");
+    // Se permiten varias franjas por sede+dia (ej. sabado 08-12 y 16-00), pero
+    // no que se pisen entre si: se compara contra las demas franjas de esa
+    // misma sede+dia (sin contar la que se esta editando) y, si hay
+    // superposicion real (tocarse en la punta, ej. 12-16 y 16-20, SI se
+    // permite), se avisa con el modal de la app y no se guarda nada.
+    const otherSameDayEntries = zoneVenueSchedules.filter(
+      (entry) => entry.venueId === venueId && entry.dayKey === newEntry.dayKey && entry.id !== editingId
+    );
+    const overlapping = otherSameDayEntries.find((entry) => doScheduleRangesOverlap(entry.from, entry.to, newEntry.from, newEntry.to));
+    if (overlapping) {
+      await showBlockingNotice(
+        "Franja superpuesta",
+        `La franja ${newEntry.from} a ${newEntry.to} se superpone con la franja ya cargada de ${overlapping.from} a ${overlapping.to} para esta sede y dia. No se guardo: ajusta el horario o edita/borra la franja existente.`
+      );
+      return;
+    }
+
+    const nextSchedules = editingId
+      ? zoneVenueSchedules.map((entry) => (entry.id === editingId ? newEntry : entry))
+      : [...zoneVenueSchedules, newEntry];
+
+    await persistZoneVenueSchedules(nextSchedules, editingId ? "Franja horaria actualizada" : "Franja horaria guardada");
+    updateVenueDraft(venueId, { editingId: null });
   }
 
   async function handleRemoveZoneVenueSchedule(scheduleId: string) {
@@ -1208,12 +1249,20 @@ export default function FixtureTab({
   // ConfirmDialog y devuelve una Promise<boolean> que se resuelve cuando el
   // organizador elige una de las dos opciones.
   const [confirmDialog, setConfirmDialog] = useState<{
-    title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger";
+    title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger"; singleButton?: boolean;
     resolve: (value: boolean) => void;
   } | null>(null);
 
-  function requestConfirm(options: { title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger" }): Promise<boolean> {
+  function requestConfirm(options: { title: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "default" | "danger"; singleButton?: boolean }): Promise<boolean> {
     return new Promise((resolve) => setConfirmDialog({ ...options, resolve }));
+  }
+
+  // Aviso bloqueante (un solo boton "Entendido"): se usa cuando la franja no
+  // se puede guardar por superponerse con otra ya cargada para la misma sede
+  // y dia. A diferencia de requestConfirm, no es una decision del organizador
+  // (no hay "si/no"), asi que no tiene sentido mostrar dos botones.
+  function showBlockingNotice(title: string, message: string): Promise<void> {
+    return requestConfirm({ title, message, confirmLabel: "Entendido", tone: "danger", singleButton: true }).then(() => undefined);
   }
 
   // ── Computed ────────────────────────────────────────────────────────────────
@@ -2309,7 +2358,12 @@ export default function FixtureTab({
               <div className="flex flex-col gap-3">
                 {tournamentVenueOptions.map((venue, venueIndex) => {
                   const venueDraft = getVenueDraft(venue.id);
-                  const venueSchedules = zoneVenueSchedules.filter((s) => s.venueId === venue.id);
+                  const venueSchedules = zoneVenueSchedules
+                    .filter((s) => s.venueId === venue.id)
+                    .sort((a, b) => {
+                      if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey, "es");
+                      return parseTimeToMinutes(a.from) - parseTimeToMinutes(b.from);
+                    });
                   const totalCanchas = venue.totalCanchas || 1;
                   const courtOptions = Array.from({ length: totalCanchas }, (_, i) => i + 1);
                   const effectiveSelectedIndices = venueDraft.selectedCourtIndices ?? courtOptions;
@@ -2396,24 +2450,48 @@ export default function FixtureTab({
                                 </div>
                               </div>
 
-                              <button onClick={() => handleAddZoneVenueSchedule(venue.id)} disabled={savingSchedules}
-                                className="py-2.5 rounded-xl font-black text-xs text-white disabled:opacity-40"
-                                style={{ background: "#086847" }}>
-                                {savingSchedules ? "GUARDANDO..." : "GUARDAR FRANJA"}
-                              </button>
+                              <div className="flex gap-2">
+                                <button onClick={() => handleAddZoneVenueSchedule(venue.id)} disabled={savingSchedules}
+                                  className="flex-1 py-2.5 rounded-xl font-black text-xs text-white disabled:opacity-40"
+                                  style={{ background: "#086847" }}>
+                                  {savingSchedules ? "GUARDANDO..." : venueDraft.editingId ? "GUARDAR CAMBIOS" : "GUARDAR FRANJA"}
+                                </button>
+                                {venueDraft.editingId && (
+                                  <button onClick={() => handleCancelEditZoneVenueSchedule(venue.id)} disabled={savingSchedules}
+                                    className="px-3 py-2.5 rounded-xl font-black text-xs border disabled:opacity-40"
+                                    style={{ borderColor: "#CFE7DC", color: "#5F7D72" }}>
+                                    Cancelar
+                                  </button>
+                                )}
+                              </div>
 
                               {venueSchedules.length > 0 ? (
-                                <div className="flex flex-col gap-2">
-                                  {venueSchedules.map((s) => (
-                                    <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2" style={{ background: "#F6FBF8" }}>
-                                      <p className="text-xs" style={{ color: "#5F7D72" }}>
-                                        {tournamentDayOptions.find((d) => d.key === s.dayKey)?.shortLabel ?? s.dayKey} · {s.from} a {s.to} · {s.selectedCourtIndices?.length ?? s.courts} cancha{(s.selectedCourtIndices?.length ?? s.courts) !== 1 ? "s" : ""}
-                                      </p>
-                                      <button onClick={() => handleRemoveZoneVenueSchedule(s.id)} disabled={savingSchedules} className="text-red-400 hover:text-red-600 p-1">
-                                        <Trash2 size={14} />
-                                      </button>
-                                    </div>
-                                  ))}
+                                <div className="flex flex-col gap-3">
+                                  {tournamentDayOptions
+                                    .filter((day) => venueSchedules.some((s) => s.dayKey === day.key))
+                                    .map((day) => (
+                                      <div key={day.key}>
+                                        <p className="text-[10px] font-bold mb-1" style={{ color: "#5F7D72" }}>{day.shortLabel}</p>
+                                        <div className="flex flex-col gap-2">
+                                          {venueSchedules.filter((s) => s.dayKey === day.key).map((s) => (
+                                            <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2"
+                                              style={venueDraft.editingId === s.id ? { background: "#EAF6EF", border: "1px solid #086847" } : { background: "#F6FBF8" }}>
+                                              <p className="text-xs" style={{ color: "#5F7D72" }}>
+                                                {s.from} a {s.to} · {s.selectedCourtIndices?.length ?? s.courts} cancha{(s.selectedCourtIndices?.length ?? s.courts) !== 1 ? "s" : ""}
+                                              </p>
+                                              <div className="flex items-center gap-1">
+                                                <button onClick={() => handleEditZoneVenueSchedule(venue.id, s)} disabled={savingSchedules} className="p-1" style={{ color: "#5F7D72" }}>
+                                                  <Pencil size={14} />
+                                                </button>
+                                                <button onClick={() => handleRemoveZoneVenueSchedule(s.id)} disabled={savingSchedules} className="text-red-400 hover:text-red-600 p-1">
+                                                  <Trash2 size={14} />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
                                 </div>
                               ) : (
                                 <p className="text-xs" style={{ color: "#9BB8AE" }}>Aun no cargaste franjas horarias para esta sede.</p>
@@ -2807,6 +2885,7 @@ export default function FixtureTab({
           confirmLabel={confirmDialog.confirmLabel}
           cancelLabel={confirmDialog.cancelLabel}
           tone={confirmDialog.tone}
+          singleButton={confirmDialog.singleButton}
           onConfirm={() => { confirmDialog.resolve(true); setConfirmDialog(null); }}
           onCancel={() => { confirmDialog.resolve(false); setConfirmDialog(null); }}
         />

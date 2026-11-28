@@ -34,7 +34,7 @@ export type DayOption = { key: string; label?: string; shortLabel?: string };
 
 export type VenueScheduleForHours = { dayKey: string; from: string; to: string };
 
-export type HourColumn = { minutes: number; label: string };
+export type HourColumn = { minutes: number; label: string; covered: boolean };
 
 export type ZoneForLetterMap = { label?: string; registrationIds?: string[] };
 
@@ -54,24 +54,32 @@ export function getCategoryColor(index = 0): string {
 // Columnas de hora de la grilla: salen de la disponibilidad de sedes
 // configurada para el dia elegido (no de un rango fijo). Si hay mas de una
 // franja sin pisarse, se toma el rango que va desde la mas temprana a la mas
-// tardia (las horas intermedias sin cancha configurada quedan igual como
-// columna, simplemente no van a tener partidos ahi).
+// tardia; las horas intermedias que caen en un hueco entre dos franjas (ej.
+// 12-16 el sabado si hay 08-12 y 16-00) quedan igual como columna, pero con
+// covered=false para que la grilla las marque como "sin cancha".
 export function getHourColumnsForDay(venueSchedules: VenueScheduleForHours[] = [], dayKey = ""): HourColumn[] {
   const daySchedules = venueSchedules.filter((schedule) => schedule.dayKey === dayKey);
   if (!daySchedules.length) return [];
 
-  const minFrom = Math.min(...daySchedules.map((schedule) => parseTimeToMinutes(schedule.from)));
   // "00:00" como fin de franja significa "hasta la medianoche" (fin del
   // mismo dia): tomado literal (minuto 0) una franja que termina a
   // medianoche colapsaba a una sola columna en vez de cubrir todo el rango.
-  const maxTo = Math.max(...daySchedules.map((schedule) => (schedule.to === "00:00" ? 24 * 60 : parseTimeToMinutes(schedule.to))));
+  const ranges = daySchedules.map((schedule) => ({
+    from: parseTimeToMinutes(schedule.from),
+    to: schedule.to === "00:00" ? 24 * 60 : parseTimeToMinutes(schedule.to),
+  }));
+
+  const minFrom = Math.min(...ranges.map((range) => range.from));
+  const maxTo = Math.max(...ranges.map((range) => range.to));
   const startHour = Math.floor(minFrom / 60);
   const endHour = Math.max(startHour + 1, Math.ceil(maxTo / 60));
   const columns: HourColumn[] = [];
 
   for (let hour = startHour; hour < endHour; hour += 1) {
+    const hourStart = hour * 60;
     const normalizedHour = ((hour % 24) + 24) % 24;
-    columns.push({ minutes: hour * 60, label: `${String(normalizedHour).padStart(2, "0")}:00` });
+    const covered = ranges.some((range) => hourStart < range.to && hourStart + 60 > range.from);
+    columns.push({ minutes: hourStart, label: `${String(normalizedHour).padStart(2, "0")}:00`, covered });
   }
 
   return columns;

@@ -5,6 +5,7 @@ import {
   parseEndTimeToMinutes,
   normalizeZoneVenueSchedules,
   buildZoneMatchSchedulingSlots,
+  doScheduleRangesOverlap,
   dateInputToMillis,
   millisToDateInputValue,
 } from "../tournamentZones.ts";
@@ -95,6 +96,63 @@ test("regresion: buildZoneMatchSchedulingSlots genera horarios para una franja q
   const slots = buildZoneMatchSchedulingSlots([schedule], 75);
   assert.ok(slots.length > 0, "tiene que generar al menos un horario (antes quedaba vacio por el bug de medianoche)");
   assert.equal(slots[0].startMinutes, 22 * 60);
+});
+
+// ── Regresion: "en Preferencias solo deja cargar UNA franja por dia y
+// sede" (ej. sabado 08-12 Y 16-00). Causa real: handleAddZoneVenueSchedule
+// reemplazaba cualquier franja existente de la misma sede+dia en vez de
+// agregar al lado. normalizeZoneVenueSchedules nunca dedupeaba por si sola
+// (ese filtro vivia solo en el componente), pero se cubre aca para dejar
+// constancia de que varias franjas para la misma sede+dia sobreviven la
+// normalizacion sin problema.
+
+test("normalizeZoneVenueSchedules: varias franjas para la misma sede y dia sobreviven (no se dedupean)", () => {
+  const result = normalizeZoneVenueSchedules(
+    [
+      { id: "s1", venueId: "v1", dayKey: "2026-03-07", from: "08:00", to: "12:00", courts: 1 },
+      { id: "s2", venueId: "v1", dayKey: "2026-03-07", from: "16:00", to: "00:00", courts: 1 },
+    ],
+    ["2026-03-07"],
+    [{ id: "v1", name: "Club Central" }]
+  );
+  assert.equal(result.length, 2, "las dos franjas del sabado tienen que sobrevivir, no pisarse entre si");
+});
+
+test("doScheduleRangesOverlap: dos franjas que se pisan de verdad superponen", () => {
+  assert.equal(doScheduleRangesOverlap("08:00", "12:00", "10:00", "14:00"), true);
+});
+
+test("doScheduleRangesOverlap: franjas que solo se tocan en la punta (12-16 y 16-20) NO superponen", () => {
+  assert.equal(doScheduleRangesOverlap("12:00", "16:00", "16:00", "20:00"), false);
+});
+
+test("doScheduleRangesOverlap: una franja que termina a medianoche (00:00) se compara bien, sin falso superposicion con la mañana", () => {
+  assert.equal(doScheduleRangesOverlap("16:00", "00:00", "08:00", "12:00"), false);
+});
+
+test("doScheduleRangesOverlap: una franja que termina a medianoche SI superpone si de verdad se pisan", () => {
+  assert.equal(doScheduleRangesOverlap("16:00", "00:00", "20:00", "22:00"), true);
+});
+
+test("buildZoneMatchSchedulingSlots: con dos franjas separadas en el mismo dia (hueco al medio), no se genera ningun horario dentro del hueco", () => {
+  const schedules = [
+    { id: "s1", venueId: "v1", venueName: "Club Central", dayKey: "2026-03-07", from: "08:00", to: "12:00", courts: 1, selectedCourtIndices: [1], useForZones: true, useForBracket: false },
+    { id: "s2", venueId: "v1", venueName: "Club Central", dayKey: "2026-03-07", from: "16:00", to: "00:00", courts: 1, selectedCourtIndices: [1], useForZones: true, useForBracket: false },
+  ];
+  const slots = buildZoneMatchSchedulingSlots(schedules, 75);
+  assert.ok(slots.length > 0, "tiene que generar horarios en ambas franjas");
+  const huecoSlots = slots.filter((slot: any) => slot.startMinutes >= 12 * 60 && slot.startMinutes < 16 * 60);
+  assert.equal(huecoSlots.length, 0, "no puede haber ningun horario con inicio dentro del hueco (12 a 16)");
+});
+
+test("buildZoneMatchSchedulingSlots: un partido no puede empezar dentro de una franja y terminar en el hueco (franja 08-12, duracion 75min, no puede arrancar a las 11:30)", () => {
+  const schedules = [
+    { id: "s1", venueId: "v1", venueName: "Club Central", dayKey: "2026-03-07", from: "08:00", to: "12:00", courts: 1, selectedCourtIndices: [1], useForZones: true, useForBracket: false },
+    { id: "s2", venueId: "v1", venueName: "Club Central", dayKey: "2026-03-07", from: "16:00", to: "00:00", courts: 1, selectedCourtIndices: [1], useForZones: true, useForBracket: false },
+  ];
+  const slots = buildZoneMatchSchedulingSlots(schedules, 75);
+  const crossesIntoGap = slots.some((slot: any) => slot.startMinutes < 12 * 60 && slot.endMinutes > 12 * 60);
+  assert.equal(crossesIntoGap, false, "ningun horario generado puede terminar despues de las 12 si empezo antes de las 12 (cruzaria el hueco)");
 });
 
 // ── Regresion: "cambio la fecha del torneo a 27/11, guardo, vuelvo a entrar

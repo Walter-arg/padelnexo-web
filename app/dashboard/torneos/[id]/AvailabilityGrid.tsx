@@ -45,13 +45,21 @@ const HEADER_H = HOUR_LABEL_H;
 const PAIR_ROW_H = 52;
 const SMALL_ROW_H = 26;
 
+// col.covered=false es un "hueco" entre dos franjas horarias de la misma
+// sede+dia (ej. 12 a 16 si hay franjas 08-12 y 16-00): no hay cancha ahi, asi
+// que la columna entera se grisa en TODAS las filas (hora, parejas,
+// coinciden, canchas ocupadas) para que se note de un vistazo que no se
+// puede programar nada en ese rango, en vez de ocultar la columna (que
+// rompería la alineación de horas y daría la sensación de un salto raro).
+const GAP_COLUMN_BG = "#EAE7E0";
+
 function CellsRow({ hourColumns, height, renderCell }: {
   hourColumns: HourColumn[]; height: number; renderCell: (col: HourColumn) => React.ReactNode;
 }) {
   return (
     <div className="flex" style={{ height }}>
       {hourColumns.map((col) => (
-        <div key={col.minutes} style={{ width: HOUR_COL_W, flexShrink: 0 }} className="flex items-center justify-center">
+        <div key={col.minutes} style={{ width: HOUR_COL_W, flexShrink: 0, background: col.covered ? undefined : GAP_COLUMN_BG }} className="flex items-center justify-center">
           {renderCell(col)}
         </div>
       ))}
@@ -129,6 +137,9 @@ export const PairCellsRow = memo(function PairCellsRow({
       hourColumns={hourColumns}
       height={PAIR_ROW_H}
       renderCell={(col) => {
+        if (!col.covered) {
+          return <div className="rounded" style={{ width: 38, height: 30, background: "#DEDAD1" }} />;
+        }
         const available = isSlotAvailable(registration, selectedDayKey, col.minutes);
         return (
           <button
@@ -336,7 +347,7 @@ export default function AvailabilityGrid({
                 <CellsRow
                   hourColumns={hourColumns}
                   height={HOUR_LABEL_H}
-                  renderCell={(col) => <span className="text-[9px] font-mono" style={{ color: "#5F7D72" }}>{formatHourRangeLabel(col.minutes)}</span>}
+                  renderCell={(col) => <span className="text-[9px] font-mono" style={{ color: col.covered ? "#5F7D72" : "#A39E8E" }}>{formatHourRangeLabel(col.minutes)}</span>}
                 />
 
                 {gridRows.map((row) => {
@@ -365,6 +376,9 @@ export default function AvailabilityGrid({
                         hourColumns={hourColumns}
                         height={SMALL_ROW_H}
                         renderCell={(col) => {
+                          if (!col.covered) {
+                            return <span className="text-[9px] font-bold" style={{ color: "#A39E8E" }}>—</span>;
+                          }
                           const count = countPairsAvailableAtHour(row.block, selectedDayKey, col.minutes);
                           const ratio = count / total;
                           return (
